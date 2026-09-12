@@ -35,3 +35,5 @@ to be implemented.
 
 The next vertical slice is a tested recording state machine with states
 `preparing`, `recording`, `stopping`, `finalized`, `interrupted` and `failed`.
+The cross-device protocol and delivery sequence are specified in
+[`DEVICE_ECOSYSTEM_PLAN.md`](DEVICE_ECOSYSTEM_PLAN.md).
