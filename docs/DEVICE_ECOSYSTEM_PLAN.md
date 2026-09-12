@@ -120,8 +120,11 @@ diagnostics. It does not provide heart rate, weather, water speed, power, hull
 motion or validated technique events.
 
 For RBP1 the fixed identities are `deviceFamily: remus_blade`,
-`deviceModel: rbp1` and acquisition profile `remus_blade_rbp1_v1`. A BLE name,
-MAC address or user nickname is never the durable unit identity. The provisioned
+`deviceModel: rbp1` and acquisition profile `remus_blade_rbp1_v1`. Its declared
+prototype components are ESP32-C3, MPU-6050 and Realtek REB-4126 GNSS. Component
+identity does not replace inspected hardware revision, firmware, antenna,
+electrical interface or effective configuration. A BLE name, MAC address or
+user nickname is never the durable unit identity. The provisioned
 `deviceSerialNumber`, `hardwareRevision`, `firmwareVersion`, boot identity and
 sensor/GNSS configuration accompany every recording.
 
@@ -278,6 +281,8 @@ For Remus Blade P1:
   FIFO overflow, BLE loss, reset, brownout and battery pressure;
 - GNSS time-to-first-fix, update rate, loss/reacquisition and on-water antenna
   performance gates;
+- REB-4126 revision/marking, firmware, interface, antenna and enabled-output
+  verification;
 - explicit oar/paddle `sensorPlacement`, placement provenance and mounting
   configuration before placement-dependent analysis.
 
