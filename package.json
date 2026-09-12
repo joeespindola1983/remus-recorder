@@ -7,7 +7,11 @@
     "ios": "react-native run-ios",
     "lint": "eslint .",
     "start": "react-native start",
-    "test": "jest"
+    "test": "jest --watchman=false",
+    "test:watch": "jest --watch --watchman=false",
+    "test:ci": "jest --ci --runInBand --watchman=false",
+    "typecheck": "tsc --noEmit",
+    "verify": "npm run typecheck && npm run lint && npm run test:ci"
   },
   "dependencies": {
     "react": "19.2.3",
