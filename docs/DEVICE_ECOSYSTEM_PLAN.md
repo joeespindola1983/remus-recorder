@@ -5,9 +5,10 @@ Status: proposed implementation plan
 ## Product boundary for the first release
 
 Remus Recorder coordinates an on-water activity from the phone and receives
-source evidence from zero or more watches. The phone is the persistence
-authority. A watch is an acquisition source and live display; it does not keep a
-durable recording in this phase.
+source evidence from zero or more watches and Remus equipment devices. The
+phone is the persistence authority. A watch is an athlete-worn acquisition
+source and live display. Remus Blade is an equipment-mounted acquisition source
+connected over BLE. Neither keeps a durable recording in this phase.
 
 The first release must support:
 
@@ -15,35 +16,41 @@ The first release must support:
 - configurable acquisition profiles negotiated per device;
 - continuous transfer of available watch motion, position and heart-rate
   evidence to the phone;
+- continuous transfer of RBP1 raw accelerometer, gyroscope, GNSS, clock,
+  sequence, configuration and supported health diagnostics over BLE;
 - append-only phone persistence with explicit source, clock and sequence gaps;
 - live `strokeRateSpm` produced by the phone and displayed by a watch with
   availability and freshness state;
 - honest degraded behavior when a device is disconnected, unsupported or
   missing permission.
 
-Phone and watch produce separate `recording` entities and native clocks. They
-may belong to the same `activity`, but pairing does not imply sample-level clock
-synchronization.
+Phone, each watch and each Remus Blade unit produce separate `recording`
+entities and native clocks. They may belong to the same `activity`, but pairing,
+BLE arrival proximity or a shared start command does not imply sample-level
+clock synchronization.
 
 ## Non-negotiable limitation
 
-Without durable watch storage, complete delivery cannot be guaranteed across a
-long disconnection, process termination or battery loss. The first release uses
-a bounded in-memory retransmission buffer on the watch. The phone persists every
-received batch and records missing sequence ranges. It must never fill a gap
-with zeroes or silently claim completeness.
+Without durable source-device storage, complete delivery cannot be guaranteed
+across a long disconnection, process termination, reset or battery loss. The
+first release uses bounded in-memory retransmission buffers on watches and the
+RBP1 firmware. The phone persists every received batch and records missing
+sequence ranges. It must never fill a gap with zeroes, repeat the last sample or
+silently claim completeness.
 
 If later product requirements demand lossless disconnected capture, an
-encrypted watch spool becomes a separate, explicit capability and protocol
-revision.
+encrypted watch spool or a measured RBP1 flash log becomes a separate, explicit
+capability and protocol revision.
 
 ## Architectural decisions
 
 ### Phone as coordinator
 
-Only the phone commits lifecycle transitions and finalizes recordings. Both UIs
-may issue user intents, but a watch start/stop button sends an intent to the
-phone and waits for the authoritative result.
+Only the phone commits lifecycle transitions and finalizes recordings. Both
+phone and watch UIs may issue user intents, but a watch start/stop button sends
+an intent to the phone and waits for the authoritative result. Remus Blade has
+no athlete-facing lifecycle authority in this phase; its BLE control plane
+executes idempotent phone commands and reports the resulting device state.
 
 If a watch requests start while the phone is unavailable, the UI remains idle
 and explains that the phone is required. It must not show a recording state that
@@ -89,18 +96,50 @@ Unknown message versions are rejected with a diagnostic, never guessed.
    transport failures.
 
 Apple WatchConnectivity and the Wear OS Data Layer are transports, not domain
-contracts. Their adapters map these message classes without changing meaning.
+contracts. BLE is likewise a transport rather than a source identity. Apple,
+Wear OS and RBP1 adapters map the same envelope and lifecycle semantics without
+changing measurement meaning.
+
+### One contract, capability-specific sources
+
+Every source implements the same application-facing adapter boundary:
+
+- discover/connect and expose connection state;
+- report identity, protocol version and capabilities;
+- negotiate an effective acquisition configuration;
+- apply idempotent start/stop commands;
+- emit ordered telemetry batches and state snapshots;
+- accept acknowledgements and expose gaps/diagnostics;
+- recover or declare interruption after reconnect;
+- disconnect and release resources.
+
+Capabilities are not made uniform artificially. Watches may provide heart rate,
+position and motion and may render live metrics. RBP1 provides equipment-local
+raw accelerometer/gyroscope evidence, GNSS observations and supported device
+diagnostics. It does not provide heart rate, weather, water speed, power, hull
+motion or validated technique events.
+
+For RBP1 the fixed identities are `deviceFamily: remus_blade`,
+`deviceModel: rbp1` and acquisition profile `remus_blade_rbp1_v1`. A BLE name,
+MAC address or user nickname is never the durable unit identity. The provisioned
+`deviceSerialNumber`, `hardwareRevision`, `firmwareVersion`, boot identity and
+sensor/GNSS configuration accompany every recording.
 
 ### Delivery semantics
 
 Commands are idempotent and use `messageId`. Telemetry has at-least-once
-delivery while it remains in the volatile watch buffer; the phone deduplicates
+delivery while it remains in a volatile device buffer; the phone deduplicates
 by source recording and sequence number.
 
 Real-time channels are used for commands and fresh display data. Replaceable
 state channels carry the latest state snapshot. Telemetry is sent in bounded
 batches with acknowledgements and flow control; durable transfer queues must not
 be flooded with one message per sensor callback.
+
+The RBP1 BLE transport additionally defines versioned GATT service and
+characteristic identities, frame boundaries, MTU-aware fragmentation,
+reassembly, checksum/integrity behavior and backpressure. A BLE notification is
+not a sample clock. Disconnect and reconnect never reset ordering silently.
 
 ### Acquisition profiles
 
@@ -127,6 +166,9 @@ The initial conservative defaults should be validated on physical hardware:
 | heart rate | source-driven | newest observation plus freshness |
 | device health | 0.1 Hz | state snapshot or material change |
 | live metrics to watch | 1 Hz | replaceable, expiry required |
+| RBP1 IMU | capability/configuration driven | MTU-aware batches with flow control |
+| RBP1 GNSS | receiver/configuration driven | source fixes with native fix time and quality |
+| RBP1 health | material change or low cadence | state snapshot and diagnostic events |
 
 These are configuration defaults, not universal device promises.
 
@@ -156,6 +198,12 @@ The phone creates the activity correlation before start and assigns a distinct
 recording identity to each source. Every transition has a monotonically
 increasing lifecycle revision so delayed messages cannot roll state backward.
 
+Required and optional sources are chosen before start. For example, an activity
+may require the phone recorder but treat one RBP1 unit or watch as optional. The
+coordinator exposes exactly which source entered `recording`, failed preparation
+or joined late. A second RBP1 attached to another oar/paddle receives a distinct
+recording and is never merged by BLE arrival time.
+
 ## Phone persistence
 
 Persistence begins before a start result is shown to the user. The phone stores:
@@ -167,6 +215,15 @@ Persistence begins before a start result is shown to the user. The phone stores:
 - native timestamps, receipt timestamps, clock identity and sequence numbers;
 - acknowledgements, missing ranges, interruptions and diagnostics;
 - final artifact hashes and integrity state.
+
+For RBP1, original integer IMU samples are preserved before normalization:
+`sequence`, `nativeTimestamp`, `accelRawX/Y/Z`, `gyroRawX/Y/Z` and
+`sampleStatus`, together with full-scale ranges, sample-rate divider, filter,
+FIFO/data-ready behavior and calibration revision. GNSS observations form a
+separate stream with their native fix time, coordinate reference and
+receiver-reported quality. The versioned adapter may then convert motion units
+and expose qualified `groundSpeedMetersPerSecond`, `courseDegrees` and accuracy
+fields. Raw equipment evidence is never discarded after conversion.
 
 Writes are append-only during capture. Finalization creates an
 `acquisitionArtifact`; it does not rewrite raw evidence. Navigation and React
@@ -210,12 +267,28 @@ For Wear OS:
 - CI assembly of both APK/AAB artifacts;
 - physical-device pairing, upgrade and reinstall checklist.
 
+For Remus Blade P1:
+
+- deterministic provisioning and stable physical-unit identity;
+- firmware/protocol compatibility and capability handshake before capture;
+- authenticated BLE control rather than authorization by advertised name;
+- repeatable scan, pair/connect, reconnect and ownership-reset behavior;
+- firmware build/version and hardware revision retained with each recording;
+- bench gates for sustained throughput, MTU variation, sequence integrity,
+  FIFO overflow, BLE loss, reset, brownout and battery pressure;
+- GNSS time-to-first-fix, update rate, loss/reacquisition and on-water antenna
+  performance gates;
+- explicit oar/paddle `sensorPlacement`, placement provenance and mounting
+  configuration before placement-dependent analysis.
+
 ## TDD strategy
 
 ### Contract tests
 
 Golden JSON fixtures are decoded and encoded by TypeScript, Swift and Kotlin.
 Tests cover versions, units, missing values, unknown fields and invalid payloads.
+RBP1 firmware/C++ fixtures cover the same envelope plus raw integer samples,
+GNSS observations, sensor configuration and BLE frame fragmentation.
 
 ### State-machine tests
 
@@ -242,6 +315,11 @@ device scenarios validate permissions, background execution, install/upgrade,
 screen locking, temporary disconnect, phone/watch initiated stop and battery
 pressure.
 
+RBP1 hardware-in-the-loop scenarios additionally validate sensor identity,
+configuration read-back, timestamps, sequences, scale conversion, GNSS quality,
+sustained BLE throughput, reconnect behavior, multiple simultaneous units and
+explicit gap reporting.
+
 ## Delivery sequence
 
 Each item is one small feature branch and pull request based on `develop`.
@@ -252,27 +330,31 @@ Each item is one small feature branch and pull request based on `develop`.
    intents and source-specific recording identities.
 3. **`feature/device-transport-simulator`** — lossy/reordering transport,
    acknowledgements, bounded buffer and deterministic tests.
-4. **`feature/apple-watch-packaging`** — correct host/watch targets,
+4. **`feature/phone-recording-store`** — append-only batches, stream
+   descriptors, recovery, deduplication and gap records.
+5. **`feature/apple-watch-packaging`** — correct host/watch targets,
    capabilities, schemes and install gates before product behavior.
-5. **`feature/apple-watch-protocol`** — capabilities, configuration,
+6. **`feature/apple-watch-protocol`** — capabilities, configuration,
    bidirectional start/stop and state reconciliation through the common
    protocol.
-6. **`feature/phone-recording-store`** — append-only batches, stream
-   descriptors, recovery, deduplication and gap records.
 7. **`feature/apple-watch-acquisition`** — configurable motion, position,
    heart rate and health acquisition with measured rates.
-8. **`feature/watch-live-metrics`** — expiring phone-to-watch
+8. **`feature/remus-blade-ble-protocol`** — RBP1 capability/configuration
+   handshake, GATT framing, commands, batches, acknowledgements and reconnect.
+9. **`feature/remus-blade-acquisition`** — raw IMU/GNSS/configuration
+   persistence, normalization boundary, diagnostics and multi-unit support.
+10. **`feature/watch-live-metrics`** — expiring phone-to-watch
    `strokeRateSpm` and the minimal recording HUD.
-9. **`feature/wear-os-packaging`** — companion module, install gates and
+11. **`feature/wear-os-packaging`** — companion module, install gates and
    permissions.
-10. **`feature/wear-os-protocol`** — the same contract and acceptance suite
+12. **`feature/wear-os-protocol`** — the same contract and acceptance suite
     through the Wear OS adapter.
 
 Do not start persistence or a second watch implementation before the protocol,
 state-machine and fault simulator are green. This is the boundary that prevents
 platform-specific behavior from becoming the application architecture again.
 
-## First milestone acceptance
+## Apple Watch milestone acceptance
 
 The first milestone is complete when two physical Apple devices can demonstrate:
 
@@ -284,3 +366,22 @@ The first milestone is complete when two physical Apple devices can demonstrate:
 6. stop from either device with idempotent finalization;
 7. app relaunch showing the correct recovered state and evidence summary;
 8. all contract, state, fault, persistence and CI checks green.
+
+## Remus Blade P1 milestone acceptance
+
+The first equipment-device milestone is complete when one phone and two RBP1
+units can demonstrate:
+
+1. deterministic provisioning and identity without relying on BLE name or MAC;
+2. capability/configuration negotiation and read-back for each physical unit;
+3. one idempotent phone start creating two distinct source recordings;
+4. sustained raw IMU and GNSS batch delivery with native timestamps and
+   sequences;
+5. MTU fragmentation/reassembly, duplicate delivery and acknowledgement;
+6. temporary disconnect followed by volatile resend or an explicit gap;
+7. independent clocks retained without arrival-time synchronization;
+8. stop/finalize with source-specific health, interruption and integrity state;
+9. raw integer evidence and reproducible unit conversion preserved on phone;
+10. GNSS fields independently qualified and never synthesized from BLE arrival;
+11. no BPM, water speed, power, hull or technique fields fabricated from RBP1
+    data.
