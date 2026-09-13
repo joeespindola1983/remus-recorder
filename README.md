@@ -39,3 +39,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for TDD and GitFlow conventions and
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the evidence boundaries.
 The corresponding Figma pages and implementation status are indexed in
 [docs/RECORDER_DESIGN_HANDOFF.md](docs/RECORDER_DESIGN_HANDOFF.md).
+Deterministic device, transport, transfer and storage failure scenarios are
+documented in [docs/CAPTURE_SIMULATOR.md](docs/CAPTURE_SIMULATOR.md).

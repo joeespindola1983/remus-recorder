@@ -1,21 +1,25 @@
 import React, {useReducer} from 'react';
 import {StatusBar, StyleSheet} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
-import {activityCaptureReducer} from './src/application/capture/ActivityCapture';
 import {createDemoActivityCapture} from './src/application/capture/demoSources';
+import {
+  applyCaptureScenarioStep,
+  createCaptureSimulation,
+} from './src/application/simulation/CaptureSimulator';
 import {ActiveScreen, FinalizingScreen, ReadyScreen, SummaryScreen} from './src/ui/screens/RecorderScreens';
 import {color} from './src/ui/theme/tokens';
 
 export default function App(): React.JSX.Element {
-  const [state, dispatch] = useReducer(
-    activityCaptureReducer,
+  const [simulation, dispatch] = useReducer(
+    applyCaptureScenarioStep,
     undefined,
-    createDemoActivityCapture,
+    () => createCaptureSimulation(createDemoActivityCapture()),
   );
+  const state = simulation.capture;
 
   const startCapture = (): void => {
     dispatch({
-      type: 'capture_committed',
+      type: 'commit_capture',
       activityId: 'activity:demo',
       activityCorrelationId: 'correlation:demo',
       recordingIdsBySource: Object.fromEntries(
@@ -23,9 +27,9 @@ export default function App(): React.JSX.Element {
       ),
     });
     dispatch({
-      type: 'metrics_updated',
+      type: 'advance_time',
+      seconds: 2538,
       metrics: {
-        elapsedSeconds: 2538,
         strokeRateSpm: 28,
         groundSpeedMetersPerSecond: 4.2,
         heartRateBeatsPerMinute: 154,
@@ -36,22 +40,20 @@ export default function App(): React.JSX.Element {
 
   const interruptWatch = (): void => {
     dispatch({
-      type: 'source_interrupted',
+      type: 'interrupt_source',
       sourceId: 'watch:apple:demo',
-      atElapsedSeconds: state.metrics.elapsedSeconds,
       reason: 'power_depleted',
     });
   };
 
   const stopCapture = (): void => {
-    dispatch({type: 'stop_requested'});
+    dispatch({type: 'request_stop'});
     Object.values(state.sources)
       .filter(source => source.recordingId && source.recordingState !== 'interrupted')
       .forEach(source => {
         dispatch({
-          type: 'source_finalized',
+          type: 'finalize_source',
           sourceId: source.sourceId,
-          atElapsedSeconds: state.metrics.elapsedSeconds,
           reason: 'app_stop',
         });
       });
