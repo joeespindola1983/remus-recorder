@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>Remus Watch</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.espindola.remus.recorder.watchkitapp</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>WKApplication</key>
+	<true/>
+	<key>WKCompanionAppBundleIdentifier</key>
+	<string>com.espindola.remus.recorder</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Remus Watch precisa de acesso ao GPS para rastrear sua rota e velocidade.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Remus Watch precisa de acesso contínuo ao GPS para registrar atividades em segundo plano.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Remus Watch utiliza o acelerômetro e giroscópio para monitoramento esportivo.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>Remus Watch monitora seus batimentos cardíacos durante treinos.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>Remus Watch registra treinos e métricas corporais.</string>
+	<key>WKBackgroundModes</key>
+	<array>
+		<string>workout-processing</string>
+	</array>
+</dict>
+</plist>

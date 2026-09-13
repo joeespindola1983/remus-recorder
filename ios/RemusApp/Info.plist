@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>RemusApp</string>
+	<string>Remus App</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -35,7 +35,22 @@
 		<true/>
 	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string></string>
+	<string>Remus precisa de acesso à sua localização para gravar suas rotas e atividades.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Remus precisa de acesso contínuo à localização em segundo plano para rastrear seus trajetos mesmo com o aplicativo fechado.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>Remus precisa de acesso contínuo à sua localização para gravação de trajetos.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Remus utiliza os sensores de movimento e acelerômetro para monitorar sua atividade física e deslocamento.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>Remus acessa seus dados de sensores corporais e batimentos cardíacos do Apple Watch para monitoramento de métricas.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>Remus grava seus dados de atividades e treinos.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+		<string>processing</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIRequiredDeviceCapabilities</key>
