@@ -38,12 +38,22 @@ recovery contract is specified in
 ## Current implementation boundary
 
 The current code provides device adapters, a wearable hub, a native Apple Watch
-bridge, initial phone sensor abstractions and a monitoring UI. Durable recording,
-stream descriptors, artifact hashing, crash recovery and synchronization remain
-to be implemented.
+bridge, initial phone sensor abstractions and the first modular Recorder vertical
+slice. The application reducer keeps the activity lifecycle independent from
+each source lifecycle, represents `available_idle` without implying a recording,
+closes source coverage on interruption and preserves an interrupted source while
+other sources continue.
 
-The next vertical slice is a tested recording state machine with states
-`preparing`, `recording`, `stopping`, `finalized`, `interrupted` and `failed`.
+The React Native shell is organized as tokens, atoms, molecules, organisms and
+screens. Its deterministic demo covers ready, coordinated recording, watch power
+depletion, per-source finalization and a preserved summary. This is an
+application/UI reference implementation; it does not yet claim durable raw
+recording, artifact hashing, crash recovery, resumable transfer, persistence verification or native
+bridge conformance with the acquisition envelope.
+
+The next vertical slice is the append-only recording writer and its native
+ingress boundary. It must consume independent canonical streams rather than the
+legacy composite `SensorSample`.
 The complete mobile/native/C++ delivery architecture is specified in
 [`PRODUCTION_APP_DEVELOPMENT_PLAN.md`](PRODUCTION_APP_DEVELOPMENT_PLAN.md).
 The cross-device protocol and delivery sequence are specified in

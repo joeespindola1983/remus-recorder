@@ -12,7 +12,7 @@ and diagnostics.
 
 Remus Blade P1 is the flagship Remus hardware product, but the acquisition
 model is source-agnostic. An activity may contain only app capture, only an
-autonomous RBP1 recording synchronized later, only another autonomous admitted
+autonomous RBP1 recording transferred and associated later, only another autonomous admitted
 source, or multiple concurrent sources.
 
 ## Four meanings that must remain separate
@@ -116,7 +116,7 @@ showing a successful start. Each source emits bounded telemetry batches. The app
 persists a batch transactionally, then acknowledges persisted sequences and any
 explicit missing ranges. A source discards only the acknowledged volatile range.
 
-A capable source does not write a redundant full workout while the app is
+A capable source does not write a redundant full recording while the app is
 receiving within policy. It begins a persistent recovery spool only when
 acknowledgements exceed the volatile window or local policy requires it.
 
@@ -134,7 +134,7 @@ Power, connectivity and recording are independent dimensions. Merely powering
 RBP1 on enters `available_idle`; it does not create an activity or assert that
 the athlete has started training. While idle, RBP1 may retain only a bounded,
 volatile diagnostic/pre-roll buffer. That buffer is not a finalized autonomous
-workout and is discarded by policy unless explicitly promoted before expiry.
+recording and is discarded by policy unless explicitly promoted before expiry.
 
 A durable RBP1 recording starts only through one of these attributable causes:
 
@@ -176,7 +176,7 @@ of source timestamps or immediate physical deletion.
 
 For app-coordinated capture, the negotiated manifest records a finite
 `disconnectGracePeriodMs`. The app renews control while connected. Loss of that
-control does not discard the workout: RBP1 moves to persistent recovery capture
+control does not discard the recording evidence: RBP1 moves to persistent recovery capture
 until reconnection, local stop/power-off, storage/power protection or the finite
 timeout. A later stop request is idempotent. Evidence beyond the app activity's
 stop remains source evidence but is excluded from that activity unless the user
@@ -291,7 +291,7 @@ one database directory:
 | Staging | Partial chunks keyed by artifact/part/offset/hash | Resumable; removed only by explicit cancellation policy or promotion |
 | Evidence | Verified immutable acquisition artifacts/stream parts | Never rewritten during normalization or analysis |
 | Derived | Normalized caches, charts, SPM and analysis outputs with lineage | Regenerable and evicted before evidence |
-| Diagnostics | Explicit opt-in logs with bounded retention | Never workout evidence without an admission step |
+| Diagnostics | Explicit opt-in logs with bounded retention | Never activity evidence without an admission step |
 
 Promotion is atomic: verify part and manifest hashes, make bytes durable as the
 platform supports, commit catalog status, then send `persisted_verified`. Before

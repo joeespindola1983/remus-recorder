@@ -7,9 +7,10 @@ units, missing values and device clock boundaries for later analysis.
 ## Status
 
 This repository is under active foundational development. Apple Watch transport,
-wearable adapters, permission handling, canonical sensor sample types and a
-monitoring interface are present. Durable recordings and synchronization are not
-yet implemented.
+wearable adapters, permission handling, canonical acquisition contracts and a
+tested modular Recorder demo are present. The demo models source-independent
+activity continuity and interrupted-source coverage. Durable recordings,
+resumable artifact transfer and persistence verification are not yet implemented.
 
 ## Requirements
 
@@ -36,3 +37,5 @@ npm run verify
 The command runs TypeScript checking, ESLint and the complete Jest suite.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for TDD and GitFlow conventions and
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the evidence boundaries.
+The corresponding Figma pages and implementation status are indexed in
+[docs/RECORDER_DESIGN_HANDOFF.md](docs/RECORDER_DESIGN_HANDOFF.md).
