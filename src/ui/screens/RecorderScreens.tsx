@@ -1,9 +1,18 @@
 import React from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { ActivityCaptureState } from '../../application/capture/ActivityCapture';
 import { ActionButton } from '../atoms/ActionButton';
-import { MetricTile } from '../molecules/MetricTile';
 import { OperationalEventBanner } from '../molecules/OperationalEventBanner';
+import {
+  AdaptiveCaptureSurface,
+  captureOrientationFor,
+} from '../organisms/AdaptiveCaptureSurface';
 import { DeviceReadinessPanel } from '../organisms/DeviceReadinessPanel';
 import { SourceFleetPanel } from '../organisms/SourceFleetPanel';
 import { color, fontFamily, radius, spacing } from '../theme/tokens';
@@ -55,71 +64,36 @@ export function ReadyScreen({
 export function ActiveScreen({
   state,
   onStop,
-  onInterruptWatch,
+  onPause,
 }: {
   state: ActivityCaptureState;
   onStop: () => void;
-  onInterruptWatch: () => void;
+  onPause: () => void;
 }): React.JSX.Element {
+  const { width, height } = useWindowDimensions();
+  const orientation = captureOrientationFor(width, height);
   const interrupted = Object.values(state.sources).some(
     source => source.recordingState === 'interrupted',
   );
   return (
     <View style={styles.screen}>
-      <ScrollView contentContainerStyle={styles.content}>
-        <Header />
-        <Text style={styles.eyebrow}>
-          GRAVANDO · {elapsed(state.metrics.elapsedSeconds)}
-        </Text>
-        <Text style={styles.title}>Atividade livre</Text>
-        <View style={styles.metrics}>
-          <MetricTile
-            label="Voga"
-            value={String(state.metrics.strokeRateSpm ?? '--')}
-            unit="SPM"
-          />
-          <MetricTile
-            label="Velocidade"
-            value={(state.metrics.groundSpeedMetersPerSecond ?? 0)
-              .toFixed(1)
-              .replace('.', ',')}
-            unit="m/s"
-          />
-          <MetricTile
-            label="FC"
-            value={String(state.metrics.heartRateBeatsPerMinute ?? '--')}
-            unit="bpm"
-          />
-          <MetricTile
-            label="Distância"
-            value={((state.metrics.distanceMeters ?? 0) / 1000)
-              .toFixed(1)
-              .replace('.', ',')}
-            unit="km"
-          />
-        </View>
-        <Text style={styles.sourceLine}>Voga · RBP1 · atualizada agora</Text>
-        <SourceFleetPanel sources={Object.values(state.sources)} />
-        {!interrupted ? (
-          <ActionButton
-            label="Simular relógio sem bateria"
-            tone="secondary"
-            onPress={onInterruptWatch}
-          />
-        ) : null}
-      </ScrollView>
+      <AdaptiveCaptureSurface
+        metrics={state.metrics}
+        onFinish={onStop}
+        onPause={onPause}
+        orientation={orientation}
+        viewportWidth={width}
+      />
       {interrupted ? (
-        <View style={styles.connectionNotice}>
+        <View
+          style={[
+            styles.connectionNotice,
+            orientation === 'landscape' && styles.connectionNoticeLandscape,
+          ]}
+        >
           <OperationalEventBanner />
         </View>
       ) : null}
-      <View style={styles.finishAction}>
-        <ActionButton
-          label="Finalizar atividade"
-          tone="destructive"
-          onPress={onStop}
-        />
-      </View>
     </View>
   );
 }
@@ -225,15 +199,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
   },
-  metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  sourceLine: { color: color.textSecondary, fontFamily, fontSize: 12 },
   connectionNotice: {
-    bottom: 92,
+    bottom: 120,
     left: spacing.md,
     position: 'absolute',
     right: spacing.md,
   },
-  finishAction: { bottom: spacing.lg, position: 'absolute', right: spacing.md },
+  connectionNoticeLandscape: { bottom: spacing.md, right: 124 },
   readinessCard: {
     backgroundColor: color.successContainer,
     borderRadius: radius.xl,

@@ -152,11 +152,11 @@ public feature entry points.
 
 ### Capture-specific component inventory
 
-| Level | Initial components |
-|---|---|
-| Atom | `StatusMark`, `MetricValue`, `MetricUnit`, `SourceIcon`, `ProgressBar`, `CoverageMark` |
-| Molecule | `LiveMetricTile`, `SourceStatusRow`, `StorageEstimate`, `ArtifactPartProgress`, `DataGapNotice`, `ActivityMatchCard`, `RecordingRangeControl` |
-| Organism | `SourceFleetPanel`, `AcquisitionProfilePanel`, `LiveCaptureDashboard`, `SourceCoverageTimeline`, `PendingArtifactTransferQueue`, `RecordingReconciliationPanel`, `CaptureControls` |
+| Level    | Initial components                                                                                                                                                                     |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Atom     | `StatusMark`, `MetricValue`, `MetricUnit`, `SourceIcon`, `ProgressBar`, `CoverageMark`                                                                                                 |
+| Molecule | `LiveMetricTile`, `SourceStatusRow`, `StorageEstimate`, `ArtifactPartProgress`, `DataGapNotice`, `ActivityMatchCard`, `RecordingRangeControl`                                          |
+| Organism | `SourceFleetPanel`, `AcquisitionProfilePanel`, `LiveCaptureDashboard`, `SourceCoverageTimeline`, `PendingArtifactTransferQueue`, `RecordingReconciliationPanel`, `CaptureControls`     |
 | Template | `CaptureHomeTemplate`, `CaptureSetupTemplate`, `ActiveCaptureTemplate`, `RecoveryTemplate`, `ArtifactTransferCenterTemplate`, `RecordingAssociationTemplate`, `CaptureSummaryTemplate` |
 
 ## Capture MVP screen map
@@ -184,6 +184,14 @@ permission blocked and preparation failure.
 Displays authoritative elapsed time, `strokeRateSpm`, ground speed, BPM and
 source health/freshness. The exact metric source is available in details. Start,
 stop and safety-critical controls remain stable across layout changes.
+
+The MVP active surface uses four glanceable cells for `strokeRateSpm`,
+`paceSecondsPer500Meters`, `distanceMeters` and
+`heartRateBeatsPerMinute`. Values dominate the available viewport and shrink to
+fit without wrapping; unavailable observations render as an em dash, never as
+zero. Portrait mode reserves a bottom control zone with pause and finish actions
+side by side. Landscape mode reserves a right-side rail and stacks those actions
+in the upper-right, leaving the 2×2 metric grid unobstructed.
 
 States: preparing, recording, degraded, one source interrupted, SPM collecting,
 available/stale/unavailable, stopping and finalization timeout.
@@ -265,13 +273,13 @@ units before changing state.
 Use React Native Codegen/TurboModule specs so Swift/Kotlin implementations are
 checked against one TypeScript surface. Keep the public modules small:
 
-| Module | Responsibility |
-|---|---|
-| `NativeRemusCapture` | prepare/start/stop/reconcile and bounded live snapshots |
-| `NativeRemusSources` | discovery, provisioning, capabilities and source health |
-| `NativeRemusSync` | artifact manifests, parts/chunks, resume, verification and deletion |
+| Module                | Responsibility                                                      |
+| --------------------- | ------------------------------------------------------------------- |
+| `NativeRemusCapture`  | prepare/start/stop/reconcile and bounded live snapshots             |
+| `NativeRemusSources`  | discovery, provisioning, capabilities and source health             |
+| `NativeRemusSync`     | artifact manifests, parts/chunks, resume, verification and deletion |
 | `NativeRemusAnalysis` | C++ live/offline jobs, progress, cancellation and immutable results |
-| `NativeRemusEvidence` | session catalog, coverage summaries, export and retention status |
+| `NativeRemusEvidence` | session catalog, coverage summaries, export and retention status    |
 
 Promises return command acceptance/results; events carry replaceable snapshots
 and critical transitions. Every subscription has explicit removal, bounded
@@ -413,17 +421,17 @@ with limitations. They are not rewritten to look like contract v1.
 
 ## TDD and CI matrix
 
-| Gate | Required proof |
-|---|---|
-| Contract | Same golden valid/invalid fixtures in TypeScript, Swift, Kotlin, C++ and firmware where applicable |
-| Domain/application | Pure state, battery, disk, gap, continuation, association and sync scenarios with fake time/IDs |
-| React Native | Component behavior, accessibility, localization, reduced motion and navigation flows |
-| iOS | Swift unit/integration tests, bridge codegen/build, simulator plus physical-device checklist |
-| Android | JVM/native tests, Gradle build, foreground/background lifecycle and physical-device checklist |
-| C++ | CTest Release and UBSan, ABI ownership/cancellation, deterministic replay and resource bounds |
-| Transport | Loss, duplication, reordering, MTU fragmentation, reconnect and relay saturation simulator |
-| Visual | Approved Figma frames and iOS/Android screenshot comparison at target sizes/themes |
-| Hardware | RBP1/watch sustained capture, power loss, storage pressure, multi-connection and field trial |
+| Gate               | Required proof                                                                                     |
+| ------------------ | -------------------------------------------------------------------------------------------------- |
+| Contract           | Same golden valid/invalid fixtures in TypeScript, Swift, Kotlin, C++ and firmware where applicable |
+| Domain/application | Pure state, battery, disk, gap, continuation, association and sync scenarios with fake time/IDs    |
+| React Native       | Component behavior, accessibility, localization, reduced motion and navigation flows               |
+| iOS                | Swift unit/integration tests, bridge codegen/build, simulator plus physical-device checklist       |
+| Android            | JVM/native tests, Gradle build, foreground/background lifecycle and physical-device checklist      |
+| C++                | CTest Release and UBSan, ABI ownership/cancellation, deterministic replay and resource bounds      |
+| Transport          | Loss, duplication, reordering, MTU fragmentation, reconnect and relay saturation simulator         |
+| Visual             | Approved Figma frames and iOS/Android screenshot comparison at target sizes/themes                 |
+| Hardware           | RBP1/watch sustained capture, power loss, storage pressure, multi-connection and field trial       |
 
 Every behavioral change begins with a failing test in the owning layer. CI never
 calls real network services for deterministic contract/unit suites.

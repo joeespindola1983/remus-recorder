@@ -62,7 +62,12 @@ test('moves from ready through recording to a preserved summary', async () => {
   });
   expect(
     renderer.root.findAll(
-      node => node.type === Text && node.props.children === 'Atividade livre',
+      node => node.type === Text && node.props.children === 'PARCIAL',
+    ),
+  ).toHaveLength(1);
+  expect(
+    renderer.root.findAll(
+      node => node.type === Text && node.props.children === '01:59',
     ),
   ).toHaveLength(1);
 
@@ -77,42 +82,4 @@ test('moves from ready through recording to a preserved summary', async () => {
         node.type === Text && node.props.children === 'Atividade preservada',
     ),
   ).toHaveLength(1);
-});
-
-test('keeps recording without asking for a recovery decision when a source stops sending', async () => {
-  let renderer!: ReactTestRenderer.ReactTestRenderer;
-  await ReactTestRenderer.act(async () => {
-    renderer = ReactTestRenderer.create(<App />);
-  });
-
-  await ReactTestRenderer.act(async () => {
-    renderer.root
-      .findByProps({ accessibilityLabel: 'Iniciar atividade' })
-      .props.onPress();
-  });
-  await ReactTestRenderer.act(async () => {
-    renderer.root
-      .findByProps({ accessibilityLabel: 'Simular relógio sem bateria' })
-      .props.onPress();
-  });
-
-  expect(
-    renderer.root.findByProps({ accessibilityRole: 'alert' }),
-  ).toBeTruthy();
-  expect(
-    renderer.root.findAll(
-      node =>
-        node.type === Text &&
-        node.props.children === 'Conexão com Apple Watch perdida',
-    ),
-  ).toHaveLength(1);
-  expect(
-    renderer.root.findAll(
-      node =>
-        node.type === Text && node.props.children === 'Continuar treino',
-    ),
-  ).toHaveLength(0);
-  expect(
-    renderer.root.findByProps({ accessibilityLabel: 'Finalizar atividade' }),
-  ).toBeTruthy();
 });

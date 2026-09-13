@@ -47,6 +47,7 @@ export interface CaptureSourceState extends SourceDescriptor {
 export interface LiveCaptureMetrics {
   elapsedSeconds: number;
   strokeRateSpm?: number;
+  paceSecondsPer500Meters?: number;
   groundSpeedMetersPerSecond?: number;
   heartRateBeatsPerMinute?: number;
   distanceMeters?: number;
