@@ -155,16 +155,16 @@ public feature entry points.
 | Level | Initial components |
 |---|---|
 | Atom | `StatusMark`, `MetricValue`, `MetricUnit`, `SourceIcon`, `ProgressBar`, `CoverageMark` |
-| Molecule | `LiveMetricTile`, `SourceStatusRow`, `StorageEstimate`, `SyncPartProgress`, `DataGapNotice`, `ActivityMatchCard`, `RecordingRangeControl` |
-| Organism | `SourceFleetPanel`, `AcquisitionProfilePanel`, `LiveCaptureDashboard`, `SourceCoverageTimeline`, `PendingSyncQueue`, `RecordingReconciliationPanel`, `CaptureControls` |
-| Template | `CaptureHomeTemplate`, `CaptureSetupTemplate`, `ActiveCaptureTemplate`, `RecoveryTemplate`, `SyncCenterTemplate`, `RecordingAssociationTemplate`, `CaptureSummaryTemplate` |
+| Molecule | `LiveMetricTile`, `SourceStatusRow`, `StorageEstimate`, `ArtifactPartProgress`, `DataGapNotice`, `ActivityMatchCard`, `RecordingRangeControl` |
+| Organism | `SourceFleetPanel`, `AcquisitionProfilePanel`, `LiveCaptureDashboard`, `SourceCoverageTimeline`, `PendingArtifactTransferQueue`, `RecordingReconciliationPanel`, `CaptureControls` |
+| Template | `CaptureHomeTemplate`, `CaptureSetupTemplate`, `ActiveCaptureTemplate`, `RecoveryTemplate`, `ArtifactTransferCenterTemplate`, `RecordingAssociationTemplate`, `CaptureSummaryTemplate` |
 
 ## Capture MVP screen map
 
 ### 1. Capture Home
 
 Shows the minimum app-only path first, connected/capable sources, autonomous
-recordings waiting to sync and storage readiness. The primary action remains
+recordings waiting for transfer and storage readiness. The primary action remains
 available without RBP1.
 
 States: app-only ready, discovering, devices found, autonomous artifact found,
@@ -194,11 +194,11 @@ When a source battery/storage/transport fails, explains what was preserved and
 which sources remain active. Default action continues the overall activity when
 safe. A returned device becomes a linked recording segment.
 
-### 5. Synchronization center
+### 5. Transfer and verification center
 
-Lists autonomous/recovery artifacts, verified parts, missing chunks, storage
-requirements and retry state. “Synchronized” appears only after durable
-verification. Source deletion is a separate acknowledged state.
+Lists autonomous/recovery artifacts, transferred and verified parts, missing
+chunks, storage requirements and retry state. Durable persistence verification,
+clock alignment, activity association and source deletion remain separate states.
 
 ### 6. Capture summary
 
@@ -491,7 +491,7 @@ no raw callback stream enters JS.
 - watch relay spike plus throughput/power qualification;
 - multiple RBP1 units and continuation after restart.
 
-Gate: connected and app-absent workouts survive loss, resume exactly and never
+Gate: connected and app-absent recordings survive loss, resume exactly and never
 fabricate continuity or source identity.
 
 ### Phase 6 — Apple Watch
@@ -565,5 +565,5 @@ accepted.
    risk.
 4. Define evidence retention in the app/cloud; source post-sync deletion is
    already exact, but app evidence must not be deleted without product policy.
-5. Set target workout duration, supported phone/watch generations and minimum
+5. Set target activity-capture duration, supported phone/watch generations and minimum
    free-space/battery gates for measured budgets.

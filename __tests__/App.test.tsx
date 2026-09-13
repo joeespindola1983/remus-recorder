@@ -3,11 +3,39 @@
  */
 
 import React from 'react';
+import {Text} from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 import App from '../App';
 
-test('renders correctly', async () => {
+test('renders a source-agnostic ready state', async () => {
+  let renderer!: ReactTestRenderer.ReactTestRenderer;
   await ReactTestRenderer.act(async () => {
-    ReactTestRenderer.create(<App />);
+    renderer = ReactTestRenderer.create(<App />);
   });
+
+  expect(renderer.root.findByProps({accessibilityLabel: 'Iniciar atividade'})).toBeTruthy();
+  expect(
+    renderer.root.findAll(node => node.type === Text && node.props.children === 'Remus Blade P1'),
+  ).toHaveLength(1);
+});
+
+test('moves from ready through recording to a preserved summary', async () => {
+  let renderer!: ReactTestRenderer.ReactTestRenderer;
+  await ReactTestRenderer.act(async () => {
+    renderer = ReactTestRenderer.create(<App />);
+  });
+
+  await ReactTestRenderer.act(async () => {
+    renderer.root.findByProps({accessibilityLabel: 'Iniciar atividade'}).props.onPress();
+  });
+  expect(
+    renderer.root.findAll(node => node.type === Text && node.props.children === 'Atividade livre'),
+  ).toHaveLength(1);
+
+  await ReactTestRenderer.act(async () => {
+    renderer.root.findByProps({accessibilityLabel: 'Finalizar atividade'}).props.onPress();
+  });
+  expect(
+    renderer.root.findAll(node => node.type === Text && node.props.children === 'Atividade preservada'),
+  ).toHaveLength(1);
 });

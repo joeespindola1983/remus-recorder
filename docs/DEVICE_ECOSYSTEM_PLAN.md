@@ -481,6 +481,6 @@ units can demonstrate:
 10. GNSS fields independently qualified and never synthesized from BLE arrival;
 11. standalone capture survives app absence, resumes synchronization, verifies
     integrity and deletes only the exact artifact acknowledged as durable by the
-    app; connected capture does not write a redundant full workout by default;
+    app; connected capture does not write a redundant full recording by default;
 12. no BPM, water speed, power, hull or technique fields fabricated from RBP1
     data.

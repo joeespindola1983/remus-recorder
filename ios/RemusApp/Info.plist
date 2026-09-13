@@ -28,24 +28,25 @@
 	<true/>
 	<key>NSAppTransportSecurity</key>
 	<dict>
-	  <!-- Do not change NSAllowsArbitraryLoads to true, or you will risk app rejection! -->
 		<key>NSAllowsArbitraryLoads</key>
 		<false/>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Remus precisa de acesso à sua localização para gravar suas rotas e atividades.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>Remus acessa seus dados de sensores corporais e batimentos cardíacos do Apple Watch para monitoramento de métricas.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>Remus registra dados das suas atividades esportivas e métricas corporais.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>Remus precisa de acesso contínuo à localização em segundo plano para rastrear seus trajetos mesmo com o aplicativo fechado.</string>
 	<key>NSLocationAlwaysUsageDescription</key>
 	<string>Remus precisa de acesso contínuo à sua localização para gravação de trajetos.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Remus precisa de acesso à sua localização para gravar suas rotas e atividades.</string>
 	<key>NSMotionUsageDescription</key>
 	<string>Remus utiliza os sensores de movimento e acelerômetro para monitorar sua atividade física e deslocamento.</string>
-	<key>NSHealthShareUsageDescription</key>
-	<string>Remus acessa seus dados de sensores corporais e batimentos cardíacos do Apple Watch para monitoramento de métricas.</string>
-	<key>NSHealthUpdateUsageDescription</key>
-	<string>Remus grava seus dados de atividades e treinos.</string>
+	<key>RCTNewArchEnabled</key>
+	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>
