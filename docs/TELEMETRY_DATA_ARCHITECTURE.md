@@ -582,6 +582,29 @@ records an interruption.
 
 ## 19. TDD test architecture
 
+### Mandatory C++ red-green-refactor protocol
+
+Every C++ behavior follows this sequence:
+
+1. add one focused behavioral test that fails for the intended reason;
+2. record the red command, failing assertion and exit status in the PR;
+3. implement the smallest production change that satisfies that behavior;
+4. run the focused test green;
+5. run the complete affected C++ suite green;
+6. refactor without changing the asserted contract;
+7. run Release, UBSan and compatibility replay gates where applicable;
+8. record commands, suite counts, platform scope and known limitations.
+
+A compilation error caused by an invalid test is not behavioral red evidence.
+A test written after the production behavior exists does not satisfy the TDD
+gate. Mocks verify port interaction, but acceptance requires observable state,
+bytes, hashes, diagnostics or projections at the public core boundary.
+
+Each PR must keep increments small enough that reviewers can identify the red,
+green and refactor stages. When commit history cannot retain each intermediate
+red safely, the PR description must include the exact failing output captured
+before implementation and point to the test that produced it.
+
 ### Golden contract suite
 
 One fixture corpus is consumed by TypeScript, Swift, Kotlin, C++ and RBP1
@@ -619,9 +642,32 @@ deduplication and explicit gaps.
 
 ## 20. Implementation sequence for another model
 
+Implementation is divided into two ownership tracks. The C++ core track is
+owned and delivered by the Remus C++ maintainer. The application integration
+track may be delegated to another model only after the corresponding C++ API,
+fixtures and binary/package version have been published.
+
 Every item is a branch from `develop`, begins with a failing test and ends with
-documentation plus applicable build gates. Do not combine phases 1-4 into one
-large PR.
+documentation plus applicable build gates. Do not combine the core increments
+into one large PR.
+
+### Ownership boundary
+
+| Track               | May implement                                                                                                                                          | Must not implement                                                                 |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| C++ core maintainer | `remus-core`, acquisition reference contracts, ingestion, recording, evidence, sync, clocks, telemetry, projections, C ABI and cross-language fixtures | platform sensor APIs, React Native UI                                              |
+| TypeScript model    | generated/verified bindings, application facades, UI use cases, projections and tests against fake/native gateways                                     | independent lifecycle, sync, clock, evidence or metric rules                       |
+| Swift/Kotlin model  | thin source adapters, host I/O ports, opaque-handle ownership, TurboModules, background/platform integration                                           | alternate domain models, evidence codecs, hashes, algorithms or deletion decisions |
+
+Swift/Kotlin may execute a host effect requested by C++, such as writing bytes,
+committing SQLite, accessing secure keys or scheduling background work. The
+result is returned to the core before the core advances state. Platform code
+must not infer the next domain state independently.
+
+### C++ core track — owned by the Remus C++ maintainer
+
+Every PR in this track follows the mandatory red-green-refactor protocol in
+section 19. A green build without an observed behavioral red is not sufficient.
 
 ### PR 1 — `feature/cpp-core-extraction`
 
@@ -690,6 +736,8 @@ Gate: only exact `persisted_verified` state can authorize deletion.
 
 Gate: corrections never rewrite artifacts or prior associations.
 
+### Application integration track — delegable after its C++ dependency exists
+
 ### PR 8 — `feature/phone-native-ingress`
 
 - implement independent phone motion and GNSS stream adapters;
@@ -708,6 +756,9 @@ recovery with explicit gaps.
 - emit expiring bounded metrics and persist immutable analysis lineage.
 
 Gate: deterministic cross-platform parity and no sample-level JS traffic.
+
+The streaming C API and its C++ tests belong to the C++ core track. Only the
+Objective-C++/JNI handle owners and platform integration may be delegated.
 
 ### PR 10 — `feature/remus-blade-ingress`
 
@@ -750,14 +801,15 @@ The first data-plane MVP is done only when:
 10. the exact displayed metric can be traced to stream/analysis and original
     evidence.
 
-## 22. Instructions for the implementing model
+## 22. Instructions for a TypeScript/Swift/Kotlin implementing model
 
 Before each PR, the implementing model must:
 
 1. read this document and all normative references in section 1;
 2. inspect the branch and distinguish implemented code from proposals;
 3. start from `develop` using the exact GitFlow branch for that PR;
-4. write the failing owning-layer tests first;
+4. write and execute the failing owning-layer tests first, preserving the
+   behavioral red evidence;
 5. keep source-specific behavior behind a typed adapter;
 6. preserve canonical identifiers, units, nullability and evidence lineage;
 7. avoid adding a dependency without a short ADR and compatibility rationale;
@@ -766,5 +818,11 @@ Before each PR, the implementing model must:
 10. stop and document a contract ambiguity instead of inventing a synonym or
     silently changing evidence semantics.
 
-The first implementation request should be PR 1 only. The C++ package boundary
-must be reviewed before persistence or a real source integration begins.
+The delegated model must not implement or modify C++ behavior. Its first task
+starts only after the applicable C++ package is published and must name the
+exact `remus-core` version/commit it consumes. If a required C API, fixture or
+host effect is missing, it writes an integration requirement and returns it to
+the C++ owner instead of implementing the rule in TypeScript, Swift or Kotlin.
+
+The first C++ implementation request is PR 1 only. The C++ package boundary must
+be reviewed before persistence or a real source integration begins.

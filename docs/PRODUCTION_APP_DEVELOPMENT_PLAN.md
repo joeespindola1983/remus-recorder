@@ -450,6 +450,12 @@ with limitations. They are not rewritten to look like contract v1.
 Every behavioral change begins with a failing test in the owning layer. CI never
 calls real network services for deterministic contract/unit suites.
 
+For C++, every increment must preserve explicit red-green-refactor evidence:
+the focused behavioral test fails for the intended reason before production
+code changes, then passes with the complete affected suite. Release, UBSan and
+compatibility replay gates are required according to the changed module. A test
+syntax or compilation mistake is not accepted as the behavioral red.
+
 ## Delivery phases and gates
 
 ### Phase 0 — Governed contracts (current)
@@ -579,6 +585,12 @@ Each item is a small PR into `develop` with green applicable gates:
 17. `feature/apple-watch-remus-relay`
 18. `feature/wear-os-capture`
 19. `feature/speedcoach-adapter`
+
+C++ items are owned by the Remus C++ maintainer. TypeScript/Swift/Kotlin work
+may be delegated only against a pinned C++ commit and its green golden fixtures.
+Delegated platform work must not reproduce coordinator, evidence, sync, clock
+or telemetry behavior outside the core. Missing core behavior returns to the
+C++ backlog as an explicit API requirement.
 
 The first code demo ends at item 4. Real device integration does not begin until
 the contract, Figma specification, module boundaries and fault simulator are
