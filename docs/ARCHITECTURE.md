@@ -45,8 +45,11 @@ closes source coverage on interruption and preserves an interrupted source while
 other sources continue.
 
 The React Native shell is organized as tokens, atoms, molecules, organisms and
-screens. Its deterministic demo covers ready, coordinated recording, watch power
-depletion, per-source finalization and a preserved summary. This is an
+screens. Its deterministic simulator covers app-only capture, coordinated
+recording, watch power depletion, disconnected RBP1 recovery, resumable artifact
+transfer, disk pressure, per-source finalization and a preserved summary. The
+shared scenario-step contract also drives the interactive demo. See
+[`CAPTURE_SIMULATOR.md`](CAPTURE_SIMULATOR.md). This is an
 application/UI reference implementation; it does not yet claim durable raw
 recording, artifact hashing, crash recovery, resumable transfer, persistence verification or native
 bridge conformance with the acquisition envelope.
