@@ -20,7 +20,7 @@ test('keeps the adaptive capture surface active behind a non-blocking source-los
   });
   state = activityCaptureReducer(state, {
     type: 'source_interrupted',
-    sourceId: 'watch:apple:demo',
+    sourceId: 'watch:apple:primary',
     atElapsedSeconds: 42,
     reason: 'power_depleted',
   });

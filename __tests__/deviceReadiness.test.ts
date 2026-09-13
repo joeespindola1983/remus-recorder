@@ -239,7 +239,7 @@ describe('device readiness presentation', () => {
 
   it('declares Remus Blade explicitly as Buscando automaticamente... when unavailable', () => {
     const blade = source({
-      sourceId: 'rbp1:demo',
+      sourceId: 'rbp1:primary',
       deviceFamily: 'remus_blade',
       deviceModel: 'rbp1',
       operationalState: 'unavailable',
@@ -269,7 +269,7 @@ describe('device readiness presentation', () => {
     });
 
     const bladeOffline = source({
-      sourceId: 'rbp1:demo',
+      sourceId: 'rbp1:primary',
       deviceFamily: 'remus_blade',
       deviceModel: 'rbp1',
       operationalState: 'unavailable',

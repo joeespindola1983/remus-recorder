@@ -40,7 +40,7 @@ describe('DeviceReadinessPanel Organism (TDD)', () => {
   };
 
   const bladeSource: CaptureSourceState = {
-    sourceId: 'rbp1:demo',
+    sourceId: 'rbp1:primary',
     deviceFamily: 'remus_blade',
     sensorPlacement: 'paddle',
     placementProvenance: 'device_metadata',

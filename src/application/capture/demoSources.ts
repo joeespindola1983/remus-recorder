@@ -31,7 +31,7 @@ export const phoneSource: SourceDescriptor = {
 };
 
 export const rbp1Source: SourceDescriptor = {
-  sourceId: 'rbp1:demo',
+  sourceId: 'rbp1:primary',
   deviceFamily: 'remus_blade',
   deviceModel: 'rbp1',
   operationalState: 'available_idle',
@@ -55,7 +55,7 @@ export const rbp1Source: SourceDescriptor = {
 };
 
 export const appleWatchSource: SourceDescriptor = {
-  sourceId: 'watch:apple:demo',
+  sourceId: 'watch:apple:primary',
   deviceFamily: 'apple_watch',
   operationalState: 'available_idle',
   sensorPlacement: 'left_wrist',
@@ -76,7 +76,7 @@ export const appleWatchSource: SourceDescriptor = {
 
 export const wearOSSource: SourceDescriptor = {
   ...appleWatchSource,
-  sourceId: 'watch:wear-os:demo',
+  sourceId: 'watch:wear-os:primary',
   deviceFamily: 'wear_os',
   clockDomains: [
     {
@@ -148,3 +148,8 @@ export const createDemoActivityCapture = (
   });
   return state;
 };
+
+// Production currently shares the deterministic source descriptors with the
+// simulator, but the runtime path replaces all readiness and metrics with
+// native evidence before capture begins.
+export const createActivityCapture = createDemoActivityCapture;

@@ -25,7 +25,7 @@ const phoneSource: SourceDescriptor = {
 
 const rbp1Source: SourceDescriptor = {
   ...phoneSource,
-  sourceId: 'rbp1:demo',
+  sourceId: 'rbp1:primary',
   deviceFamily: 'remus_blade',
   deviceModel: 'rbp1',
   sensorPlacement: 'paddle',
@@ -59,8 +59,8 @@ describe('activity capture reducer', () => {
     state = activityCaptureReducer(state, {type: 'source_discovered', source: rbp1Source});
 
     expect(state.phase).toBe('ready');
-    expect(state.sources['rbp1:demo'].operationalState).toBe('available_idle');
-    expect(state.sources['rbp1:demo'].recordingId).toBeUndefined();
+    expect(state.sources['rbp1:primary'].operationalState).toBe('available_idle');
+    expect(state.sources['rbp1:primary'].recordingId).toBeUndefined();
   });
 
   it('commits one coordinated activity without requiring an RBP1', () => {
@@ -124,12 +124,12 @@ describe('activity capture reducer', () => {
       activityCorrelationId: 'correlation:1',
       recordingIdsBySource: {
         'phone:primary': 'recording:phone:1',
-        'rbp1:demo': 'recording:rbp1:1',
+        'rbp1:primary': 'recording:rbp1:1',
       },
     });
     state = activityCaptureReducer(state, {
       type: 'source_interrupted',
-      sourceId: 'rbp1:demo',
+      sourceId: 'rbp1:primary',
       atElapsedSeconds: 900,
       reason: 'power_loss',
     });
@@ -142,7 +142,7 @@ describe('activity capture reducer', () => {
     });
 
     expect(state.phase).toBe('completed');
-    expect(state.sources['rbp1:demo'].recordingState).toBe('interrupted');
+    expect(state.sources['rbp1:primary'].recordingState).toBe('interrupted');
     expect(state.sources['phone:primary'].recordingState).toBe('finalized');
   });
 });

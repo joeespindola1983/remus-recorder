@@ -180,13 +180,22 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
 
   func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
     guard let data = characteristic.value,
-          let rawCsv = String(data: data, encoding: .utf8),
-          hasListeners else { return }
+          let rawCsv = String(data: data, encoding: .utf8) else { return }
 
-    sendEvent(withName: "onRemusBladeSnapshot", body: [
-      "rawCsv": rawCsv,
-      "deviceId": peripheral.identifier.uuidString,
-      "deviceName": peripheral.name ?? "Remus Blade P1",
-    ])
+    let receivedAt = Int64(Date().timeIntervalSince1970 * 1_000)
+    RemusEvidenceStore.shared.appendRemusBladeLive(
+      rawCsv: rawCsv,
+      deviceId: peripheral.identifier.uuidString,
+      receivedAt: receivedAt
+    )
+
+    if hasListeners {
+      sendEvent(withName: "onRemusBladeSnapshot", body: [
+        "rawCsv": rawCsv,
+        "deviceId": peripheral.identifier.uuidString,
+        "deviceName": peripheral.name ?? "Remus Blade P1",
+        "receivedAtEpochMilliseconds": receivedAt,
+      ])
+    }
   }
 }

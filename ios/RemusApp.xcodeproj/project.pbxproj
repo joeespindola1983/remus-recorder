@@ -15,6 +15,9 @@
 		A10000032CA45674006654EE /* RemusWatchBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = A10000042CA45674006654EE /* RemusWatchBridge.m */; };
 		A10000052CA45674006654EE /* RemusBladeBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000062CA45674006654EE /* RemusBladeBridge.swift */; };
 		A10000072CA45674006654EE /* RemusBladeBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = A10000082CA45674006654EE /* RemusBladeBridge.m */; };
+		C30000012CA45674006654EE /* RemusEvidenceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C30000022CA45674006654EE /* RemusEvidenceStore.swift */; };
+		C30000032CA45674006654EE /* RemusRecordingBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C30000042CA45674006654EE /* RemusRecordingBridge.swift */; };
+		C30000052CA45674006654EE /* RemusRecordingBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = C30000062CA45674006654EE /* RemusRecordingBridge.m */; };
 		B20000012CA45674006654EE /* RemusWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000112CA45674006654EE /* RemusWatchApp.swift */; };
 		B20000022CA45674006654EE /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000122CA45674006654EE /* ContentView.swift */; };
 		B20000032CA45674006654EE /* WatchSensorManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000132CA45674006654EE /* WatchSensorManager.swift */; };
@@ -61,6 +64,9 @@
 		A10000042CA45674006654EE /* RemusWatchBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = RemusWatchBridge.m; path = RemusApp/RemusWatchBridge.m; sourceTree = "<group>"; };
 		A10000062CA45674006654EE /* RemusBladeBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RemusBladeBridge.swift; path = RemusApp/RemusBladeBridge.swift; sourceTree = "<group>"; };
 		A10000082CA45674006654EE /* RemusBladeBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = RemusBladeBridge.m; path = RemusApp/RemusBladeBridge.m; sourceTree = "<group>"; };
+		C30000022CA45674006654EE /* RemusEvidenceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RemusEvidenceStore.swift; path = RemusApp/RemusEvidenceStore.swift; sourceTree = "<group>"; };
+		C30000042CA45674006654EE /* RemusRecordingBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RemusRecordingBridge.swift; path = RemusApp/RemusRecordingBridge.swift; sourceTree = "<group>"; };
+		C30000062CA45674006654EE /* RemusRecordingBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = RemusRecordingBridge.m; path = RemusApp/RemusRecordingBridge.m; sourceTree = "<group>"; };
 		B20000102CA45674006654EE /* RemusWatchApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RemusWatchApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B20000112CA45674006654EE /* RemusWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemusWatchApp.swift; sourceTree = "<group>"; };
 		B20000122CA45674006654EE /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -102,6 +108,9 @@
 				A10000042CA45674006654EE /* RemusWatchBridge.m */,
 				A10000062CA45674006654EE /* RemusBladeBridge.swift */,
 				A10000082CA45674006654EE /* RemusBladeBridge.m */,
+				C30000022CA45674006654EE /* RemusEvidenceStore.swift */,
+				C30000042CA45674006654EE /* RemusRecordingBridge.swift */,
+				C30000062CA45674006654EE /* RemusRecordingBridge.m */,
 			);
 			name = RemusApp;
 			sourceTree = "<group>";
@@ -363,6 +372,9 @@
 				A10000032CA45674006654EE /* RemusWatchBridge.m in Sources */,
 				A10000052CA45674006654EE /* RemusBladeBridge.swift in Sources */,
 				A10000072CA45674006654EE /* RemusBladeBridge.m in Sources */,
+				C30000012CA45674006654EE /* RemusEvidenceStore.swift in Sources */,
+				C30000032CA45674006654EE /* RemusRecordingBridge.swift in Sources */,
+				C30000052CA45674006654EE /* RemusRecordingBridge.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -1,6 +1,6 @@
 # Wearable heart-rate vertical slice
 
-Status: implemented native transport and live React Native projection; physical-device validation pending
+Status: implemented native transport, live React Native projection and iPhone persistence; physical-device validation pending
 
 Date: 2026-09-13
 
@@ -11,9 +11,10 @@ This first wearable slice captures only the canonical
 sources. Each observation retains its source identity and measurement time. A
 missing or invalid measurement is absent; it is never emitted as zero.
 
-The current slice is intentionally a live projection. It does not yet claim
-durable per-watch `recording`, append-only evidence persistence, resumable
-artifact transfer, clock alignment, or verified store-and-forward. Those remain
+During an app-controlled iOS activity, each accepted observation is now appended
+to the iPhone evidence package before it is projected in React Native. The watch
+still does not retain a durable independent recording or support resumable
+artifact transfer, clock alignment or verified store-and-forward. Those remain
 owned by the recording/evidence architecture in
 [`TELEMETRY_DATA_ARCHITECTURE.md`](TELEMETRY_DATA_ARCHITECTURE.md).
 
@@ -40,8 +41,9 @@ RemusWatchBridge (Swift)          RemusWearOSBridge (Kotlin)
 - watchOS owns HealthKit permission, workout lifetime and WatchConnectivity.
 - Wear OS owns health permission, the foreground exercise service and Data
   Layer publication.
-- Native phone bridges own platform callback delivery and cache only the newest
-  replaceable observation/state while JavaScript is unavailable.
+- Native phone bridges own platform callback delivery; the iOS bridge appends
+  every accepted activity observation to `RemusEvidenceStore` and separately
+  caches only the newest replaceable observation for JavaScript.
 - TypeScript adapters validate positive finite BPM, map transport aliases only
   at the boundary and publish one platform-neutral `SensorSample`.
 - React Native owns the bounded live read model and source-readiness UI. It does
@@ -133,11 +135,12 @@ maps that data into the existing `ActivityCaptureState`:
 - permission state controls whether heart rate is advertised as available;
 - a valid live sample updates only `heartRateBeatsPerMinute`;
 - start/stop intent is forwarded to the connected watch;
-- demo pace, speed and distance remain separate from real wearable heart rate.
+- pace, speed and distance are projected only from native iPhone location.
 
-The existing simulator is still presentation scaffolding. The next persistence
-slice must replace its live metric update with the native/C++ append-only
-ingress before wearable heart rate can be called recorded evidence.
+The simulator remains available to deterministic tests, but the production iOS
+button opens the native append-only ingress before starting the watch. No
+synthetic pace, distance, stroke rate or elapsed duration is injected into a
+real activity.
 
 ## Build and device acceptance
 

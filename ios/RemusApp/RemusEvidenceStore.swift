@@ -1,0 +1,348 @@
+import CryptoKit
+import Foundation
+
+final class RemusEvidenceStore {
+  static let shared = RemusEvidenceStore()
+
+  enum StoreError: LocalizedError {
+    case alreadyRecording
+    case notRecording
+    case invalidSourceIds
+    case insufficientStorage
+
+    var errorDescription: String? {
+      switch self {
+      case .alreadyRecording: return "A recording is already active."
+      case .notRecording: return "No recording is active."
+      case .invalidSourceIds: return "At least one source is required."
+      case .insufficientStorage: return "At least 512 MB of free storage is required to start recording."
+      }
+    }
+  }
+
+  private struct ActiveRecording {
+    let activityId: String
+    let activityCorrelationId: String
+    let recordingIdsBySource: [String: String]
+    let directory: URL
+    let startedAtEpochMilliseconds: Int64
+    var handles: [String: FileHandle]
+    var sampleCounts: [String: Int]
+    var appendCountSinceSync: Int
+    var watchMessageIds: Set<String>
+    var failureDescription: String?
+  }
+
+  private let queue = DispatchQueue(label: "com.espindola.remus.evidence-store", qos: .userInitiated)
+  private let fileManager = FileManager.default
+  private var active: ActiveRecording?
+
+  private let streamFiles = [
+    "phoneMotion": "phone-motion.ndjson",
+    "phoneLocation": "phone-location.ndjson",
+    "watchHeartRate": "watch-heart-rate.ndjson",
+    "remusBladeLive": "remus-blade-live.ndjson",
+    "lifecycle": "lifecycle.ndjson",
+  ]
+
+  private init() {
+    recoverInterruptedRecordings()
+  }
+
+  func start(sourceIds: [String]) throws -> [String: Any] {
+    try queue.sync {
+      guard active == nil else { throw StoreError.alreadyRecording }
+      let uniqueSourceIds = Array(Set(sourceIds)).sorted()
+      guard !uniqueSourceIds.isEmpty else { throw StoreError.invalidSourceIds }
+
+      let activityId = "activity:\(UUID().uuidString.lowercased())"
+      let correlationId = "correlation:\(UUID().uuidString.lowercased())"
+      let recordings = Dictionary(uniqueKeysWithValues: uniqueSourceIds.map {
+        ($0, "recording:\(UUID().uuidString.lowercased())")
+      })
+      let startedAt = epochMilliseconds()
+      let root = try evidenceRoot()
+      guard hasMinimumFreeStorage(at: root) else { throw StoreError.insufficientStorage }
+      let directory = root.appendingPathComponent(
+        activityId.replacingOccurrences(of: ":", with: "-"),
+        isDirectory: true
+      )
+      try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+
+      var handles: [String: FileHandle] = [:]
+      for (stream, filename) in streamFiles {
+        let url = directory.appendingPathComponent(filename)
+        guard fileManager.createFile(atPath: url.path, contents: nil) else {
+          throw CocoaError(.fileWriteUnknown)
+        }
+        handles[stream] = try FileHandle(forWritingTo: url)
+      }
+
+      active = ActiveRecording(
+        activityId: activityId,
+        activityCorrelationId: correlationId,
+        recordingIdsBySource: recordings,
+        directory: directory,
+        startedAtEpochMilliseconds: startedAt,
+        handles: handles,
+        sampleCounts: Dictionary(uniqueKeysWithValues: streamFiles.keys.map {($0, 0)}),
+        appendCountSinceSync: 0,
+        watchMessageIds: [],
+        failureDescription: nil
+      )
+      try appendOnQueue(stream: "lifecycle", payload: [
+        "type": "recording_started",
+        "activityId": activityId,
+        "activityCorrelationId": correlationId,
+        "timestampEpochMilliseconds": startedAt,
+      ])
+      try writeManifestOnQueue(status: "recording", endedAt: nil, parts: nil)
+      return startResult(active!)
+    }
+  }
+
+  func appendPhoneMotion(_ payload: [String: Any]) {
+    append(stream: "phoneMotion", sourceId: "phone:primary", payload: payload)
+  }
+
+  func appendPhoneLocation(_ payload: [String: Any]) {
+    append(stream: "phoneLocation", sourceId: "phone:primary", payload: payload)
+  }
+
+  func appendWatchHeartRate(_ payload: [String: Any]) {
+    queue.async { [weak self] in
+      guard let self, var recording = self.active else { return }
+      if let messageId = payload["messageId"] as? String {
+        guard !recording.watchMessageIds.contains(messageId) else { return }
+        recording.watchMessageIds.insert(messageId)
+        self.active = recording
+      }
+      do {
+        try self.appendOnQueue(
+          stream: "watchHeartRate",
+          sourceId: "watch:apple:primary",
+          payload: payload
+        )
+      } catch {
+        self.recordFailureOnQueue(error)
+      }
+    }
+  }
+
+  func appendRemusBladeLive(rawCsv: String, deviceId: String, receivedAt: Int64) {
+    append(stream: "remusBladeLive", sourceId: "rbp1:primary", payload: [
+      "rawCsv": rawCsv,
+      "deviceId": deviceId,
+      "receivedAtEpochMilliseconds": receivedAt,
+    ])
+  }
+
+  func snapshot() -> [String: Any] {
+    queue.sync {
+      guard let active else { return ["isRecording": false] }
+      return [
+        "isRecording": true,
+        "activityId": active.activityId,
+        "artifactDirectory": active.directory.path,
+        "startedAtEpochMilliseconds": active.startedAtEpochMilliseconds,
+        "sampleCounts": active.sampleCounts,
+        "hasWriteFailure": active.failureDescription != nil,
+      ]
+    }
+  }
+
+  func stop() throws -> [String: Any] {
+    try queue.sync {
+      guard active != nil else { throw StoreError.notRecording }
+      let endedAt = epochMilliseconds()
+      try appendOnQueue(stream: "lifecycle", payload: [
+        "type": "recording_stopped",
+        "timestampEpochMilliseconds": endedAt,
+      ])
+      try synchronizeOnQueue()
+
+      guard let recording = active else { throw StoreError.notRecording }
+      for handle in recording.handles.values { try? handle.close() }
+      let parts = try partManifests(directory: recording.directory, counts: recording.sampleCounts)
+      let status = recording.failureDescription == nil ? "finalized" : "interrupted"
+      try writeManifestOnQueue(status: status, endedAt: endedAt, parts: parts)
+      var result: [String: Any] = [
+        "activityId": recording.activityId,
+        "activityCorrelationId": recording.activityCorrelationId,
+        "recordingIdsBySource": recording.recordingIdsBySource,
+        "artifactDirectory": recording.directory.path,
+        "status": status,
+        "startedAtEpochMilliseconds": recording.startedAtEpochMilliseconds,
+        "endedAtEpochMilliseconds": endedAt,
+        "sampleCounts": recording.sampleCounts,
+      ]
+      if let failureDescription = recording.failureDescription {
+        result["failureMessage"] = failureDescription
+      }
+      active = nil
+      return result
+    }
+  }
+
+  private func append(stream: String, sourceId: String, payload: [String: Any]) {
+    queue.async { [weak self] in
+      guard let self else { return }
+      do {
+        try self.appendOnQueue(stream: stream, sourceId: sourceId, payload: payload)
+      } catch {
+        self.recordFailureOnQueue(error)
+      }
+    }
+  }
+
+  private func recordFailureOnQueue(_ error: Error) {
+    guard var recording = active, recording.failureDescription == nil else { return }
+    recording.failureDescription = error.localizedDescription
+    active = recording
+  }
+
+  private func appendOnQueue(
+    stream: String,
+    sourceId: String? = nil,
+    payload: [String: Any]
+  ) throws {
+    guard var recording = active, let handle = recording.handles[stream] else { return }
+    var envelope = payload
+    envelope["schemaVersion"] = "1.0.0"
+    envelope["activityId"] = recording.activityId
+    if let sourceId {
+      envelope["sourceId"] = sourceId
+      envelope["recordingId"] = recording.recordingIdsBySource[sourceId]
+    }
+    let data = try JSONSerialization.data(withJSONObject: envelope, options: [.sortedKeys])
+    try handle.write(contentsOf: data)
+    try handle.write(contentsOf: Data([0x0A]))
+    recording.sampleCounts[stream, default: 0] += 1
+    recording.appendCountSinceSync += 1
+    active = recording
+    if recording.appendCountSinceSync >= 500 {
+      try synchronizeOnQueue()
+    }
+  }
+
+  private func synchronizeOnQueue() throws {
+    guard var recording = active else { return }
+    for handle in recording.handles.values { try handle.synchronize() }
+    recording.appendCountSinceSync = 0
+    active = recording
+    try writeManifestOnQueue(status: "recording", endedAt: nil, parts: nil)
+  }
+
+  private func writeManifestOnQueue(
+    status: String,
+    endedAt: Int64?,
+    parts: [[String: Any]]?
+  ) throws {
+    guard let recording = active else { return }
+    var manifest: [String: Any] = [
+      "schemaVersion": "1.0.0",
+      "producer": "remus-recorder-ios",
+      "activityId": recording.activityId,
+      "activityCorrelationId": recording.activityCorrelationId,
+      "recordingIdsBySource": recording.recordingIdsBySource,
+      "startedAtEpochMilliseconds": recording.startedAtEpochMilliseconds,
+      "status": status,
+      "sampleCounts": recording.sampleCounts,
+    ]
+    if let endedAt { manifest["endedAtEpochMilliseconds"] = endedAt }
+    if let parts { manifest["parts"] = parts }
+    if let failureDescription = recording.failureDescription {
+      manifest["failureMessage"] = failureDescription
+    }
+    let data = try JSONSerialization.data(
+      withJSONObject: manifest,
+      options: [.prettyPrinted, .sortedKeys]
+    )
+    try data.write(
+      to: recording.directory.appendingPathComponent("manifest.json"),
+      options: [.atomic]
+    )
+  }
+
+  private func startResult(_ recording: ActiveRecording) -> [String: Any] {
+    [
+      "activityId": recording.activityId,
+      "activityCorrelationId": recording.activityCorrelationId,
+      "recordingIdsBySource": recording.recordingIdsBySource,
+      "artifactDirectory": recording.directory.path,
+    ]
+  }
+
+  private func partManifests(
+    directory: URL,
+    counts: [String: Int]
+  ) throws -> [[String: Any]] {
+    try streamFiles.map { stream, filename in
+      let url = directory.appendingPathComponent(filename)
+      let values = try url.resourceValues(forKeys: [.fileSizeKey])
+      return [
+        "stream": stream,
+        "filename": filename,
+        "sampleCount": counts[stream, default: 0],
+        "byteLength": values.fileSize ?? 0,
+        "sha256": try sha256(url),
+      ]
+    }.sorted { ($0["stream"] as? String ?? "") < ($1["stream"] as? String ?? "") }
+  }
+
+  private func sha256(_ url: URL) throws -> String {
+    let handle = try FileHandle(forReadingFrom: url)
+    defer { try? handle.close() }
+    var hasher = SHA256()
+    while let chunk = try handle.read(upToCount: 1_048_576), !chunk.isEmpty {
+      hasher.update(data: chunk)
+    }
+    return hasher.finalize().map {String(format: "%02x", $0)}.joined()
+  }
+
+  private func evidenceRoot() throws -> URL {
+    let support = try fileManager.url(
+      for: .applicationSupportDirectory,
+      in: .userDomainMask,
+      appropriateFor: nil,
+      create: true
+    )
+    let root = support.appendingPathComponent("remus-recorder/evidence", isDirectory: true)
+    try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+    return root
+  }
+
+  private func hasMinimumFreeStorage(at url: URL) -> Bool {
+    guard let attributes = try? fileManager.attributesOfFileSystem(forPath: url.path),
+          let freeBytes = attributes[.systemFreeSize] as? NSNumber else { return false }
+    return freeBytes.int64Value >= 512 * 1_024 * 1_024
+  }
+
+  private func epochMilliseconds() -> Int64 {
+    Int64(Date().timeIntervalSince1970 * 1_000)
+  }
+
+  private func recoverInterruptedRecordings() {
+    guard let root = try? evidenceRoot(),
+          let directories = try? fileManager.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+          ) else { return }
+    for directory in directories {
+      let manifestURL = directory.appendingPathComponent("manifest.json")
+      guard let data = try? Data(contentsOf: manifestURL),
+            var manifest = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            manifest["status"] as? String == "recording" else { continue }
+      manifest["status"] = "interrupted"
+      manifest["interruptionReason"] = "process_terminated"
+      manifest["recoveredAtEpochMilliseconds"] = epochMilliseconds()
+      if let recovered = try? JSONSerialization.data(
+        withJSONObject: manifest,
+        options: [.prettyPrinted, .sortedKeys]
+      ) {
+        try? recovered.write(to: manifestURL, options: [.atomic])
+      }
+    }
+  }
+}

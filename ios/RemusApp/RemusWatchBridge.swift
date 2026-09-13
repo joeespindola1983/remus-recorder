@@ -170,6 +170,7 @@ class RemusWatchBridge: RCTEventEmitter, WCSessionDelegate {
       }
       var enriched = payload
       enriched["receivedAtEpochMilliseconds"] = Int64(Date().timeIntervalSince1970 * 1_000)
+      RemusEvidenceStore.shared.appendWatchHeartRate(enriched)
       self.latestHeartRatePayload = enriched
       if self.hasListeners {
         self.sendEvent(withName: "onWatchMessage", body: enriched)

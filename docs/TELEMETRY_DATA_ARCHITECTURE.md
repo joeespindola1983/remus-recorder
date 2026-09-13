@@ -69,6 +69,9 @@ If this document conflicts with canonical terminology or evidence semantics in
 - source-independent activity and source coverage reducers;
 - phone/watch adapter scaffolding and permission abstractions;
 - native Apple Watch and Wear OS live heart-rate capture and companion bridges;
+- native iPhone append-only NDJSON evidence for phone motion/location, received
+  Apple Watch heart rate and every RBP1 live BLE payload, with finalized part
+  hashes and interrupted-process recovery marking;
 - Capture MVP React Native screens and adaptive active-capture UI;
 - contract tests for current TypeScript behavior.
 
@@ -77,9 +80,10 @@ If this document conflicts with canonical terminology or evidence semantics in
 - durable command/effect outbox;
 - shared C++ recording/evidence/sync runtime and its host I/O ports;
 - SQLite catalog and filesystem evidence host implementations;
-- real phone sensor ingestion into append-only batches;
-- durable watch heart-rate ingestion beyond the replaceable live projection;
-- artifact hashing, atomic promotion and crash recovery;
+- final cross-platform binary part codec and migration from the interim iOS
+  NDJSON writer;
+- Android durable phone/Wear OS evidence recording;
+- transactional catalog promotion and full crash recovery;
 - resumable chunk transfer and exact source deletion acknowledgement;
 - real RBP1 GATT protocol and firmware conformance;
 - streaming C++ API and native bridge;
@@ -492,8 +496,10 @@ errors include stable code, component and retryability without including raw
 telemetry. ABI version, acquisition schema version, evidence codec version and
 algorithm version advance independently.
 
-Until the streaming API is implemented and qualified, the UI may use simulator
-metrics only and must not repeatedly run the whole-session API as a live engine.
+Until the streaming API is implemented and qualified, the UI may use bounded
+native sensor projections or explicit simulator fixtures. It must not repeatedly
+run the whole-session API as a live engine or claim derived metrics without a
+qualified producer.
 
 ## 15. React Native delivery contract
 

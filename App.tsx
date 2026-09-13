@@ -1,7 +1,7 @@
 import React, { useEffect, useReducer, useRef, useState } from 'react';
 import { Alert, NativeModules, Platform, StatusBar, StyleSheet } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
-import { createDemoActivityCapture } from './src/application/capture/demoSources';
+import { createActivityCapture } from './src/application/capture/demoSources';
 import {
   applyCaptureScenarioStep,
   createCaptureSimulation,
@@ -18,6 +18,7 @@ import { PhoneDeviceService } from './src/services/sensors/PhoneDeviceService';
 import { RemusBladeDeviceService } from './src/services/blade/RemusBladeDeviceService';
 import { RemusBladeAdapter, RemusBladeSnapshot } from './src/services/blade/RemusBladeAdapter';
 import { useWearables } from './src/services/wearables';
+import {RecordingService} from './src/services/recording/RecordingService';
 
 export default function App(): React.JSX.Element {
   const [activeTab, setActiveTab] = useState<NavigationTab>('activities');
@@ -25,7 +26,7 @@ export default function App(): React.JSX.Element {
     applyCaptureScenarioStep,
     undefined,
     () => createCaptureSimulation(
-      createDemoActivityCapture(
+      createActivityCapture(
         'unavailable',
         Platform.OS === 'android' ? 'wear_os' : 'apple_watch',
       ),
@@ -39,10 +40,23 @@ export default function App(): React.JSX.Element {
     return new RemusBladeDeviceService(adapter);
   });
   const [bladeSnapshot, setBladeSnapshot] = useState<RemusBladeSnapshot | null>(null);
+  const [recordingService] = useState(() => new RecordingService());
   const wearable = useWearables();
   const didShowWearablePermissionAlert = useRef(false);
   const wearableSourceId =
-    Platform.OS === 'android' ? 'watch:wear-os:demo' : 'watch:apple:demo';
+    Platform.OS === 'android' ? 'watch:wear-os:primary' : 'watch:apple:primary';
+
+  useEffect(() => {
+    phoneDevice.getPhoneSourceState().then(sourceState => {
+      if (sourceState.readiness) {
+        dispatch({
+          type: 'update_source_readiness',
+          sourceId: 'phone:primary',
+          readiness: sourceState.readiness,
+        });
+      }
+    }).catch(() => {});
+  }, [phoneDevice]);
 
   useEffect(() => {
     const unsub = bladeDevice.onStateChange(sourceState => {
@@ -50,7 +64,7 @@ export default function App(): React.JSX.Element {
       if (sourceState.readiness) {
         dispatch({
           type: 'update_source_readiness',
-          sourceId: 'rbp1:demo',
+          sourceId: 'rbp1:primary',
           readiness: sourceState.readiness,
         });
       }
@@ -110,6 +124,36 @@ export default function App(): React.JSX.Element {
     });
   }, [wearable.currentSample, wearableSourceId]);
 
+  useEffect(
+    () => recordingService.onUpdate(projection => {
+      const speed = projection.groundSpeedMetersPerSecond;
+      dispatch({
+        type: 'update_live_metrics',
+        metrics: {
+          groundSpeedMetersPerSecond: speed,
+          paceSecondsPer500Meters:
+            speed !== undefined && speed > 0 ? 500 / speed : undefined,
+          distanceMeters: projection.distanceMeters,
+        },
+      });
+    }),
+    [recordingService],
+  );
+
+  useEffect(() => {
+    const spm = bladeSnapshot?.liveSpm;
+    if (spm === undefined) return;
+    dispatch({type: 'update_live_metrics', metrics: {strokeRateSpm: spm}});
+  }, [bladeSnapshot]);
+
+  useEffect(() => {
+    if (state.phase !== 'recording') return;
+    const timer = setInterval(() => {
+      dispatch({type: 'advance_time', seconds: 1});
+    }, 1_000);
+    return () => clearInterval(timer);
+  }, [state.phase]);
+
   const handleRequestPermissions = async (): Promise<void> => {
     const updated = await phoneDevice.requestPermissions();
     if (updated.readiness) {
@@ -121,47 +165,65 @@ export default function App(): React.JSX.Element {
     }
   };
 
-  const startCapture = (): void => {
-    bladeDevice.startWorkoutCapture().catch(() => {});
-    wearable.startRecording().catch(() => {});
-    dispatch({
-      type: 'commit_capture',
-      activityId: 'activity:demo',
-      activityCorrelationId: 'correlation:demo',
-      recordingIdsBySource: Object.fromEntries(
-        Object.keys(state.sources).map(sourceId => [
-          sourceId,
-          `recording:${sourceId}:demo`,
-        ]),
-      ),
-    });
-    dispatch({
-      type: 'advance_time',
-      seconds: 2538,
-      metrics: {
-        strokeRateSpm: 28,
-        paceSecondsPer500Meters: 119,
-        groundSpeedMetersPerSecond: 4.2,
-        distanceMeters: 8400,
-      },
-    });
+  const startCapture = async (): Promise<void> => {
+    try {
+      const started = await recordingService.start(Object.keys(state.sources));
+      const participatingRecordingIds = Object.fromEntries(
+        Object.entries(started.recordingIdsBySource).filter(([sourceId]) => {
+          const source = state.sources[sourceId];
+          return source?.required ||
+            source?.readiness?.sourceConnectionState === 'connected';
+        }),
+      );
+      dispatch({
+        type: 'commit_capture',
+        activityId: started.activityId,
+        activityCorrelationId: started.activityCorrelationId,
+        recordingIdsBySource: participatingRecordingIds,
+      });
+      await Promise.allSettled([
+        bladeDevice.startWorkoutCapture(),
+        wearable.startRecording(),
+      ]);
+    } catch (error) {
+      Alert.alert(
+        'Não foi possível iniciar a gravação',
+        error instanceof Error ? error.message : 'O gravador nativo não está disponível.',
+      );
+    }
   };
 
-  const stopCapture = (): void => {
-    bladeDevice.stopWorkoutCapture().catch(() => {});
-    wearable.stopRecording().catch(() => {});
+  const stopCapture = async (): Promise<void> => {
     dispatch({ type: 'request_stop' });
-    Object.values(state.sources)
-      .filter(
-        source => source.recordingId && source.recordingState !== 'interrupted',
-      )
-      .forEach(source => {
-        dispatch({
-          type: 'finalize_source',
-          sourceId: source.sourceId,
-          reason: 'app_stop',
+    await Promise.allSettled([
+      bladeDevice.stopWorkoutCapture(),
+      wearable.stopRecording(),
+    ]);
+    try {
+      const manifest = await recordingService.stop();
+      if (manifest.status !== 'finalized') {
+        throw new Error(
+          manifest.failureMessage ??
+            'A gravação foi preservada como interrompida por uma falha de escrita.',
+        );
+      }
+      Object.values(state.sources)
+        .filter(
+          source => source.recordingId && source.recordingState !== 'interrupted',
+        )
+        .forEach(source => {
+          dispatch({
+            type: 'finalize_source',
+            sourceId: source.sourceId,
+            reason: 'app_stop',
+          });
         });
-      });
+    } catch (error) {
+      Alert.alert(
+        'Falha ao finalizar a gravação',
+        error instanceof Error ? error.message : 'A evidência permanece pendente de recuperação.',
+      );
+    }
   };
 
   const isFullScreen = state.phase === 'recording';

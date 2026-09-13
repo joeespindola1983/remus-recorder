@@ -107,7 +107,7 @@ describe('DeviceReadinessRow Molecule (TDD)', () => {
 
   it('renders RemusBladeBreakdown when a remus_blade source is expanded', () => {
     const bladeSource: CaptureSourceState = {
-      sourceId: 'rbp1:demo',
+      sourceId: 'rbp1:primary',
       deviceFamily: 'remus_blade',
       deviceModel: 'rbp1',
       operationalState: 'available_idle',
@@ -159,7 +159,7 @@ describe('DeviceReadinessRow Molecule (TDD)', () => {
 
   it('renders Remus Blade row in disconnected/offline state with grey indicator and offline detail text', () => {
     const bladeSource: CaptureSourceState = {
-      sourceId: 'rbp1:demo',
+      sourceId: 'rbp1:primary',
       deviceFamily: 'remus_blade',
       deviceModel: 'rbp1',
       operationalState: 'unavailable',
