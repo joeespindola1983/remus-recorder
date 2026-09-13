@@ -6,8 +6,8 @@ Scope: Capture MVP first; social, training and community surfaces integrate late
 
 ## Outcome
 
-Build one source-agnostic capture application in React Native with substantial
-native iOS/Android runtimes and the shared Remus C++ telemetry engine. The app
+Build one source-agnostic capture application in React Native around a portable
+Remus C++ data-plane core, with thin native iOS/Android platform runtimes. The app
 must work with only phone sensors, only a capable autonomous source synchronized
 later, or any combination of phone, RBP1, Apple Watch, Wear OS, SpeedCoach and
 future admitted devices.
@@ -51,6 +51,11 @@ the Capture MVP.
 
 ## Architecture
 
+The implementation-level data-plane handoff is maintained in
+[`TELEMETRY_DATA_ARCHITECTURE.md`](TELEMETRY_DATA_ARCHITECTURE.md). It defines
+the native ingress pipeline, logical catalog, immutable part writer, bounded
+distribution, application ports, recovery protocol and TDD pull-request gates.
+
 ```text
 React Native UI (Atomic Design)
   screens -> organisms -> molecules -> atoms -> tokens
@@ -59,19 +64,21 @@ Application use cases and presentation read models
        |
 Typed native gateways (bounded commands, snapshots and job progress)
        |
-+---------------- iOS / Android native runtime ----------------+
-| acquisition adapters | device transports | evidence store    |
-| coordinator          | sync runtime       | background life   |
++----------- shared Remus C++ data-plane core ----------------+
+| contracts | recording | evidence | sync | clock | telemetry |
 +-------------------------------+-----------------------------+
                                 |
-                   shared Remus C++ telemetry
-                   live SPM / quality / offline analysis
++---------------- iOS / Android platform host ----------------+
+| sensors/transports | database/files | crypto | background    |
++-------------------------------------------------------------+
 ```
 
 The UI never talks directly to CoreMotion, CoreLocation, HealthKit,
 WatchConnectivity, SensorManager, Wear Data Layer, BLE, SQLite or C++. Native
-code never owns product layout. C++ never owns platform I/O, permissions,
-storage paths, Bluetooth or UI.
+code never owns product layout or reimplements domain state machines. The C++
+core owns portable contracts, recording/evidence/sync decisions, clock handling
+and telemetry; injected native hosts execute platform I/O, permissions,
+protected storage, Bluetooth and background lifecycle.
 
 ## Repository and package boundaries
 
@@ -292,17 +299,16 @@ RemusRecorderKit/
   Acquisition/       CoreMotion, CoreLocation and attributed sample streams
   Sources/           phone, Apple Watch, RBP1 BLE and import adapters
   Transports/        WatchConnectivity, CoreBluetooth and file admission
-  Coordination/      lifecycle, idempotency, continuation and recovery
-  Evidence/          catalog, immutable parts, staging and atomic promotion
-  Sync/              resumable transfer and exact deletion acknowledgement
-  TelemetryCpp/       Objective-C++ ownership/cancellation boundary
+  CoreHost/          clocks, files, SQLite, crypto and background-job ports
+  RemusCoreCpp/       Objective-C++ opaque-handle ownership/cancellation
   Bridge/             generated React Native module implementations
 ```
 
 Background workout/capture, file protection, HealthKit permissions, Core
 Bluetooth restoration and WatchConnectivity reachability stay native. Swift
-actors/serial executors own mutable runtime state. Objective-C++ owns opaque C++
-handles; no C++ exception or borrowed pointer crosses the boundary.
+actors/serial executors serialize platform callbacks and execute host effects.
+The opaque C++ runtime owns portable coordination, evidence and sync state; no
+C++ exception or borrowed pointer crosses the boundary.
 
 ## Android runtime
 
@@ -311,29 +317,34 @@ com.remus.recorder/
   acquisition/       SensorManager/location streams with independent times
   sources/           phone, Wear OS, RBP1 BLE and import adapters
   transport/         Data Layer, Bluetooth GATT and file admission
-  coordination/      lifecycle, idempotency, continuation and recovery
-  evidence/          Room catalog plus immutable part/staging files
-  sync/              WorkManager resumable jobs and deletion acknowledgement
-  telemetrycpp/      JNI opaque-handle and batch boundary
+  corehost/           clocks, Room/SQLite, files, crypto and job ports
+  remuscorecpp/       JNI opaque-handle ownership and bounded batch boundary
   bridge/            generated React Native module implementations
 ```
 
-A foreground service owns active capture; WorkManager owns deferrable sync and
-analysis. Coroutines use explicit scopes and cancellation. Sensor callbacks are
-timestamped independently and never combined into a cached “latest values” row.
+A foreground service hosts active capture; WorkManager executes deferrable
+effects requested by the core. Coroutines serialize platform callbacks and
+cancellation around the opaque C++ runtime. Sensor callbacks are timestamped
+independently and never combined into a cached “latest values” row.
 
-## Shared C++ telemetry architecture
+## Shared C++ core architecture
 
-Retain and modularize the proven engine instead of copying the prototype live
-estimator:
+Retain and modularize the proven engine as the calculation part of the primary
+portable data-plane core instead of copying behavior into Swift or Kotlin:
 
 ```text
-remus-telemetry/
+remus-core/
   contract/          typed normalized inputs, validation and version codecs
+  ingestion/         ordering, deduplication, gaps and producer mapping
+  recording/         lifecycle coordinator, journal and recovery
+  evidence/          stream framing, parts, manifests and integrity
+  sync/              resumable chunk maps and exact deletion authorization
   clock/             domains, anchors, bounded piecewise mappings
   signal/            resampling, filters, quality and resource limits
   live/              incremental SPM snapshots and freshness
   analysis/          offline windows, summaries and comparisons
+  projection/        bounded native/React Native read models
+  host/              injected storage, clock, crypto and scheduling ports
   provenance/        source/stream/config/algorithm lineage
   c_api/             stable allocation, cancellation and structured errors
 ```
@@ -343,8 +354,11 @@ returns bounded snapshots. Keep the existing offline JSON/C ABI for immutable
 analysis jobs until a compatible stable replacement is proven. Native hosts
 batch values into C++; React Native never calls the engine per sample.
 
-C++ remains deterministic and I/O-free. It does not discover devices, open
-SQLite, decide permissions, delete source artifacts or choose UI source labels.
+C++ remains deterministic with platform effects expressed through injected
+ports. It does not discover devices, decide permissions, execute Bluetooth,
+choose storage paths, physically delete artifacts or choose UI labels. It does
+own the decision that bytes are eligible for acknowledgement/deletion after the
+host proves the requested durable operation completed.
 
 ## Source adapters and transports
 
@@ -476,11 +490,13 @@ components reuse one canonical source per family.
 Gate: battery death, disconnect, resume sync and app-only capture work entirely
 with fakes and the same scenario fixtures.
 
-### Phase 3 — Evidence store and coordinator
+### Phase 3 — C++ core, evidence store and coordinator
 
-- native transactional catalog/staging/evidence stores;
-- idempotent lifecycle and relaunch recovery;
-- chunk verification, disk pressure and exact deletion authorization;
+- extract the existing telemetry/clock engine into the pinned C++ core;
+- add C++ contracts, evidence framing, catalog semantics and host I/O ports;
+- add C++ idempotent lifecycle, sync decisions and relaunch recovery;
+- add thin native SQLite/file/crypto/background host implementations;
+- add chunk verification, disk pressure and exact deletion authorization;
 - bounded native snapshots to React Native.
 
 Gate: process kill at every transition preserves an honest recoverable state.
@@ -544,23 +560,25 @@ Gate: Android phone/watch and supported relay paths pass the shared scenarios.
 
 Each item is a small PR into `develop` with green applicable gates:
 
-1. `feature/acquisition-contract-v1`
+1. `feature/cpp-core-extraction`
 2. `feature/capture-mvp-figma-spec`
 3. `feature/app-module-foundation`
 4. `feature/capture-simulator`
 5. `feature/recording-coordinator`
-6. `feature/evidence-store`
-7. `feature/store-and-forward`
-8. `feature/recording-activity-association`
-9. `feature/phone-native-capture`
-10. `feature/cpp-live-bridge`
-11. `feature/remus-blade-protocol`
-12. `feature/remus-blade-lifecycle`
-13. `feature/remus-blade-store-forward`
-14. `feature/apple-watch-capture`
-15. `feature/apple-watch-remus-relay`
-16. `feature/wear-os-capture`
-17. `feature/speedcoach-adapter`
+6. `feature/cpp-acquisition-contracts`
+7. `feature/cpp-evidence-catalog`
+8. `feature/cpp-evidence-part-writer`
+9. `feature/cpp-recording-runtime`
+10. `feature/cpp-artifact-store-forward`
+11. `feature/cpp-recording-activity-reconciliation`
+12. `feature/phone-native-ingress`
+13. `feature/cpp-streaming-telemetry`
+14. `feature/remus-blade-ingress`
+15. `feature/remus-blade-store-forward`
+16. `feature/apple-watch-capture`
+17. `feature/apple-watch-remus-relay`
+18. `feature/wear-os-capture`
+19. `feature/speedcoach-adapter`
 
 The first code demo ends at item 4. Real device integration does not begin until
 the contract, Figma specification, module boundaries and fault simulator are

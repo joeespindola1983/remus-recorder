@@ -67,3 +67,6 @@ The complete mobile/native/C++ delivery architecture is specified in
 [`PRODUCTION_APP_DEVELOPMENT_PLAN.md`](PRODUCTION_APP_DEVELOPMENT_PLAN.md).
 The cross-device protocol and delivery sequence are specified in
 [`DEVICE_ECOSYSTEM_PLAN.md`](DEVICE_ECOSYSTEM_PLAN.md).
+The implementation-level receive/store/distribute blueprint, persistence model,
+ports and TDD pull-request sequence are specified in
+[`TELEMETRY_DATA_ARCHITECTURE.md`](TELEMETRY_DATA_ARCHITECTURE.md).
