@@ -54,7 +54,13 @@ application/UI reference implementation; it does not yet claim durable raw
 recording, artifact hashing, crash recovery, resumable transfer, persistence verification or native
 bridge conformance with the acquisition envelope.
 
-The next vertical slice is the append-only recording writer and its native
+The pure recording coordinator now exposes idempotent prepare/start/stop effects,
+required/optional source policy, partial-start compensation and explicit
+finalization timeouts. See
+[`RECORDING_COORDINATOR.md`](RECORDING_COORDINATOR.md). Its effect outbox is not
+durable yet and the interactive demo does not execute it through native adapters.
+
+The next vertical slice is the append-only evidence store and its native
 ingress boundary. It must consume independent canonical streams rather than the
 legacy composite `SensorSample`.
 The complete mobile/native/C++ delivery architecture is specified in

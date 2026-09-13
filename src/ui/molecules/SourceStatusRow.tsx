@@ -7,7 +7,7 @@ import {color, fontFamily, radius, spacing} from '../theme/tokens';
 const sourceNames: Record<string, string> = {
   iphone: 'iPhone',
   android_phone: 'Android',
-  remus_blade_p1: 'Remus Blade P1',
+  remus_blade: 'Remus Blade P1',
   apple_watch: 'Apple Watch',
   wear_os: 'Wear OS',
 };

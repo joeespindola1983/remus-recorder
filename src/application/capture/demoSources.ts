@@ -26,8 +26,8 @@ export const phoneSource: SourceDescriptor = {
 
 export const rbp1Source: SourceDescriptor = {
   sourceId: 'rbp1:demo',
-  deviceFamily: 'remus_blade_p1',
-  deviceModel: 'RBP1',
+  deviceFamily: 'remus_blade',
+  deviceModel: 'rbp1',
   operationalState: 'available_idle',
   sensorPlacement: 'paddle',
   placementProvenance: 'device_metadata',
