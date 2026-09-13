@@ -8,7 +8,8 @@ Remus Recorder coordinates an on-water activity from the phone and receives
 source evidence from zero or more watches and Remus equipment devices. The
 phone is the persistence authority. A watch is an athlete-worn acquisition
 source and live display. Remus Blade is an equipment-mounted acquisition source
-connected over BLE. Neither keeps a durable recording in this phase.
+connected over BLE and already writes a local microSD recording in the inspected
+prototype firmware. Watches do not keep a durable recording in this phase.
 
 The first release must support:
 
@@ -31,16 +32,22 @@ clock synchronization.
 
 ## Non-negotiable limitation
 
-Without durable source-device storage, complete delivery cannot be guaranteed
-across a long disconnection, process termination, reset or battery loss. The
-first release uses bounded in-memory retransmission buffers on watches and the
-RBP1 firmware. The phone persists every received batch and records missing
-sequence ranges. It must never fill a gap with zeroes, repeat the last sample or
-silently claim completeness.
+Without durable watch storage, complete watch delivery cannot be guaranteed
+across a long disconnection, process termination or battery loss. The first
+release uses a bounded in-memory retransmission buffer on watches.
 
-If later product requirements demand lossless disconnected capture, an
-encrypted watch spool or a measured RBP1 flash log becomes a separate, explicit
-capability and protocol revision.
+RBP1 is different: the inspected firmware already writes a local microSD CSV.
+That file is valuable source evidence, but its current fixed-name overwrite and
+lack of recovery/transfer protocol prevent us from calling it a durable,
+recoverable artifact yet. The phone persists every received batch and records
+missing sequence ranges. It must never fill a gap with zeroes, repeat the last
+sample or silently claim that the 1 Hz BLE snapshots contain the 200 Hz stream
+stored on the RBP1 card.
+
+If later product requirements demand lossless disconnected watch capture, an
+encrypted watch spool becomes a separate, explicit capability and protocol
+revision. RBP1 instead needs its existing microSD writer evolved into unique,
+recoverable, hash-verifiable artifacts with an explicit transfer path.
 
 ## Architectural decisions
 
@@ -127,6 +134,34 @@ electrical interface or effective configuration. A BLE name, MAC address or
 user nickname is never the durable unit identity. The provisioned
 `deviceSerialNumber`, `hardwareRevision`, `firmwareVersion`, boot identity and
 sensor/GNSS configuration accompany every recording.
+
+### Existing RBP1 firmware checkpoint
+
+The firmware source of truth is `joeespindola1983/remus-sensor`. Commit
+`f97c461` currently implements ESP32-C3 + MPU-6050 + REB-4126 input, a 200 Hz
+IMU loop, UART/NMEA GNSS parsing, buffered microSD CSV logging, textual BLE
+commands and one-second live BLE CSV snapshots. It also computes experimental
+SPM on the device.
+
+We will preserve the working hardware bring-up while replacing its transport
+and evidence boundaries incrementally. Known contract gaps include:
+
+- BLE and CSV have no version, recording/boot identity or sample sequence;
+- BLE sends only the latest one-second snapshot and has no ACK/retransmission;
+- BLE labels its first timestamp in milliseconds while the legacy app contract
+  calls it microseconds; SD uses microseconds;
+- a single SD filename is removed on boot and again on the next start;
+- converted IMU floats are stored instead of original integer readings plus
+  configuration;
+- cached GNSS values are repeated at IMU cadence;
+- HDOP-derived heuristic accuracy is not distinguished from receiver-reported
+  accuracy;
+- unavailable edge SPM is encoded as zero;
+- the app cannot list, hash, resume or transfer SD artifacts.
+
+The device-computed SPM remains an experimental diagnostic/candidate. The phone
+owns the live `strokeRateSpm` presented across the product unless a future
+qualified source-selection contract explicitly chooses otherwise.
 
 ### Delivery semantics
 
@@ -355,6 +390,19 @@ Each item is one small feature branch and pull request based on `develop`.
 12. **`feature/wear-os-protocol`** — the same contract and acceptance suite
     through the Wear OS adapter.
 
+The `remus-sensor` repository has a coordinated firmware track:
+
+1. **`feature/protocol-v1-envelope`** — versioned identities, message kinds,
+   clock/sequence semantics, explicit units and unavailable values;
+2. **`feature/recoverable-recordings`** — unique files, atomic metadata,
+   no boot-time deletion, interruption recovery, listing and content hashes;
+3. **`feature/batched-ble-transfer`** — MTU-aware frames, flow control,
+   acknowledgements, retransmission and explicit gaps;
+4. **`feature/separate-gnss-stream`** — source-timestamped fixes and quality
+   without duplicating cached GNSS values into 200 Hz IMU records;
+5. **`feature/artifact-transfer`** — resumable, hash-verified SD artifact
+   transfer while preserving live telemetry as a separate channel.
+
 Do not start persistence or a second watch implementation before the protocol,
 state-machine and fault simulator are green. This is the boundary that prevents
 platform-specific behavior from becoming the application architecture again.
@@ -388,5 +436,7 @@ units can demonstrate:
 8. stop/finalize with source-specific health, interruption and integrity state;
 9. raw integer evidence and reproducible unit conversion preserved on phone;
 10. GNSS fields independently qualified and never synthesized from BLE arrival;
-11. no BPM, water speed, power, hull or technique fields fabricated from RBP1
+11. the local microSD artifact survives reboot, can be listed and transfers with
+    a verified content hash;
+12. no BPM, water speed, power, hull or technique fields fabricated from RBP1
     data.
