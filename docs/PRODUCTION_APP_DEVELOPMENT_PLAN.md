@@ -188,11 +188,15 @@ stop and safety-critical controls remain stable across layout changes.
 States: preparing, recording, degraded, one source interrupted, SPM collecting,
 available/stale/unavailable, stopping and finalization timeout.
 
-### 4. Recovery decision
+### 4. Passive source-loss notice and recovery
 
-When a source battery/storage/transport fails, explains what was preserved and
-which sources remain active. Default action continues the overall activity when
-safe. A returned device becomes a linked recording segment.
+When a source stops sending because of battery, storage or transport failure,
+the activity continues automatically with the remaining sources. The active
+capture screen shows a non-blocking notice and reconnects in the background;
+the notice does not ask the athlete to choose between continuing and stopping
+while rowing. Normal workout controls remain available in their stable location.
+What was preserved and the exact source coverage remain available in details
+and in the summary. A returned device becomes a linked recording segment.
 
 ### 5. Transfer and verification center
 

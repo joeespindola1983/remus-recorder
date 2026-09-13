@@ -99,7 +99,6 @@ export function ActiveScreen({
           />
         </View>
         <Text style={styles.sourceLine}>Voga · RBP1 · atualizada agora</Text>
-        {interrupted ? <OperationalEventBanner /> : null}
         <SourceFleetPanel sources={Object.values(state.sources)} />
         {!interrupted ? (
           <ActionButton
@@ -109,6 +108,11 @@ export function ActiveScreen({
           />
         ) : null}
       </ScrollView>
+      {interrupted ? (
+        <View style={styles.connectionNotice}>
+          <OperationalEventBanner />
+        </View>
+      ) : null}
       <View style={styles.finishAction}>
         <ActionButton
           label="Finalizar atividade"
@@ -223,6 +227,12 @@ const styles = StyleSheet.create({
   },
   metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   sourceLine: { color: color.textSecondary, fontFamily, fontSize: 12 },
+  connectionNotice: {
+    bottom: 92,
+    left: spacing.md,
+    position: 'absolute',
+    right: spacing.md,
+  },
   finishAction: { bottom: spacing.lg, position: 'absolute', right: spacing.md },
   readinessCard: {
     backgroundColor: color.successContainer,
