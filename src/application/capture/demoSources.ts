@@ -60,7 +60,11 @@ export const appleWatchSource: SourceDescriptor = {
   operationalState: 'available_idle',
   sensorPlacement: 'left_wrist',
   placementProvenance: 'device_metadata',
-  capabilities: baseCapabilities,
+  capabilities: {
+    ...baseCapabilities,
+    standaloneCapture: false,
+    storeAndForward: false,
+  },
   clockDomains: [
     {
       clockDomainId: 'watch:monotonic',
@@ -70,7 +74,24 @@ export const appleWatchSource: SourceDescriptor = {
   ],
 };
 
-export const createDemoActivityCapture = (): ActivityCaptureState => {
+export const wearOSSource: SourceDescriptor = {
+  ...appleWatchSource,
+  sourceId: 'watch:wear-os:demo',
+  deviceFamily: 'wear_os',
+  clockDomains: [
+    {
+      clockDomainId: 'wear-os:health-services',
+      clockKind: 'monotonic',
+      timestampUnit: 'us',
+    },
+  ],
+};
+
+export const createDemoActivityCapture = (
+  initialConnectionMode: 'connected' | 'unavailable' = 'connected',
+  wearableFamily: 'apple_watch' | 'wear_os' = 'apple_watch',
+): ActivityCaptureState => {
+  const wearableSource = wearableFamily === 'apple_watch' ? appleWatchSource : wearOSSource;
   const initialState = createInitialActivityCapture(phoneSource);
   let state: ActivityCaptureState = {
     ...initialState,
@@ -95,7 +116,7 @@ export const createDemoActivityCapture = (): ActivityCaptureState => {
   state = activityCaptureReducer(state, {
     type: 'source_discovered',
     source: rbp1Source,
-    readiness: {
+    readiness: initialConnectionMode === 'connected' ? {
       sourceConnectionState: 'connected',
       batteryLevelPercent: 84,
       availableMeasurementIdentifiers: [
@@ -105,45 +126,25 @@ export const createDemoActivityCapture = (): ActivityCaptureState => {
         'rotationRateRadiansPerSecond',
       ],
       liveTelemetryState: 'qualified',
-    },
-  });
-  state = activityCaptureReducer(state, {
-    type: 'source_discovered',
-    source: appleWatchSource,
-    readiness: {
-      sourceConnectionState: 'connected',
-      batteryLevelPercent: 72,
-      availableMeasurementIdentifiers: ['heartRateBeatsPerMinute'],
-      liveTelemetryState: 'qualified',
-    },
-  });
-  return activityCaptureReducer(state, {
-    type: 'source_discovered',
-    source: speedCoachSource,
-    readiness: {
-      sourceConnectionState: 'detected',
+    } : {
+      sourceConnectionState: 'unavailable',
       availableMeasurementIdentifiers: [],
       liveTelemetryState: 'evaluation_pending',
     },
   });
-};
-
-export const speedCoachSource: SourceDescriptor = {
-  sourceId: 'instrument:speedcoach:demo',
-  deviceFamily: 'speedcoach',
-  operationalState: 'available_idle',
-  sensorPlacement: 'hull',
-  placementProvenance: 'device_metadata',
-  capabilities: {
-    ...baseCapabilities,
-    standaloneCapture: true,
-    storeAndForward: false,
-  },
-  clockDomains: [
-    {
-      clockDomainId: 'speedcoach:clock',
-      clockKind: 'unknown',
-      timestampUnit: 'us',
+  state = activityCaptureReducer(state, {
+    type: 'source_discovered',
+    source: wearableSource,
+    readiness: initialConnectionMode === 'connected' ? {
+      sourceConnectionState: 'connected',
+      batteryLevelPercent: 72,
+      availableMeasurementIdentifiers: ['heartRateBeatsPerMinute'],
+      liveTelemetryState: 'qualified',
+    } : {
+      sourceConnectionState: 'unavailable',
+      availableMeasurementIdentifiers: [],
+      liveTelemetryState: 'evaluation_pending',
     },
-  ],
+  });
+  return state;
 };

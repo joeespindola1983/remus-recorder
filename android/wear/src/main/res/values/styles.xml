@@ -1,0 +1,7 @@
+<resources>
+    <style name="RemusWearTheme" parent="android:style/Theme.DeviceDefault">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowBackground">#08111E</item>
+        <item name="android:colorAccent">#36D399</item>
+    </style>
+</resources>

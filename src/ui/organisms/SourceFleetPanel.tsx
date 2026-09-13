@@ -1,14 +1,15 @@
 import React from 'react';
 import {StyleSheet, Text, View} from 'react-native';
 import {CaptureSourceState} from '../../application/capture/ActivityCapture';
+import {t} from '../../i18n';
 import {SourceStatusRow} from '../molecules/SourceStatusRow';
 import {color, fontFamily, spacing} from '../theme/tokens';
 
 export function SourceFleetPanel({sources}: {sources: CaptureSourceState[]}): React.JSX.Element {
   return (
     <View style={styles.panel}>
-      <Text style={styles.title}>Fontes da atividade</Text>
-      <Text style={styles.helper}>O app funciona sozinho. Fontes adicionais aumentam a cobertura.</Text>
+      <Text style={styles.title}>{t('finalizing.sourcesTitle')}</Text>
+      <Text style={styles.helper}>{t('finalizing.sourcesHelper')}</Text>
       <View style={styles.list}>
         {sources.map(source => <SourceStatusRow key={source.sourceId} source={source} />)}
       </View>

@@ -14,12 +14,11 @@ describe('PermissionManager (TDD)', () => {
       Platform.OS = 'android';
     });
 
-    it('should request and return Android location & sensor permissions', async () => {
+    it('requests phone permissions without asking for wearable body sensors', async () => {
       jest.spyOn(PermissionsAndroid, 'requestMultiple').mockResolvedValue({
         'android.permission.ACCESS_FINE_LOCATION': 'granted',
         'android.permission.ACCESS_COARSE_LOCATION': 'granted',
         'android.permission.ACCESS_BACKGROUND_LOCATION': 'granted',
-        'android.permission.BODY_SENSORS': 'granted',
         'android.permission.ACTIVITY_RECOGNITION': 'granted',
       } as Awaited<ReturnType<typeof PermissionsAndroid.requestMultiple>>);
 
@@ -27,6 +26,10 @@ describe('PermissionManager (TDD)', () => {
       expect(result.location).toBe(PermissionStatus.GRANTED);
       expect(result.backgroundLocation).toBe(PermissionStatus.GRANTED);
       expect(result.sensors).toBe(PermissionStatus.GRANTED);
+      expect(result.bluetooth).toBe(PermissionStatus.GRANTED);
+      expect(PermissionsAndroid.requestMultiple).toHaveBeenCalledWith(
+        expect.not.arrayContaining([PermissionsAndroid.PERMISSIONS.BODY_SENSORS]),
+      );
     });
 
     it('should handle denied permissions gracefully', async () => {
@@ -34,14 +37,14 @@ describe('PermissionManager (TDD)', () => {
         'android.permission.ACCESS_FINE_LOCATION': 'denied',
         'android.permission.ACCESS_COARSE_LOCATION': 'denied',
         'android.permission.ACCESS_BACKGROUND_LOCATION': 'denied',
-        'android.permission.BODY_SENSORS': 'denied',
         'android.permission.ACTIVITY_RECOGNITION': 'denied',
       } as Awaited<ReturnType<typeof PermissionsAndroid.requestMultiple>>);
 
       const result = await permissionManager.requestAllPermissions();
       expect(result.location).toBe(PermissionStatus.DENIED);
       expect(result.backgroundLocation).toBe(PermissionStatus.DENIED);
-      expect(result.sensors).toBe(PermissionStatus.DENIED);
+      expect(result.sensors).toBe(PermissionStatus.GRANTED);
+      expect(result.bluetooth).toBe(PermissionStatus.DENIED);
     });
   });
 
@@ -55,6 +58,7 @@ describe('PermissionManager (TDD)', () => {
       expect(result).toHaveProperty('location');
       expect(result).toHaveProperty('backgroundLocation');
       expect(result).toHaveProperty('sensors');
+      expect(result).toHaveProperty('bluetooth');
     });
   });
 });

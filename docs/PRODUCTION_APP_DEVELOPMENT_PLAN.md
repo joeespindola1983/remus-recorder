@@ -9,8 +9,9 @@ Scope: Capture MVP first; social, training and community surfaces integrate late
 Build one source-agnostic capture application in React Native around a portable
 Remus C++ data-plane core, with thin native iOS/Android platform runtimes. The app
 must work with only phone sensors, only a capable autonomous source synchronized
-later, or any combination of phone, RBP1, Apple Watch, Wear OS, SpeedCoach and
-future admitted devices.
+later, or any combination of phone, RBP1, Apple Watch, Wear OS and future
+admitted devices. SpeedCoach is not a live-connectable source; a future phase
+may admit its exported CSV as immutable imported evidence.
 
 RBP1 is the flagship Remus hardware product, but no domain entity, screen or use
 case depends on its presence. Device capabilities select behavior; family names
@@ -547,7 +548,7 @@ tail deduplicates across direct and relay paths.
 
 Gate: Android phone/watch and supported relay paths pass the shared scenarios.
 
-### Phase 8 — SpeedCoach and additional sources
+### Phase 8 — SpeedCoach CSV import and additional sources
 
 - immutable file/provider admission and producer-version adapters;
 - reported cadence, ground speed, GNSS and HR as independent streams;
@@ -584,7 +585,7 @@ Each item is a small PR into `develop` with green applicable gates:
 16. `feature/apple-watch-capture`
 17. `feature/apple-watch-remus-relay`
 18. `feature/wear-os-capture`
-19. `feature/speedcoach-adapter`
+19. `feature/speedcoach-csv-import`
 
 C++ items are owned by the Remus C++ maintainer. TypeScript/Swift/Kotlin work
 may be delegated only against a pinned C++ commit and its green golden fixtures.

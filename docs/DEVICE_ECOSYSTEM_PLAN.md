@@ -15,10 +15,11 @@ prerequisite for a source that declares autonomous capture and store-and-forward
 capabilities. Remus Blade P1 is the flagship Remus device for equipment-local
 motion, its own GNSS evidence and future qualified onboard `strokeRateSpm`;
 that product role does not give it special data-model status. A watch is an
-athlete-worn acquisition source and live display. Phone motion/GNSS and admitted
-instruments such as SpeedCoach can also contribute independent recordings. A
-capture may contain only the app, only one autonomous source, or any useful
-combination.
+athlete-worn acquisition source and live display. Phone motion/GNSS can also
+contribute independent recordings. A future SpeedCoach CSV importer may admit
+an exported file after capture; SpeedCoach is not presented as a discoverable
+or live-connectable device. A capture may contain only the app, only one
+autonomous source, or any useful combination.
 
 The first release must support:
 
@@ -144,8 +145,9 @@ motion or validated technique events.
 
 Source selection is declared per `sensorStream`, not as one global device
 winner. A profile may prefer qualified RBP1 motion as `estimator_input`, select
-one GNSS stream for the live UI and retain phone, watch or SpeedCoach streams as
-fallback or `reference_only`. Another profile may contain no RBP1 at all. Heart
+one GNSS stream for the live UI and retain phone or watch streams as fallback or
+`reference_only`. A later imported SpeedCoach CSV remains source-local evidence,
+not a live candidate. Another profile may contain no RBP1 at all. Heart
 rate can come from a watch. Every source keeps its own values, clock, quality
 and provenance even when it is not selected for the live UI.
 

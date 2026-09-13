@@ -1,21 +1,43 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { CaptureSourceState } from '../../application/capture/ActivityCapture';
 import { BatteryStatusIcon } from '../atoms/BatteryStatusIcon';
 import {
   describeSourceReadiness,
   sourceDisplayName,
 } from '../presentation/deviceReadiness';
+import { PhoneSensorBreakdown } from './PhoneSensorBreakdown';
+import { RemusBladeBreakdown } from './RemusBladeBreakdown';
+import { RemusBladeSnapshot } from '../../services/blade/RemusBladeAdapter';
 import { color, fontFamily, spacing } from '../theme/tokens';
+
+export interface DeviceReadinessRowProps {
+  source: CaptureSourceState;
+  isExpanded?: boolean;
+  onRequestPermissions?: () => void;
+  onToggleExpand?: () => void;
+  bladeSnapshot?: RemusBladeSnapshot | null;
+  onSendGpsAid?: () => void;
+}
 
 export function DeviceReadinessRow({
   source,
-}: {
-  source: CaptureSourceState;
-}): React.JSX.Element {
+  isExpanded = false,
+  onRequestPermissions,
+  onToggleExpand,
+  bladeSnapshot,
+  onSendGpsAid,
+}: DeviceReadinessRowProps): React.JSX.Element {
   const batteryLevelPercent = source.readiness?.batteryLevelPercent;
-  const connected = source.readiness?.sourceConnectionState !== 'unavailable';
-  return (
+  const connected =
+    source.readiness?.sourceConnectionState === 'connected' &&
+    source.operationalState !== 'unavailable';
+  const isPhone =
+    source.deviceFamily === 'iphone' || source.deviceFamily === 'android_phone';
+  const isBlade = source.deviceFamily === 'remus_blade';
+  const isExpandable = isPhone || isBlade;
+
+  const rowContent = (
     <View style={styles.row}>
       <View
         accessibilityLabel={connected ? 'Disponível' : 'Indisponível'}
@@ -30,7 +52,40 @@ export function DeviceReadinessRow({
         <Text style={styles.percentage}>
           {batteryLevelPercent === undefined ? '—' : `${batteryLevelPercent}%`}
         </Text>
+        {isExpandable ? (
+          <Text style={styles.chevron}>{isExpanded ? '▲' : '▼'}</Text>
+        ) : null}
       </View>
+    </View>
+  );
+
+  return (
+    <View style={styles.wrapper}>
+      {isExpandable && onToggleExpand ? (
+        <TouchableOpacity
+          accessibilityLabel={sourceDisplayName(source)}
+          accessibilityRole="button"
+          onPress={onToggleExpand}
+        >
+          {rowContent}
+        </TouchableOpacity>
+      ) : (
+        rowContent
+      )}
+      {isPhone && isExpanded ? (
+        <PhoneSensorBreakdown
+          onRequestPermissions={onRequestPermissions}
+          source={source}
+        />
+      ) : null}
+      {isBlade && isExpanded ? (
+        <RemusBladeBreakdown
+          readiness={source.readiness}
+          snapshot={bladeSnapshot}
+          connectionState={connected ? 'connected' : 'disconnected'}
+          onSendGpsAid={onSendGpsAid}
+        />
+      ) : null}
     </View>
   );
 }
@@ -68,5 +123,15 @@ const styles = StyleSheet.create({
     fontFamily,
     fontSize: 12,
     minWidth: 28,
+  },
+  chevron: {
+    color: color.textTertiary,
+    fontSize: 10,
+    marginLeft: 4,
+  },
+  wrapper: {
+    borderBottomColor: color.borderDefault,
+    borderBottomWidth: 1,
+    paddingVertical: spacing.xs,
   },
 });

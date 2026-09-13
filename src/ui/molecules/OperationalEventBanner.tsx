@@ -1,5 +1,6 @@
 import React from 'react';
 import {StyleSheet, Text, View} from 'react-native';
+import {t} from '../../i18n';
 import {color, fontFamily, radius, spacing} from '../theme/tokens';
 
 export function OperationalEventBanner(): React.JSX.Element {
@@ -10,9 +11,9 @@ export function OperationalEventBanner(): React.JSX.Element {
       style={styles.banner}>
       <View style={styles.bar} />
       <View style={styles.copy}>
-        <Text style={styles.title}>Conexão com Apple Watch perdida</Text>
+        <Text style={styles.title}>{t('active.banner.connectionLostTitle')}</Text>
         <Text style={styles.detail}>
-          Seu treino continua. Estamos tentando reconectar em segundo plano.
+          {t('active.banner.connectionLostDetail')}
         </Text>
       </View>
     </View>

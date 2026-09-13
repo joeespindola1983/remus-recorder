@@ -6,6 +6,9 @@ import React
 class RemusWatchBridge: RCTEventEmitter, WCSessionDelegate {
   private var session: WCSession?
   private var hasListeners = false
+  private var latestHeartRatePayload: [String: Any]?
+  private var latestPermissionState: String?
+  private var deliveredMessageIds: [String] = []
 
   override init() {
     super.init()
@@ -27,6 +30,13 @@ class RemusWatchBridge: RCTEventEmitter, WCSessionDelegate {
 
   override func startObserving() {
     hasListeners = true
+    if let latestPermissionState {
+      sendEvent(withName: "onWatchStateChanged", body: [
+        "isPaired": session?.isPaired ?? false,
+        "isWatchAppInstalled": session?.isWatchAppInstalled ?? false,
+        "heartRatePermissionState": latestPermissionState,
+      ])
+    }
   }
 
   override func stopObserving() {
@@ -54,6 +64,11 @@ class RemusWatchBridge: RCTEventEmitter, WCSessionDelegate {
       return
     }
     resolve(session.isWatchAppInstalled)
+  }
+
+  @objc
+  func getLatestHeartRate(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+    resolve(latestHeartRatePayload)
   }
 
   @objc
@@ -107,21 +122,58 @@ class RemusWatchBridge: RCTEventEmitter, WCSessionDelegate {
   }
 
   func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
-    if hasListeners {
-      sendEvent(withName: "onWatchMessage", body: message)
-    }
+    receive(message)
   }
 
   func session(_ session: WCSession, didReceiveMessage message: [String: Any], replyHandler: @escaping ([String: Any]) -> Void) {
-    if hasListeners {
-      sendEvent(withName: "onWatchMessage", body: message)
-    }
+    receive(message)
     replyHandler(["status": "received"])
   }
 
   func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
-    if hasListeners {
-      sendEvent(withName: "onWatchMessage", body: userInfo)
+    receive(userInfo)
+  }
+
+  func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
+    receive(applicationContext)
+  }
+
+  private func receive(_ payload: [String: Any]) {
+    if payload["type"] as? String == "DEVICE_STATE" {
+      DispatchQueue.main.async { [weak self] in
+        guard let self else { return }
+        self.latestPermissionState = payload["heartRatePermissionState"] as? String
+        if self.hasListeners {
+          self.sendEvent(withName: "onWatchStateChanged", body: [
+            "isPaired": self.session?.isPaired ?? false,
+            "isWatchAppInstalled": self.session?.isWatchAppInstalled ?? false,
+            "heartRatePermissionState": self.latestPermissionState ?? "unknown",
+          ])
+        }
+      }
+      return
+    }
+
+    guard payload["type"] as? String == "HEART_RATE_OBSERVATION",
+          let bpm = payload["heartRateBeatsPerMinute"] as? NSNumber,
+          bpm.doubleValue.isFinite,
+          bpm.doubleValue > 0 else { return }
+
+    DispatchQueue.main.async { [weak self] in
+      guard let self else { return }
+      if let messageId = payload["messageId"] as? String {
+        guard !self.deliveredMessageIds.contains(messageId) else { return }
+        self.deliveredMessageIds.append(messageId)
+        if self.deliveredMessageIds.count > 256 {
+          self.deliveredMessageIds.removeFirst(self.deliveredMessageIds.count - 256)
+        }
+      }
+      var enriched = payload
+      enriched["receivedAtEpochMilliseconds"] = Int64(Date().timeIntervalSince1970 * 1_000)
+      self.latestHeartRatePayload = enriched
+      if self.hasListeners {
+        self.sendEvent(withName: "onWatchMessage", body: enriched)
+      }
     }
   }
 }

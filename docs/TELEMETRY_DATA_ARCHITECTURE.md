@@ -13,8 +13,9 @@ It turns the canonical data model and the existing acquisition/synchronization
 contracts into modules that can be developed independently with TDD.
 
 The architecture must support any admitted combination of phone, Remus Blade
-P1 (RBP1), Apple Watch, Wear OS, SpeedCoach and future sources. RBP1 is the
-flagship source, but it is not required for an `activity` to exist.
+P1 (RBP1), Apple Watch, Wear OS and future sources. SpeedCoach is intentionally
+excluded from live discovery; a future importer may admit its exported CSV.
+RBP1 is the flagship source, but it is not required for an `activity` to exist.
 
 This blueprint does not claim that native persistence, real BLE transfer,
 store-and-forward or the streaming C++ API already exist. The implementation
@@ -67,6 +68,7 @@ If this document conflicts with canonical terminology or evidence semantics in
 - deterministic capture/failure simulator;
 - source-independent activity and source coverage reducers;
 - phone/watch adapter scaffolding and permission abstractions;
+- native Apple Watch and Wear OS live heart-rate capture and companion bridges;
 - Capture MVP React Native screens and adaptive active-capture UI;
 - contract tests for current TypeScript behavior.
 
@@ -76,6 +78,7 @@ If this document conflicts with canonical terminology or evidence semantics in
 - shared C++ recording/evidence/sync runtime and its host I/O ports;
 - SQLite catalog and filesystem evidence host implementations;
 - real phone sensor ingestion into append-only batches;
+- durable watch heart-rate ingestion beyond the replaceable live projection;
 - artifact hashing, atomic promotion and crash recovery;
 - resumable chunk transfer and exact source deletion acknowledgement;
 - real RBP1 GATT protocol and firmware conformance;
@@ -780,9 +783,9 @@ verification.
 
 ### PR 12 onward
 
-Implement Apple Watch, Wear OS, SpeedCoach and cloud custody through the same
-ports, repository and fixture suite. A new source adds an adapter; it does not
-add another storage architecture or lifecycle vocabulary.
+Implement Apple Watch, Wear OS, future SpeedCoach CSV import and cloud custody
+through the same ports, repository and fixture suite. A new source adds an
+adapter; it does not add another storage architecture or lifecycle vocabulary.
 
 ## 21. Definition of done for the data plane MVP
 

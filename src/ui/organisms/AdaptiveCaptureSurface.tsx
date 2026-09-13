@@ -1,6 +1,7 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { LiveCaptureMetrics } from '../../application/capture/ActivityCapture';
+import { t } from '../../i18n';
 import { CaptureFab } from '../atoms/CaptureFab';
 import { LiveMetricCell } from '../molecules/LiveMetricCell';
 import { color, fontFamily, spacing } from '../theme/tokens';
@@ -51,36 +52,36 @@ export function AdaptiveCaptureSurface({
   const cells = [
     {
       identifier: 'strokeRateSpm',
-      label: 'VOGA',
+      label: t('active.metric.strokeRate'),
       value:
         metrics.strokeRateSpm === undefined
           ? '—'
           : String(Math.round(metrics.strokeRateSpm)),
-      unit: 'SPM',
+      unit: t('active.metric.strokeRateUnit'),
     },
     {
       identifier: 'paceSecondsPer500Meters',
-      label: 'PARCIAL',
+      label: t('active.metric.pace'),
       value: formatPace(metrics.paceSecondsPer500Meters),
-      unit: '/500 m',
+      unit: t('active.metric.paceUnit'),
     },
     {
       identifier: 'distanceMeters',
-      label: 'DISTÂNCIA',
+      label: t('active.metric.distance'),
       value:
         metrics.distanceMeters === undefined
           ? '—'
           : formatDecimal(metrics.distanceMeters / 1000),
-      unit: 'km',
+      unit: t('active.metric.distanceUnit'),
     },
     {
       identifier: 'heartRateBeatsPerMinute',
-      label: 'FC',
+      label: t('active.metric.heartRate'),
       value:
         metrics.heartRateBeatsPerMinute === undefined
           ? '—'
           : String(Math.round(metrics.heartRateBeatsPerMinute)),
-      unit: 'bpm',
+      unit: t('active.metric.heartRateUnit'),
     },
   ];
 
@@ -89,7 +90,7 @@ export function AdaptiveCaptureSurface({
       <View style={styles.metricArea}>
         <View style={styles.statusRow}>
           <View style={styles.recordingDot} />
-          <Text style={styles.recordingLabel}>GRAVANDO</Text>
+          <Text style={styles.recordingLabel}>{t('active.recording')}</Text>
           <Text style={styles.elapsed}>{elapsed(metrics.elapsedSeconds)}</Text>
         </View>
         <View style={styles.grid}>
@@ -102,7 +103,7 @@ export function AdaptiveCaptureSurface({
             />
           ))}
         </View>
-        <Text style={styles.provenance}>Voga · RBP1 · atualizada agora</Text>
+        <Text style={styles.provenance}>{t('active.provenance')}</Text>
       </View>
       <View
         style={[

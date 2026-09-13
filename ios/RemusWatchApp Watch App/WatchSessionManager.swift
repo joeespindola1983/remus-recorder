@@ -1,96 +1,116 @@
 import Foundation
 import WatchConnectivity
-import Combine
-import CoreMotion
 
-class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
+@MainActor
+final class WatchSessionManager: NSObject, ObservableObject {
     static let shared = WatchSessionManager()
 
-    @Published var isReachable = false
-    @Published var isRecording = false
-    @Published var lastMessageReceived = ""
+    @Published private(set) var isReachable = false
+    @Published private(set) var isRecording = false
+    var recordingCommandHandler: ((Bool) -> Void)?
 
-    private var session: WCSession?
+    private let session: WCSession?
+    private let deviceId: String
+    private var sequenceNumber: UInt64
 
     override init() {
-        super.init()
-        if WCSession.isSupported() {
-            session = WCSession.default
-            session?.delegate = self
-            session?.activate()
+        let defaults = UserDefaults.standard
+        if let storedDeviceId = defaults.string(forKey: "remus.watch.deviceId") {
+            deviceId = storedDeviceId
+        } else {
+            let generatedDeviceId = "apple-watch:\(UUID().uuidString.lowercased())"
+            defaults.set(generatedDeviceId, forKey: "remus.watch.deviceId")
+            deviceId = generatedDeviceId
         }
+        sequenceNumber = UInt64(defaults.string(forKey: "remus.watch.sequenceNumber") ?? "0") ?? 0
+        session = WCSession.isSupported() ? WCSession.default : nil
+        super.init()
+        session?.delegate = self
+        session?.activate()
     }
 
-    func sendSensorPayload(
-        heartRateBeatsPerMinute: Double? = nil,
-        latitude: Double? = nil,
-        longitude: Double? = nil,
-        altitude: Double? = nil,
-        groundSpeedMetersPerSecond: Double? = nil,
-        horizontalAccuracyMeters: Double? = nil,
-        accelerationIncludingGravityG: CMAcceleration? = nil,
-        rotationRateRadiansPerSecond: CMRotationRate? = nil
-    ) {
-        guard let session = session, session.activationState == .activated else { return }
+    func sendHeartRateObservation(heartRateBeatsPerMinute: Double, measuredAt: Date) {
+        guard heartRateBeatsPerMinute.isFinite, heartRateBeatsPerMinute > 0,
+              let session, session.activationState == .activated else { return }
 
-        var payload: [String: Any] = [
-            "type": "SENSOR_UPDATE",
-            "nativeTimestamp": Int(Date().timeIntervalSince1970 * 1000)
+        sequenceNumber &+= 1
+        UserDefaults.standard.set(String(sequenceNumber), forKey: "remus.watch.sequenceNumber")
+        let messageId = "\(deviceId):\(sequenceNumber)"
+        let payload: [String: Any] = [
+            "protocolVersion": "1.0.0",
+            "type": "HEART_RATE_OBSERVATION",
+            "messageId": messageId,
+            "deviceId": deviceId,
+            "deviceFamily": "apple_watch",
+            "clockDomainId": "\(deviceId):healthkit",
+            "nativeTimestamp": Int64(measuredAt.timeIntervalSince1970 * 1_000),
+            "sequenceNumber": String(sequenceNumber),
+            "heartRateBeatsPerMinute": heartRateBeatsPerMinute,
         ]
 
-        if let heartRateBeatsPerMinute { payload["heartRateBeatsPerMinute"] = heartRateBeatsPerMinute }
-        if let lat = latitude { payload["lat"] = lat }
-        if let lng = longitude { payload["lng"] = lng }
-        if let alt = altitude { payload["alt"] = alt }
-        if let groundSpeedMetersPerSecond { payload["groundSpeedMetersPerSecond"] = groundSpeedMetersPerSecond }
-        if let horizontalAccuracyMeters { payload["horizontalAccuracyMeters"] = horizontalAccuracyMeters }
-        if let accelerationIncludingGravityG {
-            payload["accelerationIncludingGravityG"] = [
-                "x": accelerationIncludingGravityG.x,
-                "y": accelerationIncludingGravityG.y,
-                "z": accelerationIncludingGravityG.z
-            ]
-        }
-        if let rotationRateRadiansPerSecond {
-            payload["rotationRateRadiansPerSecond"] = [
-                "x": rotationRateRadiansPerSecond.x,
-                "y": rotationRateRadiansPerSecond.y,
-                "z": rotationRateRadiansPerSecond.z
-            ]
-        }
-
         if session.isReachable {
-            session.sendMessage(payload, replyHandler: nil) { error in
-                print("Error sending watch message: \(error.localizedDescription)")
+            session.sendMessage(payload, replyHandler: nil) { [weak self] _ in
+                self?.session?.transferUserInfo(payload)
             }
         } else {
             session.transferUserInfo(payload)
         }
     }
 
-    // MARK: - WCSessionDelegate
-    func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
-        DispatchQueue.main.async {
-            self.isReachable = session.isReachable
+    func sendPermissionState(_ permissionState: String) {
+        guard let session, session.activationState == .activated else { return }
+        let payload: [String: Any] = [
+            "protocolVersion": "1.0.0",
+            "type": "DEVICE_STATE",
+            "deviceId": deviceId,
+            "deviceFamily": "apple_watch",
+            "heartRatePermissionState": permissionState,
+        ]
+        try? session.updateApplicationContext(payload)
+    }
+
+    private func apply(_ message: [String: Any]) {
+        guard let command = message["command"] as? String else { return }
+        switch command {
+        case "START_RECORD":
+            isRecording = true
+            recordingCommandHandler?(true)
+        case "STOP_RECORD":
+            isRecording = false
+            recordingCommandHandler?(false)
+        default:
+            break
         }
     }
 
-    func sessionReachabilityDidChange(_ session: WCSession) {
-        DispatchQueue.main.async {
-            self.isReachable = session.isReachable
-        }
+    func setRecording(_ shouldRecord: Bool) {
+        isRecording = shouldRecord
+        recordingCommandHandler?(shouldRecord)
+    }
+}
+
+extension WatchSessionManager: WCSessionDelegate {
+    nonisolated func session(
+        _ session: WCSession,
+        activationDidCompleteWith activationState: WCSessionActivationState,
+        error: Error?
+    ) {
+        Task { @MainActor [weak self] in self?.isReachable = session.isReachable }
     }
 
-    func session(_ session: WCSession, didReceiveMessage message: [String : Any]) {
-        DispatchQueue.main.async {
-            if let command = message["command"] as? String {
-                if command == "START_RECORD" {
-                    self.isRecording = true
-                } else if command == "STOP_RECORD" {
-                    self.isRecording = false
-                }
-                self.lastMessageReceived = command
-            }
-        }
+    nonisolated func sessionReachabilityDidChange(_ session: WCSession) {
+        Task { @MainActor [weak self] in self?.isReachable = session.isReachable }
+    }
+
+    nonisolated func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
+        Task { @MainActor [weak self] in self?.apply(message) }
+    }
+
+    nonisolated func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
+        Task { @MainActor [weak self] in self?.apply(applicationContext) }
+    }
+
+    nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
+        Task { @MainActor [weak self] in self?.apply(userInfo) }
     }
 }

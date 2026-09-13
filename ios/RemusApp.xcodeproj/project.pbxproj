@@ -13,8 +13,39 @@
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
 		A10000012CA45674006654EE /* RemusWatchBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000022CA45674006654EE /* RemusWatchBridge.swift */; };
 		A10000032CA45674006654EE /* RemusWatchBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = A10000042CA45674006654EE /* RemusWatchBridge.m */; };
+		A10000052CA45674006654EE /* RemusBladeBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000062CA45674006654EE /* RemusBladeBridge.swift */; };
+		A10000072CA45674006654EE /* RemusBladeBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = A10000082CA45674006654EE /* RemusBladeBridge.m */; };
+		B20000012CA45674006654EE /* RemusWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000112CA45674006654EE /* RemusWatchApp.swift */; };
+		B20000022CA45674006654EE /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000122CA45674006654EE /* ContentView.swift */; };
+		B20000032CA45674006654EE /* WatchSensorManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000132CA45674006654EE /* WatchSensorManager.swift */; };
+		B20000042CA45674006654EE /* WatchSessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000142CA45674006654EE /* WatchSessionManager.swift */; };
+		B20000052CA45674006654EE /* RemusWatchApp.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = B20000102CA45674006654EE /* RemusWatchApp.app */; };
 		DE91D44EBFC285728AEB59C6 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		B20000212CA45674006654EE /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 83CBB9F71A601CBA00E9B192 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B20000312CA45674006654EE;
+			remoteInfo = RemusWatchApp;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		B20000412CA45674006654EE /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				B20000052CA45674006654EE /* RemusWatchApp.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		13B07F961A680F5B00A75B9A /* RemusApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RemusApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -28,6 +59,15 @@
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = RemusApp/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		A10000022CA45674006654EE /* RemusWatchBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RemusWatchBridge.swift; path = RemusApp/RemusWatchBridge.swift; sourceTree = "<group>"; };
 		A10000042CA45674006654EE /* RemusWatchBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = RemusWatchBridge.m; path = RemusApp/RemusWatchBridge.m; sourceTree = "<group>"; };
+		A10000062CA45674006654EE /* RemusBladeBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RemusBladeBridge.swift; path = RemusApp/RemusBladeBridge.swift; sourceTree = "<group>"; };
+		A10000082CA45674006654EE /* RemusBladeBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = RemusBladeBridge.m; path = RemusApp/RemusBladeBridge.m; sourceTree = "<group>"; };
+		B20000102CA45674006654EE /* RemusWatchApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RemusWatchApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B20000112CA45674006654EE /* RemusWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemusWatchApp.swift; sourceTree = "<group>"; };
+		B20000122CA45674006654EE /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		B20000132CA45674006654EE /* WatchSensorManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSensorManager.swift; sourceTree = "<group>"; };
+		B20000142CA45674006654EE /* WatchSessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSessionManager.swift; sourceTree = "<group>"; };
+		B20000152CA45674006654EE /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		B20000162CA45674006654EE /* RemusWatch.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = RemusWatch.entitlements; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
@@ -37,6 +77,13 @@
 			buildActionMask = 2147483647;
 			files = (
 				0C80B921A6F3F58F76C31292 /* libPods-RemusApp.a in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B20000512CA45674006654EE /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -53,6 +100,8 @@
 				13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */,
 				A10000022CA45674006654EE /* RemusWatchBridge.swift */,
 				A10000042CA45674006654EE /* RemusWatchBridge.m */,
+				A10000062CA45674006654EE /* RemusBladeBridge.swift */,
+				A10000082CA45674006654EE /* RemusBladeBridge.m */,
 			);
 			name = RemusApp;
 			sourceTree = "<group>";
@@ -77,6 +126,7 @@
 			isa = PBXGroup;
 			children = (
 				13B07FAE1A68108700A75B9A /* RemusApp */,
+				B20000612CA45674006654EE /* RemusWatchApp Watch App */,
 				832341AE1AAA6A7D00B99B32 /* Libraries */,
 				83CBBA001A601CBA00E9B192 /* Products */,
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
@@ -91,8 +141,22 @@
 			isa = PBXGroup;
 			children = (
 				13B07F961A680F5B00A75B9A /* RemusApp.app */,
+				B20000102CA45674006654EE /* RemusWatchApp.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		B20000612CA45674006654EE /* RemusWatchApp Watch App */ = {
+			isa = PBXGroup;
+			children = (
+				B20000112CA45674006654EE /* RemusWatchApp.swift */,
+				B20000122CA45674006654EE /* ContentView.swift */,
+				B20000132CA45674006654EE /* WatchSensorManager.swift */,
+				B20000142CA45674006654EE /* WatchSessionManager.swift */,
+				B20000152CA45674006654EE /* Info.plist */,
+				B20000162CA45674006654EE /* RemusWatch.entitlements */,
+			);
+			path = "RemusWatchApp Watch App";
 			sourceTree = "<group>";
 		};
 		BBD78D7AC51CEA395F1C20DB /* Pods */ = {
@@ -118,14 +182,33 @@
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
 				00EEFC60759A1932668264C0 /* [CP] Embed Pods Frameworks */,
 				E235C05ADACE081382539298 /* [CP] Copy Pods Resources */,
+				B20000412CA45674006654EE /* Embed Watch Content */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				B20000912CA45674006654EE /* PBXTargetDependency */,
+			);
+			name = RemusApp;
+			productName = RemusApp;
+			productReference = 13B07F961A680F5B00A75B9A /* RemusApp.app */;
+			productType = "com.apple.product-type.application";
+		};
+		B20000312CA45674006654EE /* RemusWatchApp */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B20000A12CA45674006654EE /* Build configuration list for PBXNativeTarget "RemusWatchApp" */;
+			buildPhases = (
+				B20000712CA45674006654EE /* Sources */,
+				B20000512CA45674006654EE /* Frameworks */,
+				B20000812CA45674006654EE /* Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 			);
-			name = RemusApp;
-			productName = RemusApp;
-			productReference = 13B07F961A680F5B00A75B9A /* RemusApp.app */;
+			name = RemusWatchApp;
+			productName = RemusWatchApp;
+			productReference = B20000102CA45674006654EE /* RemusWatchApp.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -138,6 +221,13 @@
 				TargetAttributes = {
 					13B07F861A680F5B00A75B9A = {
 						LastSwiftMigration = 1120;
+					};
+					B20000312CA45674006654EE = {
+						CreatedOnToolsVersion = 26.3;
+						SystemCapabilities = {
+							com.apple.BackgroundModes = { enabled = 1; };
+							com.apple.HealthKit = { enabled = 1; };
+						};
 					};
 				};
 			};
@@ -155,6 +245,7 @@
 			projectRoot = "";
 			targets = (
 				13B07F861A680F5B00A75B9A /* RemusApp */,
+				B20000312CA45674006654EE /* RemusWatchApp */,
 			);
 		};
 /* End PBXProject section */
@@ -167,6 +258,13 @@
 				81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				DE91D44EBFC285728AEB59C6 /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B20000812CA45674006654EE /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -197,9 +295,13 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-RemusApp/Pods-RemusApp-frameworks-${CONFIGURATION}-input-files.xcfilelist",
 			);
+			inputPaths = (
+			);
 			name = "[CP] Embed Pods Frameworks";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-RemusApp/Pods-RemusApp-frameworks-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -236,9 +338,13 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-RemusApp/Pods-RemusApp-resources-${CONFIGURATION}-input-files.xcfilelist",
 			);
+			inputPaths = (
+			);
 			name = "[CP] Copy Pods Resources";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-RemusApp/Pods-RemusApp-resources-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -255,12 +361,78 @@
 				761780ED2CA45674006654EE /* AppDelegate.swift in Sources */,
 				A10000012CA45674006654EE /* RemusWatchBridge.swift in Sources */,
 				A10000032CA45674006654EE /* RemusWatchBridge.m in Sources */,
+				A10000052CA45674006654EE /* RemusBladeBridge.swift in Sources */,
+				A10000072CA45674006654EE /* RemusBladeBridge.m in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B20000712CA45674006654EE /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B20000012CA45674006654EE /* RemusWatchApp.swift in Sources */,
+				B20000022CA45674006654EE /* ContentView.swift in Sources */,
+				B20000032CA45674006654EE /* WatchSensorManager.swift in Sources */,
+				B20000042CA45674006654EE /* WatchSessionManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		B20000912CA45674006654EE /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = RemusWatchApp;
+			target = B20000312CA45674006654EE /* RemusWatchApp */;
+			targetProxy = B20000212CA45674006654EE /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		B20000B12CA45674006654EE /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "RemusWatchApp Watch App/RemusWatch.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = V6JPGVRWCS;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "RemusWatchApp Watch App/Info.plist";
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.espindola.remus.recorder.watchapp;
+				PRODUCT_NAME = RemusWatchApp;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "watchos watchsimulator";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Debug;
+		};
+		B20000B22CA45674006654EE /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "RemusWatchApp Watch App/RemusWatch.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = V6JPGVRWCS;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "RemusWatchApp Watch App/Info.plist";
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.espindola.remus.recorder.watchapp;
+				PRODUCT_NAME = RemusWatchApp;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "watchos watchsimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				VALIDATE_PRODUCT = YES;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Release;
+		};
 		13B07F941A680F5B00A75B9A /* Debug */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 3B4392A12AC88292D35C810B /* Pods-RemusApp.debug.xcconfig */;
@@ -268,6 +440,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = V6JPGVRWCS;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = RemusApp/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
@@ -298,6 +471,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = V6JPGVRWCS;
 				INFOPLIST_FILE = RemusApp/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -478,6 +652,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		B20000A12CA45674006654EE /* Build configuration list for PBXNativeTarget "RemusWatchApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B20000B12CA45674006654EE /* Debug */,
+				B20000B22CA45674006654EE /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		13B07F931A680F5B00A75B9A /* Build configuration list for PBXNativeTarget "RemusApp" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

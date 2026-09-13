@@ -2,6 +2,7 @@ import {
   MeasurementIdentifier,
   SourceDescriptor,
 } from '../../contracts/acquisition';
+import {HeartRatePermissionState} from '../../types/wearables';
 
 export type ActivityCapturePhase =
   | 'ready'
@@ -32,8 +33,10 @@ export interface SourceCoverageSegment {
 export interface SourceReadinessSnapshot {
   sourceConnectionState: 'connected' | 'detected' | 'unavailable';
   batteryLevelPercent?: number;
+  horizontalAccuracyMeters?: number;
   availableMeasurementIdentifiers: MeasurementIdentifier[];
   liveTelemetryState: 'qualified' | 'evaluation_pending' | 'unavailable';
+  heartRatePermissionState?: HeartRatePermissionState;
 }
 
 export interface CaptureSourceState extends SourceDescriptor {

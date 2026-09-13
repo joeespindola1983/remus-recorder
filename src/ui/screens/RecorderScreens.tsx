@@ -1,12 +1,14 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   ScrollView,
   StyleSheet,
   Text,
+  TouchableOpacity,
   useWindowDimensions,
   View,
 } from 'react-native';
 import { ActivityCaptureState } from '../../application/capture/ActivityCapture';
+import { t } from '../../i18n';
 import { ActionButton } from '../atoms/ActionButton';
 import { OperationalEventBanner } from '../molecules/OperationalEventBanner';
 import {
@@ -14,6 +16,15 @@ import {
   captureOrientationFor,
 } from '../organisms/AdaptiveCaptureSurface';
 import { DeviceReadinessPanel } from '../organisms/DeviceReadinessPanel';
+import { RemusBladeSnapshot } from '../../services/blade/RemusBladeAdapter';
+import {
+  describePhoneSummaryEvidence,
+  overallReadinessSummary,
+} from '../presentation/deviceReadiness';
+import {
+  SourceCoverageLane,
+  SourceCoverageTimeline,
+} from '../organisms/SourceCoverageTimeline';
 import { SourceFleetPanel } from '../organisms/SourceFleetPanel';
 import { color, fontFamily, radius, spacing } from '../theme/tokens';
 
@@ -24,39 +35,64 @@ const elapsed = (seconds: number): string => {
   return [h, m, s].map(value => String(value).padStart(2, '0')).join(':');
 };
 
-const Header = (): React.JSX.Element => (
-  <View style={styles.header}>
-    <Text style={styles.brand}>Remus</Text>
-    <View style={styles.settingsMark}>
-      <Text style={styles.settingsText}>☼</Text>
-    </View>
-  </View>
-);
-
 export function ReadyScreen({
   state,
   onStart,
+  onRequestPermissions,
+  bladeSnapshot,
+  onSendGpsAid,
 }: {
   state: ActivityCaptureState;
   onStart: () => void;
+  onRequestPermissions?: () => void;
+  bladeSnapshot?: RemusBladeSnapshot | null;
+  onSendGpsAid?: () => void;
 }): React.JSX.Element {
+  const [expandedSourceId, setExpandedSourceId] = useState<string | null>(null);
+  const sourcesList = Object.values(state.sources);
+  const overall = overallReadinessSummary(sourcesList);
+  const expandedIds = expandedSourceId ? [expandedSourceId] : [];
+
   return (
     <ScrollView contentContainerStyle={styles.content}>
-      <Header />
-      <Text style={styles.eyebrow}>ANTES DE COMEÇAR</Text>
-      <Text style={styles.title}>Tudo pronto para remar?</Text>
-      <Text style={styles.body}>
-        Confira rapidamente o que vai acompanhar seu treino.
-      </Text>
-      <View style={styles.readinessCard}>
-        <Text style={styles.readinessTitle}>Pronto para começar</Text>
-        <Text style={styles.readinessSummary}>
-          GPS pronto · Movimento disponível
-        </Text>
+      <Text style={styles.eyebrow}>{t('ready.eyebrow')}</Text>
+      <Text style={styles.title}>{t('ready.title')}</Text>
+      <Text style={styles.body}>{t('ready.body')}</Text>
+      <View
+        style={[
+          styles.readinessCard,
+          overall.hasMissingPermissions && styles.readinessCardDegraded,
+        ]}
+      >
+        <Text style={styles.readinessTitle}>{overall.title}</Text>
+        <Text style={styles.readinessSummary}>{overall.summary}</Text>
       </View>
-      <DeviceReadinessPanel sources={Object.values(state.sources)} />
-      <Text style={styles.detailsAction}>Ver detalhes dos dispositivos</Text>
-      <ActionButton label="Iniciar atividade" onPress={onStart} />
+      <DeviceReadinessPanel
+        expandedSourceIds={expandedIds}
+        onRequestPermissions={onRequestPermissions}
+        onToggleExpand={(sourceId: string) => {
+          setExpandedSourceId(prev => (prev === sourceId ? null : sourceId));
+        }}
+        sources={sourcesList}
+        bladeSnapshot={bladeSnapshot}
+        onSendGpsAid={onSendGpsAid}
+      />
+      <TouchableOpacity
+        accessibilityRole="button"
+        accessibilityLabel={
+          expandedSourceId !== null ? t('phone.details.hide') : t('ready.detailsAction')
+        }
+        onPress={() => {
+          setExpandedSourceId(prev =>
+            prev ? null : (sourcesList[0]?.sourceId ?? null)
+          );
+        }}
+      >
+        <Text style={styles.detailsAction}>
+          {expandedSourceId !== null ? t('phone.details.hide') : t('ready.detailsAction')}
+        </Text>
+      </TouchableOpacity>
+      <ActionButton label={t('ready.startAction')} onPress={onStart} />
     </ScrollView>
   );
 }
@@ -105,13 +141,9 @@ export function FinalizingScreen({
 }): React.JSX.Element {
   return (
     <ScrollView contentContainerStyle={styles.content}>
-      <Header />
-      <Text style={styles.eyebrow}>CAPTURA ENCERRADA</Text>
-      <Text style={styles.title}>Finalizando gravações</Text>
-      <Text style={styles.body}>
-        A atividade só fecha depois que cada fonte responde ou entra em
-        recuperação.
-      </Text>
+      <Text style={styles.eyebrow}>{t('finalizing.eyebrow')}</Text>
+      <Text style={styles.title}>{t('finalizing.title')}</Text>
+      <Text style={styles.body}>{t('finalizing.body')}</Text>
       <SourceFleetPanel sources={Object.values(state.sources)} />
     </ScrollView>
   );
@@ -119,31 +151,97 @@ export function FinalizingScreen({
 
 export function SummaryScreen({
   state,
+  onViewAnalysis,
 }: {
   state: ActivityCaptureState;
+  onViewAnalysis?: () => void;
 }): React.JSX.Element {
   const interrupted = Object.values(state.sources).filter(
     source => source.recordingState === 'interrupted',
   ).length;
+
+  const phoneSource = Object.values(state.sources).find(
+    s => s.deviceFamily === 'iphone' || s.deviceFamily === 'android_phone',
+  );
+  const phoneEvidence = phoneSource
+    ? describePhoneSummaryEvidence(phoneSource)
+    : null;
+
+  const sourceNameMap: Record<string, string> = {
+    remus_blade: 'RBP1',
+    iphone: 'iPhone',
+    android_phone: 'Android',
+    apple_watch: 'Watch',
+    wear_os: 'Wear OS',
+  };
+
+  const lanes: SourceCoverageLane[] = Object.values(state.sources).map(source => {
+    const isInterrupted = source.recordingState === 'interrupted';
+    return {
+      sourceId: source.sourceId,
+      sourceName: sourceNameMap[source.deviceFamily] ?? source.deviceFamily,
+      coverageSegments: isInterrupted
+        ? [{ startRatio: 0, endRatio: 0.65 }]
+        : [{ startRatio: 0, endRatio: 1 }],
+      isInterrupted,
+    };
+  });
+
   return (
     <ScrollView contentContainerStyle={styles.content}>
-      <Header />
-      <Text style={styles.eyebrow}>ATIVIDADE FINALIZADA</Text>
-      <Text style={styles.title}>Atividade preservada</Text>
-      <Text style={styles.body}>
-        Cada fonte aparece somente onde possui evidência válida.
-      </Text>
+      <Text style={styles.eyebrow}>{t('summary.eyebrow')}</Text>
+      <Text style={styles.title}>{t('summary.title')}</Text>
+      <Text style={styles.body}>{t('summary.body')}</Text>
       <View style={styles.summaryCard}>
         <Text style={styles.summaryValue}>
           {elapsed(state.metrics.elapsedSeconds)}
         </Text>
-        <Text style={styles.summaryLabel}>duração capturada</Text>
+        <Text style={styles.summaryLabel}>{t('summary.capturedDuration')}</Text>
         <Text style={styles.summaryDetail}>
           {interrupted === 0
-            ? 'Cobertura completa'
-            : `${interrupted} fonte interrompida · prefixo preservado`}
+            ? t('summary.fullCoverage')
+            : `${interrupted} ${t('summary.interruptedPrefix')}`}
         </Text>
       </View>
+
+      <SourceCoverageTimeline
+        endTimeText="07:02"
+        lanes={lanes}
+        startTimeText="06:18"
+      />
+
+      <View style={styles.analysisCard}>
+        <Text style={styles.analysisTitle}>{t('summary.analysisReadyTitle')}</Text>
+        <Text style={styles.analysisDetail}>
+          {t('summary.analysisReadyDetail')}
+        </Text>
+      </View>
+
+      {onViewAnalysis ? (
+        <ActionButton
+          label={t('summary.viewAnalysis')}
+          onPress={onViewAnalysis}
+        />
+      ) : null}
+
+      {phoneEvidence ? (
+        <View style={styles.phoneEvidenceCard}>
+          <Text style={styles.phoneEvidenceTitle}>
+            {t('summary.phoneEvidenceTitle')}
+          </Text>
+          <View style={styles.badgeRow}>
+            {phoneEvidence.sensorBadges.map(badge => (
+              <View key={badge} style={styles.sensorBadge}>
+                <Text style={styles.sensorBadgeText}>{badge}</Text>
+              </View>
+            ))}
+          </View>
+          {phoneEvidence.caveat ? (
+            <Text style={styles.phoneCaveatText}>{phoneEvidence.caveat}</Text>
+          ) : null}
+        </View>
+      ) : null}
+
       <SourceFleetPanel sources={Object.values(state.sources)} />
     </ScrollView>
   );
@@ -209,8 +307,12 @@ const styles = StyleSheet.create({
   readinessCard: {
     backgroundColor: color.successContainer,
     borderRadius: radius.xl,
-    gap: spacing.xs,
     padding: spacing.md,
+  },
+  readinessCardDegraded: {
+    backgroundColor: '#291F0A',
+    borderColor: color.actionPrimary,
+    borderWidth: 1,
   },
   readinessTitle: {
     color: color.textPrimary,
@@ -249,5 +351,64 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     marginTop: spacing.sm,
+  },
+  analysisCard: {
+    backgroundColor: color.surfaceDefault,
+    borderColor: color.borderDefault,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    gap: spacing.xs,
+    padding: spacing.md,
+  },
+  analysisTitle: {
+    color: color.textPrimary,
+    fontFamily,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  analysisDetail: {
+    color: color.textSecondary,
+    fontFamily,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  phoneEvidenceCard: {
+    backgroundColor: color.surfaceDefault,
+    borderColor: color.borderDefault,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    padding: spacing.md,
+  },
+  phoneEvidenceTitle: {
+    color: color.textPrimary,
+    fontFamily,
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: spacing.xs,
+  },
+  badgeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+  },
+  sensorBadge: {
+    backgroundColor: color.successContainer,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+  },
+  sensorBadgeText: {
+    color: color.textPrimary,
+    fontFamily,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  phoneCaveatText: {
+    color: color.textTertiary,
+    fontFamily,
+    fontSize: 12,
+    fontStyle: 'italic',
+    marginTop: spacing.xs,
   },
 });

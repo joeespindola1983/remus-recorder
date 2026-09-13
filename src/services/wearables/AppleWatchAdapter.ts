@@ -7,6 +7,11 @@ import {
 export interface RawWatchPayload {
   type: string;
   nativeTimestamp?: number;
+  deviceId?: string;
+  messageId?: string;
+  sequenceNumber?: string;
+  clockDomainId?: string;
+  receivedAtEpochMilliseconds?: number;
   heartRateBeatsPerMinute?: number;
   groundSpeedMetersPerSecond?: number;
   horizontalAccuracyMeters?: number;
@@ -35,6 +40,7 @@ export interface NativeWatchBridge {
   isSupported?(): Promise<boolean>;
   isPaired?(): Promise<boolean>;
   isWatchAppInstalled?(): Promise<boolean>;
+  getLatestHeartRate?(): Promise<unknown>;
   sendMessage?(message: Record<string, unknown>): Promise<unknown>;
   addListener?(
     eventName: string,
@@ -50,6 +56,8 @@ export class AppleWatchAdapter implements IWearableAdapter {
   private nativeBridge: NativeWatchBridge | null;
   private isConnected = false;
   private messageSubscription: { remove(): void } | null = null;
+  private stateSubscription: { remove(): void } | null = null;
+  private permissionState: WearableDevice['heartRatePermissionState'];
 
   constructor(nativeBridge?: NativeWatchBridge) {
     this.nativeBridge = nativeBridge || null;
@@ -67,8 +75,11 @@ export class AppleWatchAdapter implements IWearableAdapter {
       const isPaired = this.nativeBridge.isPaired
         ? await this.nativeBridge.isPaired()
         : true;
+      const isWatchAppInstalled = this.nativeBridge.isWatchAppInstalled
+        ? await this.nativeBridge.isWatchAppInstalled()
+        : true;
 
-      this.isConnected = isSupported && isPaired;
+      this.isConnected = isSupported && isPaired && isWatchAppInstalled;
       if (this.isConnected && !this.messageSubscription && this.nativeBridge.addListener) {
         this.messageSubscription =
           this.nativeBridge.addListener('onWatchMessage', data => {
@@ -76,6 +87,32 @@ export class AppleWatchAdapter implements IWearableAdapter {
               this.handleRawWatchMessage(data as RawWatchPayload);
             }
           }) || null;
+        this.stateSubscription =
+          this.nativeBridge.addListener('onWatchStateChanged', data => {
+            if (!data || typeof data !== 'object') return;
+            const state = data as {
+              isPaired?: boolean;
+              isWatchAppInstalled?: boolean;
+              heartRatePermissionState?: WearableDevice['heartRatePermissionState'];
+            };
+            this.isConnected =
+              state.isPaired !== false && state.isWatchAppInstalled !== false;
+            this.permissionState = state.heartRatePermissionState;
+            const device: WearableDevice = {
+              id: 'apple-watch',
+              name: 'Apple Watch',
+              deviceFamily: 'apple_watch',
+              state: this.isConnected ? 'connected' : 'disconnected',
+              heartRatePermissionState: state.heartRatePermissionState,
+            };
+            this.deviceStateListeners.forEach(listener => listener(device));
+          }) || null;
+      }
+      if (this.isConnected && this.nativeBridge.getLatestHeartRate) {
+        const latest = await this.nativeBridge.getLatestHeartRate();
+        if (latest && typeof latest === 'object') {
+          this.handleRawWatchMessage(latest as RawWatchPayload);
+        }
       }
       return this.isConnected;
     } catch {
@@ -95,6 +132,7 @@ export class AppleWatchAdapter implements IWearableAdapter {
         name: 'Apple Watch',
         deviceFamily: 'apple_watch',
         state: 'connected',
+        heartRatePermissionState: this.permissionState,
       },
     ];
   }
@@ -113,12 +151,20 @@ export class AppleWatchAdapter implements IWearableAdapter {
   }
 
   handleRawWatchMessage(payload: RawWatchPayload): void {
+    const heartRateBeatsPerMinute =
+      payload.heartRateBeatsPerMinute ?? payload.heartRate;
+    if (
+      typeof heartRateBeatsPerMinute !== 'number' ||
+      !Number.isFinite(heartRateBeatsPerMinute) ||
+      heartRateBeatsPerMinute <= 0
+    ) {
+      return;
+    }
     const normalized: SensorSample = {
       nativeTimestamp: payload.nativeTimestamp ?? payload.timestamp ?? Date.now(),
-      deviceId: 'apple-watch',
+      deviceId: payload.deviceId ?? 'apple-watch',
       deviceFamily: 'apple_watch',
-      heartRateBeatsPerMinute:
-        payload.heartRateBeatsPerMinute ?? payload.heartRate,
+      heartRateBeatsPerMinute,
       location:
         payload.lat !== undefined && payload.lng !== undefined
           ? {
@@ -174,9 +220,12 @@ export class AppleWatchAdapter implements IWearableAdapter {
 
   destroy(): void {
     this.messageSubscription?.remove();
+    this.stateSubscription?.remove();
     this.messageSubscription = null;
+    this.stateSubscription = null;
     this.sensorListeners.clear();
     this.deviceStateListeners.clear();
     this.isConnected = false;
+    this.permissionState = undefined;
   }
 }

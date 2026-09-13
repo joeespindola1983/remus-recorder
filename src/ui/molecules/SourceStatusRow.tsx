@@ -1,6 +1,7 @@
 import React from 'react';
 import {StyleSheet, Text, View} from 'react-native';
 import {CaptureSourceState} from '../../application/capture/ActivityCapture';
+import {t} from '../../i18n';
 import {StatusMark, StatusTone} from '../atoms/StatusMark';
 import {color, fontFamily, radius, spacing} from '../theme/tokens';
 
@@ -13,11 +14,11 @@ const sourceNames: Record<string, string> = {
 };
 
 const presentation = (source: CaptureSourceState): {label: string; tone: StatusTone} => {
-  if (source.recordingState === 'interrupted') return {label: 'Interrompido · prefixo preservado', tone: 'critical'};
-  if (source.recordingState === 'stopping') return {label: 'Finalizando', tone: 'warning'};
-  if (source.recordingState === 'recording') return {label: 'Gravando', tone: 'healthy'};
-  if (source.operationalState === 'available_idle') return {label: 'Pronto', tone: 'healthy'};
-  return {label: 'Indisponível', tone: 'neutral'};
+  if (source.recordingState === 'interrupted') return {label: t('source.status.interrupted'), tone: 'critical'};
+  if (source.recordingState === 'stopping') return {label: t('source.status.finalizing'), tone: 'warning'};
+  if (source.recordingState === 'recording') return {label: t('source.status.recording'), tone: 'healthy'};
+  if (source.operationalState === 'available_idle') return {label: t('source.status.ready'), tone: 'healthy'};
+  return {label: t('source.status.unavailable'), tone: 'neutral'};
 };
 
 export function SourceStatusRow({source}: {source: CaptureSourceState}): React.JSX.Element {
@@ -29,7 +30,7 @@ export function SourceStatusRow({source}: {source: CaptureSourceState}): React.J
         <Text style={styles.name}>{sourceNames[source.deviceFamily] ?? source.deviceFamily}</Text>
         <Text style={styles.detail}>{state.label}</Text>
       </View>
-      <Text style={styles.role}>{source.required ? 'Necessário' : 'Opcional'}</Text>
+      <Text style={styles.role}>{source.required ? t('source.role.required') : t('source.role.optional')}</Text>
     </View>
   );
 }

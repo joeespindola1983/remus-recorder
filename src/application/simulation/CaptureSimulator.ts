@@ -3,6 +3,7 @@ import {
   ActivityCaptureState,
   CaptureFinalizationReason,
   LiveCaptureMetrics,
+  SourceReadinessSnapshot,
 } from '../capture/ActivityCapture';
 
 export type SimulatedTransportState =
@@ -76,6 +77,7 @@ export type CaptureScenarioStep =
       recordingIdsBySource: Record<string, string>;
     }
   | {type: 'advance_time'; seconds: number; metrics?: Omit<Partial<LiveCaptureMetrics>, 'elapsedSeconds'>}
+  | {type: 'update_live_metrics'; metrics: Omit<Partial<LiveCaptureMetrics>, 'elapsedSeconds'>}
   | {type: 'disconnect_source'; sourceId: string}
   | {type: 'reconnect_source'; sourceId: string}
   | {
@@ -100,7 +102,12 @@ export type CaptureScenarioStep =
       contentSha256: string;
     }
   | {type: 'evict_regenerable_data'; byteLength: string}
-  | {type: 'verify_artifact_persistence'; artifactId: string};
+  | {type: 'verify_artifact_persistence'; artifactId: string}
+  | {
+      type: 'update_source_readiness';
+      sourceId: string;
+      readiness: SourceReadinessSnapshot;
+    };
 
 const decimalInteger = (value: string, field: string): bigint => {
   if (!/^(0|[1-9]\d*)$/.test(value)) {
@@ -198,6 +205,14 @@ export const applyCaptureScenarioStep = (
         events: event(advanced, 'time_advanced'),
       };
     }
+    case 'update_live_metrics':
+      return {
+        ...state,
+        capture: activityCaptureReducer(state.capture, {
+          type: 'metrics_updated',
+          metrics: step.metrics,
+        }),
+      };
     case 'disconnect_source': {
       const source = requireSource(state, step.sourceId);
       const sourceTransport: SimulatedTransportState =
@@ -408,6 +423,29 @@ export const applyCaptureScenarioStep = (
           sourceId: artifact.sourceId,
           artifactId: artifact.artifactId,
         }),
+      };
+    }
+    case 'update_source_readiness': {
+      const source = requireSource(state, step.sourceId);
+      const isUnavailable = step.readiness.sourceConnectionState === 'unavailable';
+      const updatedOperationalState = isUnavailable
+        ? 'unavailable'
+        : source.operationalState === 'unavailable'
+          ? 'available_idle'
+          : source.operationalState;
+      return {
+        ...state,
+        capture: {
+          ...state.capture,
+          sources: {
+            ...state.capture.sources,
+            [step.sourceId]: {
+              ...source,
+              operationalState: updatedOperationalState,
+              readiness: step.readiness,
+            },
+          },
+        },
       };
     }
   }

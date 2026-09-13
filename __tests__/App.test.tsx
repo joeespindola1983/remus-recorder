@@ -35,10 +35,10 @@ test('renders a source-agnostic ready state', async () => {
     ),
   ).toHaveLength(1);
   expect(
-    renderer.root.findByProps({
-      accessibilityLabel: 'Bateria 84%, nível normal',
-    }),
-  ).toBeTruthy();
+    renderer.root.findAll(
+      node => node.type === Text && node.props.children === 'Buscando automaticamente...',
+    ),
+  ).toHaveLength(1);
   expect(
     renderer.root.findAll(
       node =>

@@ -63,6 +63,12 @@ durable yet and the interactive demo does not execute it through native adapters
 The next vertical slice is the append-only evidence store and its native
 ingress boundary. It must consume independent canonical streams rather than the
 legacy composite `SensorSample`.
+
+The Apple Watch and Wear OS heart-rate live vertical slice is implemented
+through native HealthKit/Health Services capture, companion transports and the
+existing React Native wearable hub. It is not yet durable recording evidence.
+See [`WEARABLE_HEART_RATE.md`](WEARABLE_HEART_RATE.md) for ownership, permission
+semantics, wire fields, build gates and physical-device acceptance.
 The complete mobile/native/C++ delivery architecture is specified in
 [`PRODUCTION_APP_DEVELOPMENT_PLAN.md`](PRODUCTION_APP_DEVELOPMENT_PLAN.md).
 The cross-device protocol and delivery sequence are specified in

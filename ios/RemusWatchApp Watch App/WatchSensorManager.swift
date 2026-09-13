@@ -1,79 +1,137 @@
 import Foundation
-import CoreMotion
 import HealthKit
-import Combine
 
-class WatchSensorManager: NSObject, ObservableObject {
-    private let motionManager = CMMotionManager()
+@MainActor
+final class WatchSensorManager: NSObject, ObservableObject {
+    enum SensorState: Equatable {
+        case idle
+        case requestingPermission
+        case recording
+        case unavailable(String)
+    }
+
     private let healthStore = HKHealthStore()
+    private var workoutSession: HKWorkoutSession?
+    private var workoutBuilder: HKLiveWorkoutBuilder?
 
-    @Published var heartRateBeatsPerMinute: Double?
-    @Published var accelerationIncludingGravityG: CMAcceleration?
-    @Published var rotationRateRadiansPerSecond: CMRotationRate?
+    @Published private(set) var heartRateBeatsPerMinute: Double?
+    @Published private(set) var state: SensorState = .idle
 
     func requestPermissions() {
-        if HKHealthStore.isHealthDataAvailable() {
-            let typesToRead: Set = [
-                HKObjectType.quantityType(forIdentifier: .heartRate)!
-            ]
-            healthStore.requestAuthorization(toShare: nil, read: typesToRead) { success, error in
-                if success {
-                    self.startHeartRateQuery()
+        guard HKHealthStore.isHealthDataAvailable(),
+              let heartRateType = HKObjectType.quantityType(forIdentifier: .heartRate) else {
+            state = .unavailable("HealthKit indisponível")
+            return
+        }
+
+        state = .requestingPermission
+        WatchSessionManager.shared.sendPermissionState("not_determined")
+        let shareTypes: Set<HKSampleType> = [HKObjectType.workoutType()]
+        healthStore.requestAuthorization(toShare: shareTypes, read: [heartRateType]) { [weak self] success, error in
+            Task { @MainActor in
+                if success && self?.healthStore.authorizationStatus(for: .workoutType()) != .sharingDenied {
+                    self?.state = .idle
+                    WatchSessionManager.shared.sendPermissionState("unknown")
+                } else {
+                    self?.state = .unavailable(error?.localizedDescription ?? "Revise a permissão no app Saúde")
+                    WatchSessionManager.shared.sendPermissionState("denied")
                 }
             }
         }
     }
 
-    func startMotionTracking() {
-        if motionManager.isAccelerometerAvailable {
-            motionManager.accelerometerUpdateInterval = 0.2
-            motionManager.startAccelerometerUpdates(to: .main) { [weak self] data, _ in
-                guard let data = data else { return }
-                self?.accelerationIncludingGravityG = data.acceleration
-                WatchSessionManager.shared.sendSensorPayload(
-                    accelerationIncludingGravityG: data.acceleration
-                )
-            }
-        }
+    func startHeartRateCapture() {
+        guard workoutSession == nil else { return }
+        let configuration = HKWorkoutConfiguration()
+        configuration.activityType = .rowing
+        configuration.locationType = .outdoor
 
-        if motionManager.isGyroAvailable {
-            motionManager.gyroUpdateInterval = 0.2
-            motionManager.startGyroUpdates(to: .main) { [weak self] data, _ in
-                guard let data = data else { return }
-                self?.rotationRateRadiansPerSecond = data.rotationRate
-                WatchSessionManager.shared.sendSensorPayload(
-                    rotationRateRadiansPerSecond: data.rotationRate
-                )
+        do {
+            let session = try HKWorkoutSession(healthStore: healthStore, configuration: configuration)
+            let builder = session.associatedWorkoutBuilder()
+            builder.dataSource = HKLiveWorkoutDataSource(
+                healthStore: healthStore,
+                workoutConfiguration: configuration
+            )
+            session.delegate = self
+            builder.delegate = self
+            workoutSession = session
+            workoutBuilder = builder
+
+            let startedAt = Date()
+            session.startActivity(with: startedAt)
+            builder.beginCollection(withStart: startedAt) { [weak self] success, error in
+                Task { @MainActor in
+                    if success {
+                        self?.state = .recording
+                    } else {
+                        self?.state = .unavailable(error?.localizedDescription ?? "Falha ao iniciar")
+                        self?.workoutSession = nil
+                        self?.workoutBuilder = nil
+                    }
+                }
             }
+        } catch {
+            state = .unavailable(error.localizedDescription)
         }
     }
 
-    func stopMotionTracking() {
-        motionManager.stopAccelerometerUpdates()
-        motionManager.stopGyroUpdates()
-    }
-
-    private func startHeartRateQuery() {
-        guard let sampleType = HKObjectType.quantityType(forIdentifier: .heartRate) else { return }
-
-        let query = HKObserverQuery(sampleType: sampleType, predicate: nil) { [weak self] _, _, error in
-            guard error == nil else { return }
-            self?.fetchLatestHeartRate()
-        }
-        healthStore.execute(query)
-    }
-
-    private func fetchLatestHeartRate() {
-        guard let sampleType = HKObjectType.quantityType(forIdentifier: .heartRate) else { return }
-        let sortDescriptor = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
-        let query = HKSampleQuery(sampleType: sampleType, predicate: nil, limit: 1, sortDescriptors: [sortDescriptor]) { [weak self] _, results, _ in
-            guard let sample = results?.first as? HKQuantitySample else { return }
-            let hr = sample.quantity.doubleValue(for: HKUnit.count().unitDivided(by: HKUnit.minute()))
-            DispatchQueue.main.async {
-                self?.heartRateBeatsPerMinute = hr
-                WatchSessionManager.shared.sendSensorPayload(heartRateBeatsPerMinute: hr)
+    func stopHeartRateCapture() {
+        guard let session = workoutSession, let builder = workoutBuilder else { return }
+        let endedAt = Date()
+        session.end()
+        builder.endCollection(withEnd: endedAt) { [weak self] _, _ in
+            builder.finishWorkout { [weak self] _, _ in
+                Task { @MainActor [weak self] in
+                    self?.workoutSession = nil
+                    self?.workoutBuilder = nil
+                    self?.state = .idle
+                }
             }
         }
-        healthStore.execute(query)
+    }
+}
+
+extension WatchSensorManager: HKWorkoutSessionDelegate {
+    nonisolated func workoutSession(
+        _ workoutSession: HKWorkoutSession,
+        didChangeTo toState: HKWorkoutSessionState,
+        from fromState: HKWorkoutSessionState,
+        date: Date
+    ) {}
+
+    nonisolated func workoutSession(_ workoutSession: HKWorkoutSession, didFailWithError error: Error) {
+        Task { @MainActor [weak self] in
+            self?.state = .unavailable(error.localizedDescription)
+            self?.workoutSession = nil
+            self?.workoutBuilder = nil
+        }
+    }
+}
+
+extension WatchSensorManager: HKLiveWorkoutBuilderDelegate {
+    nonisolated func workoutBuilderDidCollectEvent(_ workoutBuilder: HKLiveWorkoutBuilder) {}
+
+    nonisolated func workoutBuilder(
+        _ workoutBuilder: HKLiveWorkoutBuilder,
+        didCollectDataOf collectedTypes: Set<HKSampleType>
+    ) {
+        guard let heartRateType = HKObjectType.quantityType(forIdentifier: .heartRate),
+              collectedTypes.contains(heartRateType),
+              let statistics = workoutBuilder.statistics(for: heartRateType),
+              let quantity = statistics.mostRecentQuantity() else { return }
+
+        let bpm = quantity.doubleValue(for: HKUnit.count().unitDivided(by: .minute()))
+        let measuredAt = statistics.endDate
+        guard bpm.isFinite, bpm > 0 else { return }
+
+        Task { @MainActor [weak self] in
+            self?.heartRateBeatsPerMinute = bpm
+            WatchSessionManager.shared.sendPermissionState("granted")
+            WatchSessionManager.shared.sendHeartRateObservation(
+                heartRateBeatsPerMinute: bpm,
+                measuredAt: measuredAt
+            )
+        }
     }
 }
