@@ -2,14 +2,23 @@
 
 Status: proposed implementation plan
 
+Synchronization semantics, independently transferable parts, verified deletion,
+disk pressure and battery/restart recovery are normative in
+[`SYNC_STORE_AND_RECOVERY.md`](SYNC_STORE_AND_RECOVERY.md).
+
 ## Product boundary for the first release
 
-Remus Recorder coordinates an on-water activity from the phone and receives
-source evidence from zero or more watches and Remus equipment devices. The
-phone is the persistence authority. A watch is an athlete-worn acquisition
-source and live display. Remus Blade is an equipment-mounted acquisition source
-connected over BLE and already writes a local microSD recording in the inspected
-prototype firmware. Watches do not keep a durable recording in this phase.
+Remus Recorder accepts an on-water activity from any admitted acquisition
+source and associates zero, one or many source recordings. The app is the
+coordinator and persistence authority while it is present, but it is not a
+prerequisite for a source that declares autonomous capture and store-and-forward
+capabilities. Remus Blade P1 is the flagship Remus device for equipment-local
+motion, its own GNSS evidence and future qualified onboard `strokeRateSpm`;
+that product role does not give it special data-model status. A watch is an
+athlete-worn acquisition source and live display. Phone motion/GNSS and admitted
+instruments such as SpeedCoach can also contribute independent recordings. A
+capture may contain only the app, only one autonomous source, or any useful
+combination.
 
 The first release must support:
 
@@ -19,7 +28,8 @@ The first release must support:
   evidence to the phone;
 - continuous transfer of RBP1 raw accelerometer, gyroscope, GNSS, clock,
   sequence, configuration and supported health diagnostics over BLE;
-- append-only phone persistence with explicit source, clock and sequence gaps;
+- append-only app persistence, live or after resumable synchronization, with
+  explicit source, clock and sequence gaps;
 - live `strokeRateSpm` produced by the phone and displayed by a watch with
   availability and freshness state;
 - honest degraded behavior when a device is disconnected, unsupported or
@@ -36,32 +46,38 @@ Without durable watch storage, complete watch delivery cannot be guaranteed
 across a long disconnection, process termination or battery loss. The first
 release uses a bounded in-memory retransmission buffer on watches.
 
-RBP1 is different: the inspected firmware already writes a local microSD CSV.
-That file is valuable source evidence, but its current fixed-name overwrite and
-lack of recovery/transfer protocol prevent us from calling it a durable,
-recoverable artifact yet. The phone persists every received batch and records
-missing sequence ranges. It must never fill a gap with zeroes, repeat the last
-sample or silently claim that the 1 Hz BLE snapshots contain the 200 Hz stream
-stored on the RBP1 card.
+RBP1 uses a bounded volatile retransmission buffer while connected and can
+create a temporary local recording when it captures autonomously or must bridge
+a longer disconnection. That store-and-forward recording is production evidence,
+not permanent archive: it is eligible for device deletion only after the app
+has verified complete, integrity-checked persistence and acknowledged the exact
+artifact. The inspected firmware's current always-on fixed-name microSD CSV
+remains an engineering diagnostic and does not yet implement this lifecycle.
+The app records missing sequence ranges and must never fill a gap with zeroes,
+repeat the last sample or claim that the current 1 Hz BLE snapshot represents
+the acquired 200 Hz stream.
 
-If later product requirements demand lossless disconnected watch capture, an
-encrypted watch spool becomes a separate, explicit capability and protocol
-revision. RBP1 instead needs its existing microSD writer evolved into unique,
-recoverable, hash-verifiable artifacts with an explicit transfer path.
+Autonomous capture and durable store-and-forward are explicit negotiated
+capabilities, not assumptions attached to a device family. A source without
+them requires the app to remain reachable and declares a gap when its volatile
+buffer is exhausted. Debug logging remains a separate mode and is never
+silently promoted into a production recording.
 
 ## Architectural decisions
 
-### Phone as coordinator
+### Lifecycle authority follows the capture mode
 
-Only the phone commits lifecycle transitions and finalizes recordings. Both
-phone and watch UIs may issue user intents, but a watch start/stop button sends
-an intent to the phone and waits for the authoritative result. Remus Blade has
-no athlete-facing lifecycle authority in this phase; its BLE control plane
-executes idempotent phone commands and reports the resulting device state.
+During connected capture the app commits the coordinated lifecycle and every
+source applies idempotent commands. During autonomous capture, a capable source
+creates and finalizes its own source-local recording and later presents it to
+the app for ingestion. Importing that recording does not rewrite its original
+times, identity or lifecycle; the app associates it to an existing or new
+activity and may align it with other recordings.
 
-If a watch requests start while the phone is unavailable, the UI remains idle
-and explains that the phone is required. It must not show a recording state that
-cannot be persisted.
+A source may offer a start control without the app only when its capability
+manifest declares `standaloneCapture` and a qualified store-and-forward path.
+Otherwise its UI remains idle and explains that the app is required. A source
+must not show a recording state that it cannot persist or later account for.
 
 ### Versioned device protocol
 
@@ -125,6 +141,13 @@ position and motion and may render live metrics. RBP1 provides equipment-local
 raw accelerometer/gyroscope evidence, GNSS observations and supported device
 diagnostics. It does not provide heart rate, weather, water speed, power, hull
 motion or validated technique events.
+
+Source selection is declared per `sensorStream`, not as one global device
+winner. A profile may prefer qualified RBP1 motion as `estimator_input`, select
+one GNSS stream for the live UI and retain phone, watch or SpeedCoach streams as
+fallback or `reference_only`. Another profile may contain no RBP1 at all. Heart
+rate can come from a watch. Every source keeps its own values, clock, quality
+and provenance even when it is not selected for the live UI.
 
 For RBP1 the fixed identities are `deviceFamily: remus_blade`,
 `deviceModel: rbp1` and acquisition profile `remus_blade_rbp1_v1`. Its declared
@@ -215,6 +238,8 @@ These are configuration defaults, not universal device promises.
 Use the canonical states `preparing`, `recording`, `stopping`, `finalized`,
 `interrupted` and `failed`.
 
+Connected coordinated capture:
+
 ```text
 idle
   -> start intent
@@ -227,6 +252,10 @@ stopping
 finalized
 ```
 
+An autonomous source runs the same source-recording states locally, creates its
+own identities and later submits a finalized or recovered-interrupted artifact.
+The app ingests and associates it without replaying a fake connected start.
+
 A source failure may interrupt its recording without silently ending every other
 source. The activity coordinator decides whether the overall capture continues.
 Repeated start/stop messages return the current result and never create duplicate
@@ -236,15 +265,18 @@ The phone creates the activity correlation before start and assigns a distinct
 recording identity to each source. Every transition has a monotonically
 increasing lifecycle revision so delayed messages cannot roll state backward.
 
-Required and optional sources are chosen before start. For example, an activity
-may require the phone recorder but treat one RBP1 unit or watch as optional. The
-coordinator exposes exactly which source entered `recording`, failed preparation
-or joined late. A second RBP1 attached to another oar/paddle receives a distinct
-recording and is never merged by BLE arrival time.
+Required and optional streams are chosen before a coordinated start. Autonomous
+sources declare what they actually captured when later discovered. The app
+exposes exactly which source entered `recording`, failed preparation, joined
+late or arrived through post-capture synchronization. A second RBP1 attached to
+another oar/paddle receives a distinct recording and is never merged by BLE
+arrival time.
 
-## Phone persistence
+## App persistence and source synchronization
 
-Persistence begins before a start result is shown to the user. The phone stores:
+For coordinated capture, persistence begins before a start result is shown to
+the user. For autonomous capture, the app first creates an ingestion record and
+then stores resumable chunks before acknowledging completion. The app stores:
 
 - activity correlation and one recording per source;
 - capability and effective configuration snapshots;
@@ -266,6 +298,14 @@ fields. Raw equipment evidence is never discarded after conversion.
 Writes are append-only during capture. Finalization creates an
 `acquisitionArtifact`; it does not rewrite raw evidence. Navigation and React
 Native lifecycle changes do not own recording state.
+
+An autonomous source advertises an artifact manifest with recording identity,
+byte length, content hash, chunking and lifecycle state. Synchronization is
+resumable and idempotent. The app sends a deletion authorization only after the
+complete artifact and required metadata are durable and hash-verified locally.
+The source deletes exactly that acknowledged artifact, reports the result and
+never interprets discovery, partial transfer or a matching filename as consent
+to erase it.
 
 ## Watch live experience
 
@@ -394,14 +434,17 @@ The `remus-sensor` repository has a coordinated firmware track:
 
 1. **`feature/protocol-v1-envelope`** — versioned identities, message kinds,
    clock/sequence semantics, explicit units and unavailable values;
-2. **`feature/recoverable-recordings`** — unique files, atomic metadata,
-   no boot-time deletion, interruption recovery, listing and content hashes;
+2. **`feature/store-and-forward`** — autonomous source recording, immutable
+   manifests, resumable chunk transfer, verified acknowledgement and exact
+   post-sync deletion;
 3. **`feature/batched-ble-transfer`** — MTU-aware frames, flow control,
    acknowledgements, retransmission and explicit gaps;
 4. **`feature/separate-gnss-stream`** — source-timestamped fixes and quality
    without duplicating cached GNSS values into 200 Hz IMU records;
-5. **`feature/artifact-transfer`** — resumable, hash-verified SD artifact
-   transfer while preserving live telemetry as a separate channel.
+5. **`feature/opt-in-debug-sd`** — debug logging separated from production
+   store-and-forward, enabled only
+   through an explicit diagnostic configuration with bounded retention and no
+   effect on normal recording finalization.
 
 Do not start persistence or a second watch implementation before the protocol,
 state-machine and fault simulator are green. This is the boundary that prevents
@@ -436,7 +479,8 @@ units can demonstrate:
 8. stop/finalize with source-specific health, interruption and integrity state;
 9. raw integer evidence and reproducible unit conversion preserved on phone;
 10. GNSS fields independently qualified and never synthesized from BLE arrival;
-11. the local microSD artifact survives reboot, can be listed and transfers with
-    a verified content hash;
+11. standalone capture survives app absence, resumes synchronization, verifies
+    integrity and deletes only the exact artifact acknowledged as durable by the
+    app; connected capture does not write a redundant full workout by default;
 12. no BPM, water speed, power, hull or technique fields fabricated from RBP1
     data.
