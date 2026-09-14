@@ -152,5 +152,18 @@ describe('RemusBladeAdapter (TDD)', () => {
       expect(sample.location?.latitude).toBe(-23.55052);
       expect(sample.location?.horizontalAccuracyMeters).toBe(3.2);
     });
+
+    it('normalizes scanning state as disconnected so initial readiness is not marked detected', async () => {
+      const stateSpy = jest.fn();
+      await adapter.initialize();
+      adapter.onDeviceStateChanged(stateSpy);
+
+      const emitter = new NativeEventEmitter();
+      (emitter as any).emit('onRemusBladeStateChanged', { state: 'scanning' });
+
+      expect(stateSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ state: 'disconnected' }),
+      );
+    });
   });
 });

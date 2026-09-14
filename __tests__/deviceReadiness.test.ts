@@ -253,6 +253,22 @@ describe('device readiness presentation', () => {
     expect(describeSourceReadiness(blade)).toBe('Buscando automaticamente...');
   });
 
+  it('describes Remus Blade as Conectando... when connecting (evaluation_pending)', () => {
+    const blade = source({
+      sourceId: 'rbp1:primary',
+      deviceFamily: 'remus_blade',
+      deviceModel: 'rbp1',
+      operationalState: 'unavailable',
+      readiness: {
+        sourceConnectionState: 'detected',
+        availableMeasurementIdentifiers: [],
+        liveTelemetryState: 'evaluation_pending',
+      },
+    });
+
+    expect(describeSourceReadiness(blade)).toBe('Conectando...');
+  });
+
   it('warns that Remus Blade is offline in overall readiness summary when paired blade disconnects', () => {
     const { overallReadinessSummary } = require('../src/ui/presentation/deviceReadiness');
     const phone = source({

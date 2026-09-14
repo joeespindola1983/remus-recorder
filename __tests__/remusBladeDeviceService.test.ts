@@ -138,6 +138,17 @@ describe('RemusBladeDeviceService (TDD)', () => {
     });
   });
 
+  it('treats scanning as disconnected and remains unavailable (Buscando automaticamente...)', async () => {
+    await service.initialize();
+
+    const emitter = new NativeEventEmitter();
+    (emitter as any).emit('onRemusBladeStateChanged', { state: 'scanning' });
+
+    expect(service.getConnectionState()).toBe('disconnected');
+    expect(service.getSourceState().operationalState).toBe('unavailable');
+    expect(service.getSourceState().readiness?.sourceConnectionState).toBe('unavailable');
+  });
+
   it('does not enter capture state or send START while the Blade is offline', async () => {
     await service.initialize();
 

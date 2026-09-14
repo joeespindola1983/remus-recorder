@@ -288,7 +288,7 @@ export class RemusBladeAdapter implements IWearableAdapter {
     state: string,
   ): 'connected' | 'disconnected' | 'connecting' | 'error' {
     if (state === 'connected') return 'connected';
-    if (state === 'connecting' || state === 'scanning' || state === 'detected') {
+    if (state === 'connecting' || state === 'detected') {
       return 'connecting';
     }
     if (state === 'error') return 'error';

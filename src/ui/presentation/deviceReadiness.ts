@@ -49,6 +49,9 @@ export const describeSourceReadiness = (source: CaptureSourceState): string => {
     }
   }
   if (readiness.liveTelemetryState === 'evaluation_pending') {
+    if (source.deviceFamily === 'remus_blade') {
+      return t('blade.connecting');
+    }
     return `${
       readiness.sourceConnectionState === 'detected' ? 'Detectado' : 'Conectado'
     } · Uso ao vivo em teste`;
