@@ -66,6 +66,7 @@ android/app/src/main/assets/
 
 # testing
 /coverage
+/dist/
 
 # Yarn
 .yarn/*

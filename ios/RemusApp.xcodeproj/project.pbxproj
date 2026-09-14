@@ -408,11 +408,11 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = "RemusWatchApp Watch App/RemusWatch.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = V6JPGVRWCS;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "RemusWatchApp Watch App/Info.plist";
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.espindola.remus.recorder.watchapp;
 				PRODUCT_NAME = RemusWatchApp;
 				SDKROOT = watchos;
@@ -430,11 +430,11 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = "RemusWatchApp Watch App/RemusWatch.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = V6JPGVRWCS;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "RemusWatchApp Watch App/Info.plist";
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.espindola.remus.recorder.watchapp;
 				PRODUCT_NAME = RemusWatchApp;
 				SDKROOT = watchos;
@@ -454,7 +454,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = RemusApp/RemusApp.entitlements;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = V6JPGVRWCS;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = RemusApp/Info.plist;
@@ -463,7 +463,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.0.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -486,7 +486,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = RemusApp/RemusApp.entitlements;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = V6JPGVRWCS;
 				INFOPLIST_FILE = RemusApp/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
@@ -494,7 +494,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.0.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
