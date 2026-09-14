@@ -35,6 +35,8 @@ export interface NativeRecordingBridge {
     activityId?: string;
     artifactDirectory?: string;
   }>;
+  requestLocationPermission?(): Promise<string>;
+  getLocationPermissionStatus?(): Promise<string>;
   addListener?(eventName: string): void;
   removeListeners?(count: number): void;
 }

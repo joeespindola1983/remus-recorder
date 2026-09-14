@@ -1,4 +1,4 @@
-import { PermissionsAndroid, Platform } from 'react-native';
+import { NativeModules, PermissionsAndroid, Platform } from 'react-native';
 
 export enum PermissionStatus {
   GRANTED = 'granted',
@@ -14,7 +14,20 @@ export interface AppPermissionsReport {
   bluetooth: PermissionStatus;
 }
 
+export interface NativeLocationBridge {
+  getLocationPermissionStatus?(): Promise<string>;
+  requestLocationPermission?(): Promise<string>;
+}
+
 export class PermissionManager {
+  private recordingBridge?: NativeLocationBridge;
+
+  constructor(
+    recordingBridge: NativeLocationBridge = NativeModules.RemusRecordingBridge,
+  ) {
+    this.recordingBridge = recordingBridge;
+  }
+
   async checkPermissions(): Promise<AppPermissionsReport> {
     if (Platform.OS === 'android') {
       const fineLocation = await PermissionsAndroid.check(
@@ -43,7 +56,31 @@ export class PermissionManager {
       };
     }
 
-    // On iOS, native permissions are typically requested upon sensor/location activation
+    if (Platform.OS === 'ios') {
+      let locationStatus = PermissionStatus.UNDETERMINED;
+      if (this.recordingBridge?.getLocationPermissionStatus) {
+        try {
+          const raw = await this.recordingBridge.getLocationPermissionStatus();
+          if (raw === 'granted') {
+            locationStatus = PermissionStatus.GRANTED;
+          } else if (raw === 'denied') {
+            locationStatus = PermissionStatus.DENIED;
+          } else {
+            locationStatus = PermissionStatus.UNDETERMINED;
+          }
+        } catch {
+          locationStatus = PermissionStatus.UNDETERMINED;
+        }
+      }
+
+      return {
+        location: locationStatus,
+        backgroundLocation: locationStatus,
+        sensors: PermissionStatus.GRANTED,
+        bluetooth: PermissionStatus.GRANTED,
+      };
+    }
+
     return {
       location: PermissionStatus.UNDETERMINED,
       backgroundLocation: PermissionStatus.UNDETERMINED,
@@ -91,7 +128,31 @@ export class PermissionManager {
       };
     }
 
-    // For iOS, returning GRANTED when initiated through app lifecycle
+    if (Platform.OS === 'ios') {
+      let locationStatus = PermissionStatus.GRANTED;
+      if (this.recordingBridge?.requestLocationPermission) {
+        try {
+          const raw = await this.recordingBridge.requestLocationPermission();
+          if (raw === 'granted') {
+            locationStatus = PermissionStatus.GRANTED;
+          } else if (raw === 'denied') {
+            locationStatus = PermissionStatus.DENIED;
+          } else {
+            locationStatus = PermissionStatus.UNDETERMINED;
+          }
+        } catch {
+          locationStatus = PermissionStatus.DENIED;
+        }
+      }
+
+      return {
+        location: locationStatus,
+        backgroundLocation: locationStatus,
+        sensors: PermissionStatus.GRANTED,
+        bluetooth: PermissionStatus.GRANTED,
+      };
+    }
+
     return {
       location: PermissionStatus.GRANTED,
       backgroundLocation: PermissionStatus.GRANTED,

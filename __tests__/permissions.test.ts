@@ -49,16 +49,46 @@ describe('PermissionManager (TDD)', () => {
   });
 
   describe('iOS Permissions', () => {
+    let mockBridge: {
+      getLocationPermissionStatus: jest.Mock;
+      requestLocationPermission: jest.Mock;
+    };
+
     beforeEach(() => {
       Platform.OS = 'ios';
+      mockBridge = {
+        getLocationPermissionStatus: jest.fn(),
+        requestLocationPermission: jest.fn(),
+      };
+      permissionManager = new PermissionManager(mockBridge as any);
     });
 
-    it('should provide default status for iOS', async () => {
-      const result = await permissionManager.checkPermissions();
-      expect(result).toHaveProperty('location');
-      expect(result).toHaveProperty('backgroundLocation');
-      expect(result).toHaveProperty('sensors');
-      expect(result).toHaveProperty('bluetooth');
+    it('checks iOS location permission using native recording bridge status', async () => {
+      mockBridge.getLocationPermissionStatus.mockResolvedValue('undetermined');
+      let result = await permissionManager.checkPermissions();
+      expect(mockBridge.getLocationPermissionStatus).toHaveBeenCalled();
+      expect(result.location).toBe(PermissionStatus.UNDETERMINED);
+
+      mockBridge.getLocationPermissionStatus.mockResolvedValue('granted');
+      result = await permissionManager.checkPermissions();
+      expect(result.location).toBe(PermissionStatus.GRANTED);
+
+      mockBridge.getLocationPermissionStatus.mockResolvedValue('denied');
+      result = await permissionManager.checkPermissions();
+      expect(result.location).toBe(PermissionStatus.DENIED);
+    });
+
+    it('requests iOS location permission via native recording bridge', async () => {
+      mockBridge.requestLocationPermission.mockResolvedValue('granted');
+      let result = await permissionManager.requestAllPermissions();
+      expect(mockBridge.requestLocationPermission).toHaveBeenCalled();
+      expect(result.location).toBe(PermissionStatus.GRANTED);
+
+      mockBridge.requestLocationPermission.mockResolvedValue('denied');
+      result = await permissionManager.requestAllPermissions();
+      expect(result.location).toBe(PermissionStatus.DENIED);
+      expect(result.backgroundLocation).toBe(PermissionStatus.DENIED);
+      expect(result.sensors).toBe(PermissionStatus.GRANTED);
     });
   });
 });

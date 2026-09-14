@@ -24,6 +24,7 @@ final class RemusRecordingBridge: RCTEventEmitter, CLLocationManagerDelegate {
   private var latestHorizontalAccuracyMeters: Double?
   private var latestAccelerationMagnitudeG: Double?
   private var hasListeners = false
+  private var locationAuthPromiseResolver: RCTPromiseResolveBlock?
 
   override init() {
     super.init()
@@ -92,6 +93,46 @@ final class RemusRecordingBridge: RCTEventEmitter, CLLocationManagerDelegate {
     rejecter reject: @escaping RCTPromiseRejectBlock
   ) {
     resolve(evidenceStore.snapshot())
+  }
+
+  @objc
+  func requestLocationPermission(
+    _ resolve: @escaping RCTPromiseResolveBlock,
+    rejecter reject: @escaping RCTPromiseRejectBlock
+  ) {
+    DispatchQueue.main.async {
+      let status = self.locationManager.authorizationStatus
+      switch status {
+      case .notDetermined:
+        self.locationAuthPromiseResolver = resolve
+        self.locationManager.requestWhenInUseAuthorization()
+      case .authorizedAlways, .authorizedWhenInUse:
+        resolve("granted")
+      case .denied, .restricted:
+        resolve("denied")
+      @unknown default:
+        resolve("undetermined")
+      }
+    }
+  }
+
+  @objc
+  func getLocationPermissionStatus(
+    _ resolve: @escaping RCTPromiseResolveBlock,
+    rejecter reject: @escaping RCTPromiseRejectBlock
+  ) {
+    DispatchQueue.main.async {
+      switch self.locationManager.authorizationStatus {
+      case .authorizedAlways, .authorizedWhenInUse:
+        resolve("granted")
+      case .denied, .restricted:
+        resolve("denied")
+      case .notDetermined:
+        resolve("undetermined")
+      @unknown default:
+        resolve("undetermined")
+      }
+    }
   }
 
   private func startPhoneSensors() {
@@ -188,9 +229,16 @@ final class RemusRecordingBridge: RCTEventEmitter, CLLocationManagerDelegate {
   }
 
   func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-    if manager.authorizationStatus == .authorizedAlways ||
-       manager.authorizationStatus == .authorizedWhenInUse {
-      manager.startUpdatingLocation()
+    let status = manager.authorizationStatus
+    if status == .authorizedAlways || status == .authorizedWhenInUse {
+      if startedAt != nil {
+        manager.startUpdatingLocation()
+      }
+    }
+    if let resolver = locationAuthPromiseResolver, status != .notDetermined {
+      locationAuthPromiseResolver = nil
+      let statusString = (status == .authorizedAlways || status == .authorizedWhenInUse) ? "granted" : "denied"
+      resolver(statusString)
     }
   }
 
