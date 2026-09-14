@@ -66,10 +66,6 @@ class RemusEvidenceStore private constructor() {
       if (!recordingIds.containsKey("phone:primary")) {
         recordingIds["phone:primary"] = "recording:" + UUID.randomUUID().toString().lowercase()
       }
-      if (!recordingIds.containsKey("rbp1:primary")) {
-        recordingIds["rbp1:primary"] = "recording:" + UUID.randomUUID().toString().lowercase()
-      }
-
       currentActivityId = activityId
       currentCorrelationId = correlationId
       currentDirectory = activityDir
@@ -87,7 +83,7 @@ class RemusEvidenceStore private constructor() {
       isRecording = true
 
       // Write initial lifecycle event
-      appendLifecycleEvent("STARTED", now)
+      appendLifecycleEvent("recording_started", now)
       writeManifest("recording", null, null)
 
       return mapOf(
@@ -120,11 +116,23 @@ class RemusEvidenceStore private constructor() {
   }
 
   fun appendLifecycleEvent(event: String, timestamp: Long = System.currentTimeMillis()) {
-    append("lifecycle", null, mapOf(
-      "event" to event,
-      "timestamp" to timestamp
-    ))
+    if (!isRecording) return
+    val json = JSONObject()
+      .put("schemaVersion", "1.0.0")
+      .put("activityId", currentActivityId)
+      .put("type", event)
+      .put("timestampEpochMilliseconds", timestamp)
+    if (event == "recording_started") {
+      json.put("activityCorrelationId", currentCorrelationId)
+    }
+    val writer = writers["lifecycle"] ?: return
+    writer.write(json.toString())
+    writer.newLine()
+    sampleCounts["lifecycle"] = (sampleCounts["lifecycle"] ?: 0L) + 1L
   }
+
+  fun elapsedSeconds(timestampEpochMilliseconds: Long): Double =
+    (timestampEpochMilliseconds - startedAtEpochMs) / 1_000.0
 
   private fun wrapValue(v: Any?): Any {
     return when (v) {
@@ -149,6 +157,7 @@ class RemusEvidenceStore private constructor() {
 
   private fun append(stream: String, sourceId: String?, payload: Map<String, Any?>) {
     if (!isRecording) return
+    if (sourceId != null && currentRecordingIdsBySource[sourceId] == null) return
 
     val json = JSONObject()
     json.put("schemaVersion", "1.0.0")
@@ -182,7 +191,7 @@ class RemusEvidenceStore private constructor() {
       }
 
       val endedAt = System.currentTimeMillis()
-      appendLifecycleEvent("STOPPED", endedAt)
+      appendLifecycleEvent("recording_stopped", endedAt)
 
       isRecording = false
 

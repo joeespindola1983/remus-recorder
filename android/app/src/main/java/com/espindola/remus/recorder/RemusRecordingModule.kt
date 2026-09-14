@@ -437,8 +437,9 @@ class RemusRecordingModule(private val reactContext: ReactApplicationContext) :
 
         val nowMs = System.currentTimeMillis()
         val payload = mutableMapOf<String, Any?>(
-          "nativeTimestamp" to event.timestamp,
+          "nativeTimestampSeconds" to event.timestamp / 1_000_000_000.0,
           "receivedAtEpochMilliseconds" to nowMs,
+          "elapsedSeconds" to evidenceStore.elapsedSeconds(nowMs),
           "accelerationIncludingGravityG" to mapOf(
             "x" to axG,
             "y" to ayG,
@@ -464,6 +465,8 @@ class RemusRecordingModule(private val reactContext: ReactApplicationContext) :
   // LocationListener
   override fun onLocationChanged(location: Location) {
     if (!evidenceStore.isRecording) return
+    val elapsedSeconds = evidenceStore.elapsedSeconds(location.time)
+    if (elapsedSeconds < 0) return
 
     val previous = lastLocation
     if (previous != null) {
@@ -480,10 +483,13 @@ class RemusRecordingModule(private val reactContext: ReactApplicationContext) :
 
     val nowMs = System.currentTimeMillis()
     val payload = mutableMapOf<String, Any?>(
-      "latitude" to location.latitude,
-      "longitude" to location.longitude,
+      "positionWgs84" to mapOf(
+        "latitude" to location.latitude,
+        "longitude" to location.longitude
+      ),
       "receivedAtEpochMilliseconds" to nowMs,
-      "nativeTimestamp" to location.time
+      "nativeTimestampEpochMilliseconds" to location.time,
+      "elapsedSeconds" to elapsedSeconds
     )
     if (location.hasAccuracy()) {
       payload["horizontalAccuracyMeters"] = location.accuracy
@@ -495,7 +501,7 @@ class RemusRecordingModule(private val reactContext: ReactApplicationContext) :
       payload["groundSpeedMetersPerSecond"] = location.speed
     }
     if (location.hasBearing()) {
-      payload["bearingDegrees"] = location.bearing
+      payload["courseDegrees"] = location.bearing
     }
 
     evidenceStore.appendPhoneLocation(payload)

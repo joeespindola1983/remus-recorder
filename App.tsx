@@ -194,19 +194,19 @@ export default function App(): React.JSX.Element {
 
   const startCapture = async (): Promise<void> => {
     try {
-      const started = await recordingService.start(Object.keys(state.sources));
-      const participatingRecordingIds = Object.fromEntries(
-        Object.entries(started.recordingIdsBySource).filter(([sourceId]) => {
-          const source = state.sources[sourceId];
-          return source?.required ||
-            source?.readiness?.sourceConnectionState === 'connected';
-        }),
-      );
+      const participatingSourceIds = Object.values(state.sources)
+        .filter(source =>
+          source.required ||
+          (source.readiness?.sourceConnectionState === 'connected' &&
+            source.readiness.availableMeasurementIdentifiers.length > 0),
+        )
+        .map(source => source.sourceId);
+      const started = await recordingService.start(participatingSourceIds);
       dispatch({
         type: 'commit_capture',
         activityId: started.activityId,
         activityCorrelationId: started.activityCorrelationId,
-        recordingIdsBySource: participatingRecordingIds,
+        recordingIdsBySource: started.recordingIdsBySource,
       });
       console.log('[App] Starting bladeDevice & wearable capture...');
       const results = await Promise.allSettled([

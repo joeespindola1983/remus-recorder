@@ -29,10 +29,10 @@ export function AppShell({
     left: 0,
     right: 0,
   };
-  const tabs: { key: NavigationTab; label: string }[] = [
-    { key: 'home', label: t('nav.home') },
+  const tabs: { key: NavigationTab; label: string; disabled?: boolean }[] = [
+    { key: 'home', label: t('nav.home'), disabled: true },
     { key: 'activities', label: t('nav.activities') },
-    { key: 'community', label: t('nav.community') },
+    { key: 'community', label: t('nav.community'), disabled: true },
     { key: 'profile', label: t('nav.profile') },
   ];
 
@@ -67,8 +67,10 @@ export function AppShell({
             return (
               <TouchableOpacity
                 key={tab.key}
+                accessibilityState={{disabled: tab.disabled === true}}
+                disabled={tab.disabled}
                 onPress={() => onSelectTab?.(tab.key)}
-                style={styles.navItem}
+                style={[styles.navItem, tab.disabled && styles.navItemDisabled]}
               >
                 {isActive ? <View style={styles.activeIndicator} /> : null}
                 <NavIcon name={tab.key} active={isActive} />
@@ -125,6 +127,9 @@ const styles = StyleSheet.create({
     gap: 3,
     justifyContent: 'center',
     position: 'relative',
+  },
+  navItemDisabled: {
+    opacity: 0.35,
   },
   navLabel: {
     color: color.textSecondary,

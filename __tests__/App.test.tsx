@@ -93,6 +93,9 @@ test('moves from ready through recording to a preserved summary', async () => {
       .findByProps({ accessibilityLabel: 'Iniciar atividade' })
       .props.onPress();
   });
+  expect(NativeModules.RemusRecordingBridge.startRecording).toHaveBeenCalledWith({
+    sourceIds: ['phone:primary'],
+  });
   expect(
     renderer.root.findAll(
       node => node.type === Text && node.props.children === 'PARCIAL',
@@ -202,5 +205,4 @@ test('allows exporting recorded activity evidence zip from summary screen', asyn
     activityId: 'activity:test',
   });
 });
-
 

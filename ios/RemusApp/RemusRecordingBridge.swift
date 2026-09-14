@@ -341,7 +341,8 @@ final class RemusRecordingBridge: RCTEventEmitter, CLLocationManagerDelegate {
 
   func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
     guard let startedAt else { return }
-    for location in locations where location.horizontalAccuracy >= 0 {
+    for location in locations
+      where location.horizontalAccuracy >= 0 && location.timestamp >= startedAt {
       if let previous = lastLocation,
          location.timestamp > previous.timestamp,
          location.distance(from: previous) >= 0 {

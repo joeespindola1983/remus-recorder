@@ -51,6 +51,31 @@ describe('AppShell Component (TDD)', () => {
     expect(handleSelectTab).toHaveBeenCalledWith('activities' as NavigationTab);
   });
 
+  it('disables unfinished home and community tabs', async () => {
+    const handleSelectTab = jest.fn();
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <AppShell activeTab="activities" onSelectTab={handleSelectTab}>
+          <Text>Content</Text>
+        </AppShell>,
+      );
+    });
+
+    const touchables = renderer.root.findAllByType(TouchableOpacity);
+    const homeTab = touchables.find(touchable =>
+      touchable.findAllByType(Text).some(n => n.props.children === t('nav.home')),
+    );
+    const communityTab = touchables.find(touchable =>
+      touchable.findAllByType(Text).some(n => n.props.children === t('nav.community')),
+    );
+
+    expect(homeTab?.props.disabled).toBe(true);
+    expect(homeTab?.props.accessibilityState).toEqual({disabled: true});
+    expect(communityTab?.props.disabled).toBe(true);
+    expect(communityTab?.props.accessibilityState).toEqual({disabled: true});
+  });
+
   it('does not render settings mark or light-dark icon in header', async () => {
     let renderer!: ReactTestRenderer.ReactTestRenderer;
     await ReactTestRenderer.act(async () => {
