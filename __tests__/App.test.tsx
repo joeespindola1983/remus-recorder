@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { NativeModules, Text } from 'react-native';
+import { Alert, NativeModules, Text } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 import App from '../App';
 
@@ -30,6 +30,8 @@ beforeEach(() => {
       sampleCounts: {},
     }),
     getRecordingState: jest.fn().mockResolvedValue({isRecording: false}),
+    requestLocationPermission: jest.fn().mockResolvedValue('granted'),
+    getLocationPermissionStatus: jest.fn().mockResolvedValue('granted'),
     addListener: jest.fn(),
     removeListeners: jest.fn(),
   };
@@ -129,5 +131,38 @@ test('handles requesting phone permissions from ready screen without error', asy
         node.type === Text && node.props.children === 'Tudo pronto para remar?',
     ),
   ).toHaveLength(1);
+});
+
+test('automatically requests permissions on launch when undetermined', async () => {
+  NativeModules.RemusRecordingBridge.getLocationPermissionStatus = jest
+    .fn()
+    .mockResolvedValue('undetermined');
+  NativeModules.RemusRecordingBridge.requestLocationPermission = jest
+    .fn()
+    .mockResolvedValue('granted');
+
+  await ReactTestRenderer.act(async () => {
+    ReactTestRenderer.create(<App />);
+  });
+
+  expect(
+    NativeModules.RemusRecordingBridge.requestLocationPermission,
+  ).toHaveBeenCalled();
+});
+
+test('alerts athlete when permissions are denied', async () => {
+  const alertSpy = jest.spyOn(Alert, 'alert');
+  NativeModules.RemusRecordingBridge.getLocationPermissionStatus = jest
+    .fn()
+    .mockResolvedValue('denied');
+
+  await ReactTestRenderer.act(async () => {
+    ReactTestRenderer.create(<App />);
+  });
+
+  expect(alertSpy).toHaveBeenCalledWith(
+    expect.stringContaining('Permissões necessárias'),
+    expect.stringContaining('negado'),
+  );
 });
 

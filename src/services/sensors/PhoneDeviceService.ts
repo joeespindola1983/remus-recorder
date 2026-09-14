@@ -146,4 +146,37 @@ export class PhoneDeviceService {
     const report = await this.permissionManager.requestAllPermissions();
     return this.getPhoneSourceState(report);
   }
+
+  async checkAndRequestInitialPermissions(): Promise<
+    CaptureSourceState & {
+      hardwareProfile: PhoneHardwareProfile;
+      missingPermissions: string[];
+      wasRequested: boolean;
+      hasDenied: boolean;
+    }
+  > {
+    const report = await this.permissionManager.checkPermissions();
+    const hasUndetermined =
+      report.location === PermissionStatus.UNDETERMINED ||
+      report.bluetooth === PermissionStatus.UNDETERMINED;
+
+    let finalReport = report;
+    let wasRequested = false;
+
+    if (hasUndetermined) {
+      finalReport = await this.permissionManager.requestAllPermissions();
+      wasRequested = true;
+    }
+
+    const hasDenied =
+      finalReport.location === PermissionStatus.DENIED ||
+      finalReport.bluetooth === PermissionStatus.DENIED;
+
+    const sourceState = await this.getPhoneSourceState(finalReport);
+    return {
+      ...sourceState,
+      wasRequested,
+      hasDenied,
+    };
+  }
 }

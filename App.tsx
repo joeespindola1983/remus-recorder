@@ -14,6 +14,7 @@ import {
   SummaryScreen,
 } from './src/ui/screens/RecorderScreens';
 import { color } from './src/ui/theme/tokens';
+import { t } from './src/i18n';
 import { PhoneDeviceService } from './src/services/sensors/PhoneDeviceService';
 import { RemusBladeDeviceService } from './src/services/blade/RemusBladeDeviceService';
 import { RemusBladeAdapter, RemusBladeSnapshot } from './src/services/blade/RemusBladeAdapter';
@@ -43,19 +44,30 @@ export default function App(): React.JSX.Element {
   const [recordingService] = useState(() => new RecordingService());
   const wearable = useWearables();
   const didShowWearablePermissionAlert = useRef(false);
+  const didShowPhonePermissionAlert = useRef(false);
   const wearableSourceId =
     Platform.OS === 'android' ? 'watch:wear-os:primary' : 'watch:apple:primary';
 
   useEffect(() => {
-    phoneDevice.getPhoneSourceState().then(sourceState => {
-      if (sourceState.readiness) {
-        dispatch({
-          type: 'update_source_readiness',
-          sourceId: sourceState.sourceId,
-          readiness: sourceState.readiness,
-        });
-      }
-    }).catch(() => {});
+    phoneDevice
+      .checkAndRequestInitialPermissions()
+      .then(sourceState => {
+        if (sourceState.readiness) {
+          dispatch({
+            type: 'update_source_readiness',
+            sourceId: sourceState.sourceId,
+            readiness: sourceState.readiness,
+          });
+        }
+        if (sourceState.hasDenied && !didShowPhonePermissionAlert.current) {
+          didShowPhonePermissionAlert.current = true;
+          Alert.alert(
+            t('permissions.deniedAlertTitle'),
+            t('permissions.deniedAlertMessage'),
+          );
+        }
+      })
+      .catch(() => {});
   }, [phoneDevice]);
 
   useEffect(() => {
@@ -162,6 +174,16 @@ export default function App(): React.JSX.Element {
         sourceId: updated.sourceId,
         readiness: updated.readiness,
       });
+    }
+    const hasDenied =
+      updated.missingPermissions.includes('location') ||
+      updated.missingPermissions.includes('bluetooth');
+    if (hasDenied && !didShowPhonePermissionAlert.current) {
+      didShowPhonePermissionAlert.current = true;
+      Alert.alert(
+        t('permissions.deniedAlertTitle'),
+        t('permissions.deniedAlertMessage'),
+      );
     }
   };
 

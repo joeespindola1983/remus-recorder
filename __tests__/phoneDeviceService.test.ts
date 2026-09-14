@@ -128,5 +128,54 @@ describe('PhoneDeviceService (TDD)', () => {
       expect(ids).toContain('positionWgs84');
       expect(ids).toContain('accelerationIncludingGravityG');
     });
+
+    it('automatically requests permissions on initial entry if undetermined', async () => {
+      jest.spyOn(permissionManager, 'checkPermissions').mockResolvedValue({
+        location: PermissionStatus.UNDETERMINED,
+        backgroundLocation: PermissionStatus.UNDETERMINED,
+        sensors: PermissionStatus.GRANTED,
+        bluetooth: PermissionStatus.GRANTED,
+      });
+      const requestSpy = jest.spyOn(permissionManager, 'requestAllPermissions').mockResolvedValue({
+        location: PermissionStatus.GRANTED,
+        backgroundLocation: PermissionStatus.GRANTED,
+        sensors: PermissionStatus.GRANTED,
+        bluetooth: PermissionStatus.GRANTED,
+      });
+
+      const result = await service.checkAndRequestInitialPermissions();
+      expect(requestSpy).toHaveBeenCalled();
+      expect(result.wasRequested).toBe(true);
+      expect(result.hasDenied).toBe(false);
+      expect(result.readiness?.liveTelemetryState).toBe('qualified');
+    });
+
+    it('does not prompt if permissions were already determined/granted', async () => {
+      jest.spyOn(permissionManager, 'checkPermissions').mockResolvedValue({
+        location: PermissionStatus.GRANTED,
+        backgroundLocation: PermissionStatus.GRANTED,
+        sensors: PermissionStatus.GRANTED,
+        bluetooth: PermissionStatus.GRANTED,
+      });
+      const requestSpy = jest.spyOn(permissionManager, 'requestAllPermissions');
+
+      const result = await service.checkAndRequestInitialPermissions();
+      expect(requestSpy).not.toHaveBeenCalled();
+      expect(result.wasRequested).toBe(false);
+      expect(result.hasDenied).toBe(false);
+    });
+
+    it('flags hasDenied when permissions were denied by the user', async () => {
+      jest.spyOn(permissionManager, 'checkPermissions').mockResolvedValue({
+        location: PermissionStatus.DENIED,
+        backgroundLocation: PermissionStatus.DENIED,
+        sensors: PermissionStatus.GRANTED,
+        bluetooth: PermissionStatus.GRANTED,
+      });
+
+      const result = await service.checkAndRequestInitialPermissions();
+      expect(result.hasDenied).toBe(true);
+      expect(result.readiness?.liveTelemetryState).toBe('unavailable');
+    });
   });
 });
