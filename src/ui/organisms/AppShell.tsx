@@ -15,13 +15,11 @@ export type NavigationTab = NavIconName;
 export function AppShell({
   activeTab = 'activities',
   onSelectTab,
-  onSettingsPress,
   children,
   showNav = true,
 }: {
   activeTab?: NavigationTab;
   onSelectTab?: (tab: NavigationTab) => void;
-  onSettingsPress?: () => void;
   children: React.ReactNode;
   showNav?: boolean;
 }): React.JSX.Element {
@@ -50,14 +48,6 @@ export function AppShell({
         ]}
       >
         <Text style={styles.brand}>Remus</Text>
-        <TouchableOpacity
-          accessibilityLabel={t('nav.settings')}
-          accessibilityRole="button"
-          onPress={onSettingsPress}
-          style={styles.settingsMark}
-        >
-          <Text style={styles.settingsText}>☼</Text>
-        </TouchableOpacity>
       </View>
 
       <View style={styles.body}>{children}</View>
@@ -118,19 +108,6 @@ const styles = StyleSheet.create({
     fontFamily,
     fontSize: 20,
     fontWeight: '700',
-  },
-  settingsMark: {
-    alignItems: 'center',
-    borderColor: color.actionPrimary,
-    borderRadius: 18,
-    borderWidth: 2,
-    height: 36,
-    justifyContent: 'center',
-    width: 36,
-  },
-  settingsText: {
-    color: color.actionPrimary,
-    fontSize: 20,
   },
   body: {
     flex: 1,

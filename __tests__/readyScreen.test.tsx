@@ -100,7 +100,7 @@ describe('ReadyScreen (TDD)', () => {
     expect(textNodes).toContain('GPS necessário · Movimento disponível');
   });
 
-  it('toggles device details when "Ver detalhes dos dispositivos" is pressed', () => {
+  it('toggles device details when phone row is pressed and does not render details button', () => {
     const onStart = jest.fn();
     const state = createCaptureState();
     let renderer!: ReactTestRenderer.ReactTestRenderer;
@@ -111,13 +111,18 @@ describe('ReadyScreen (TDD)', () => {
       );
     });
 
-    const toggleButton = renderer.root.findByProps({
+    const legacyDetailsButtons = renderer.root.findAllByProps({
       accessibilityLabel: 'Ver detalhes dos dispositivos',
     });
-    expect(toggleButton).toBeTruthy();
+    expect(legacyDetailsButtons).toHaveLength(0);
+
+    const phoneButton = renderer.root.findByProps({
+      accessibilityLabel: 'Este iPhone',
+    });
+    expect(phoneButton).toBeTruthy();
 
     act(() => {
-      toggleButton.props.onPress();
+      phoneButton.props.onPress();
     });
 
     const textNodes = renderer.root
@@ -149,12 +154,12 @@ describe('ReadyScreen (TDD)', () => {
       );
     });
 
-    // Expand details
-    const toggleButton = renderer.root.findByProps({
-      accessibilityLabel: 'Ver detalhes dos dispositivos',
+    // Expand details via phone row
+    const phoneButton = renderer.root.findByProps({
+      accessibilityLabel: 'Este iPhone',
     });
     act(() => {
-      toggleButton.props.onPress();
+      phoneButton.props.onPress();
     });
 
     const grantButton = renderer.root.findByProps({

@@ -70,14 +70,17 @@ final class WatchSessionManager: NSObject, ObservableObject {
     }
 
     private func apply(_ message: [String: Any]) {
-        guard let command = message["command"] as? String else { return }
+        let rawCommand = (message["command"] as? String) ?? (message["action"] as? String) ?? ""
+        let command = rawCommand.uppercased()
         switch command {
-        case "START_RECORD":
+        case "START_RECORD", "START_RECORDING", "START_WORKOUT":
             isRecording = true
             recordingCommandHandler?(true)
-        case "STOP_RECORD":
+            WatchSensorManager.shared.startHeartRateCapture()
+        case "STOP_RECORD", "STOP_RECORDING", "STOP_WORKOUT":
             isRecording = false
             recordingCommandHandler?(false)
+            WatchSensorManager.shared.stopHeartRateCapture()
         default:
             break
         }
@@ -86,6 +89,11 @@ final class WatchSessionManager: NSObject, ObservableObject {
     func setRecording(_ shouldRecord: Bool) {
         isRecording = shouldRecord
         recordingCommandHandler?(shouldRecord)
+        if shouldRecord {
+            WatchSensorManager.shared.startHeartRateCapture()
+        } else {
+            WatchSensorManager.shared.stopHeartRateCapture()
+        }
     }
 }
 
@@ -100,6 +108,17 @@ extension WatchSessionManager: WCSessionDelegate {
 
     nonisolated func sessionReachabilityDidChange(_ session: WCSession) {
         Task { @MainActor [weak self] in self?.isReachable = session.isReachable }
+    }
+
+    nonisolated func session(
+        _ session: WCSession,
+        didReceiveMessage message: [String: Any],
+        replyHandler: @escaping ([String: Any]) -> Void
+    ) {
+        Task { @MainActor [weak self] in
+            self?.apply(message)
+            replyHandler(["status": "ok"])
+        }
     }
 
     nonisolated func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {

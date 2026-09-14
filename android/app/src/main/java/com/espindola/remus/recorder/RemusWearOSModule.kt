@@ -56,7 +56,19 @@ class RemusWearOSModule(
   @ReactMethod
   fun sendMessage(nodeId: String, payload: ReadableMap, promise: Promise) {
     val bytes = JSONObject(payload.toHashMap()).toString().toByteArray(Charsets.UTF_8)
-    Wearable.getMessageClient(context)
+    val messageClient = Wearable.getMessageClient(reactApplicationContext)
+    if (nodeId == "broadcast" || nodeId.isBlank()) {
+      Wearable.getNodeClient(reactApplicationContext).connectedNodes
+        .addOnSuccessListener { nodes ->
+          nodes.forEach { node ->
+            messageClient.sendMessage(node.id, COMMAND_PATH, bytes)
+          }
+          promise.resolve(nodes.size)
+        }
+        .addOnFailureListener { promise.reject("WEAR_SEND_ERROR", it) }
+      return
+    }
+    messageClient
       .sendMessage(nodeId, COMMAND_PATH, bytes)
       .addOnSuccessListener { requestId -> promise.resolve(requestId) }
       .addOnFailureListener { promise.reject("WEAR_SEND_ERROR", it) }

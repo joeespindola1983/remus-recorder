@@ -138,6 +138,17 @@ export class WearOSAdapter implements IWearableAdapter {
     }
 
     try {
+      if (deviceId === 'broadcast' || !deviceId) {
+        const nodes = (await this.nativeBridge.getConnectedNodes?.()) ?? [];
+        if (nodes.length === 0) {
+          await this.nativeBridge.sendMessage(deviceId || 'broadcast', payload);
+          return true;
+        }
+        await Promise.all(
+          nodes.map(node => this.nativeBridge!.sendMessage!(node.id, payload))
+        );
+        return true;
+      }
       await this.nativeBridge.sendMessage(deviceId, payload);
       return true;
     } catch {

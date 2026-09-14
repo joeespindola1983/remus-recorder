@@ -56,6 +56,48 @@ export class WearableHub {
     return false;
   }
 
+  async startRecording(): Promise<void> {
+    const payload = { command: 'START_RECORD', action: 'START_RECORD' };
+    console.log('[WearableHub] startRecording called. Adapters count:', this.adapters.size);
+    const devices = await this.getAllConnectedDevices().catch(() => []);
+    console.log('[WearableHub] Connected devices found:', devices.length, JSON.stringify(devices));
+    if (devices.length > 0) {
+      await Promise.allSettled(
+        devices.map(device => {
+          console.log(`[WearableHub] Sending START_RECORD to device ${device.id}...`);
+          return this.sendDataToDevice(device.id, payload);
+        })
+      );
+    }
+    await Promise.allSettled(
+      Array.from(this.adapters.entries()).map(async ([family, adapter]) => {
+        console.log(`[WearableHub] Broadcasting START_RECORD to adapter ${family}...`);
+        const ok = await adapter.sendData('broadcast', payload).catch(err => {
+          console.error(`[WearableHub] Error sending to adapter ${family}:`, err);
+          return false;
+        });
+        console.log(`[WearableHub] Adapter ${family} returned:`, ok);
+        return ok;
+      })
+    );
+  }
+
+  async stopRecording(): Promise<void> {
+    const payload = { command: 'STOP_RECORD', action: 'STOP_RECORD' };
+    console.log('[WearableHub] stopRecording called.');
+    const devices = await this.getAllConnectedDevices().catch(() => []);
+    if (devices.length > 0) {
+      await Promise.allSettled(
+        devices.map(device => this.sendDataToDevice(device.id, payload))
+      );
+    }
+    await Promise.allSettled(
+      Array.from(this.adapters.values()).map(adapter =>
+        adapter.sendData('broadcast', payload).catch(() => false)
+      )
+    );
+  }
+
   onSensorData(listener: (data: SensorSample) => void): () => void {
     this.sensorListeners.add(listener);
     return () => {

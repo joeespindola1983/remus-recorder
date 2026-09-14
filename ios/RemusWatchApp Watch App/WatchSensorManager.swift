@@ -3,6 +3,8 @@ import HealthKit
 
 @MainActor
 final class WatchSensorManager: NSObject, ObservableObject {
+    static let shared = WatchSensorManager()
+
     enum SensorState: Equatable {
         case idle
         case requestingPermission

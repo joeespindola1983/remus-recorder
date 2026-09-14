@@ -3,7 +3,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TouchableOpacity,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -78,21 +77,6 @@ export function ReadyScreen({
         bladeSnapshot={bladeSnapshot}
         onSendGpsAid={onSendGpsAid}
       />
-      <TouchableOpacity
-        accessibilityRole="button"
-        accessibilityLabel={
-          expandedSourceId !== null ? t('phone.details.hide') : t('ready.detailsAction')
-        }
-        onPress={() => {
-          setExpandedSourceId(prev =>
-            prev ? null : (sourcesList[0]?.sourceId ?? null)
-          );
-        }}
-      >
-        <Text style={styles.detailsAction}>
-          {expandedSourceId !== null ? t('phone.details.hide') : t('ready.detailsAction')}
-        </Text>
-      </TouchableOpacity>
       <ActionButton label={t('ready.startAction')} onPress={onStart} />
     </ScrollView>
   );
@@ -405,12 +389,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   readinessSummary: { color: color.textSecondary, fontFamily, fontSize: 12 },
-  detailsAction: {
-    color: color.actionPrimary,
-    fontFamily,
-    fontSize: 14,
-    fontWeight: '600',
-  },
   summaryCard: {
     backgroundColor: color.successContainer,
     borderRadius: 20,

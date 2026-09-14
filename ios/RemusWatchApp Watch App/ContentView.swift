@@ -2,7 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject private var session = WatchSessionManager.shared
-    @StateObject private var sensorManager = WatchSensorManager()
+    @StateObject private var sensorManager = WatchSensorManager.shared
 
     var body: some View {
         VStack(spacing: 12) {

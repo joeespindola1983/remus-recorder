@@ -1,9 +1,11 @@
 import Foundation
 import WatchConnectivity
+import HealthKit
 import React
 
 @objc(RemusWatchBridge)
 class RemusWatchBridge: RCTEventEmitter, WCSessionDelegate {
+  private let healthStore = HKHealthStore()
   private var session: WCSession?
   private var hasListeners = false
   private var latestHeartRatePayload: [String: Any]?
@@ -93,23 +95,60 @@ class RemusWatchBridge: RCTEventEmitter, WCSessionDelegate {
 
   @objc
   func sendMessage(_ message: [String: Any], resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+    NSLog("[RemusWatchBridge] sendMessage called with: \(message)")
     guard let session = session else {
+      NSLog("[RemusWatchBridge] ERROR: session is nil")
       reject("SESSION_UNAVAILABLE", "WCSession is not supported on this device", nil)
       return
     }
 
+    NSLog("[RemusWatchBridge] session state: isPaired=\(session.isPaired), isWatchAppInstalled=\(session.isWatchAppInstalled), isReachable=\(session.isReachable), activationState=\(session.activationState.rawValue)")
+
+    let rawCommand = (message["command"] as? String) ?? (message["action"] as? String) ?? ""
+    let upperCommand = rawCommand.uppercased()
+    if ["START_RECORD", "START_RECORDING", "START_WORKOUT"].contains(upperCommand) {
+      let isHealthAvailable = HKHealthStore.isHealthDataAvailable()
+      NSLog("[RemusWatchBridge] START command detected. HKHealthStore.isHealthDataAvailable=\(isHealthAvailable)")
+      if isHealthAvailable {
+        let configuration = HKWorkoutConfiguration()
+        configuration.activityType = .rowing
+        configuration.locationType = .outdoor
+        let shareTypes: Set<HKSampleType> = [HKObjectType.workoutType()]
+        healthStore.requestAuthorization(toShare: shareTypes, read: []) { [weak self] authSuccess, authError in
+          NSLog("[RemusWatchBridge] HealthKit requestAuthorization result: success=\(authSuccess), error=\(String(describing: authError))")
+          self?.healthStore.startWatchApp(with: configuration) { watchSuccess, watchError in
+            NSLog("[RemusWatchBridge] healthStore.startWatchApp result: success=\(watchSuccess), error=\(String(describing: watchError))")
+          }
+        }
+      }
+    }
+
     if session.isReachable {
+      NSLog("[RemusWatchBridge] session.isReachable is TRUE, sending interactive message...")
       session.sendMessage(message, replyHandler: { reply in
+        NSLog("[RemusWatchBridge] interactive message succeeded with reply: \(reply)")
         resolve(reply)
-      }, errorHandler: { error in
-        reject("SEND_ERROR", error.localizedDescription, error)
+      }, errorHandler: { [weak self] error in
+        NSLog("[RemusWatchBridge] interactive message failed: \(error.localizedDescription). Falling back to background transfer...")
+        do {
+          try session.updateApplicationContext(message)
+          NSLog("[RemusWatchBridge] updateApplicationContext fallback succeeded")
+          resolve(["status": "fallback_application_context"])
+        } catch {
+          session.transferUserInfo(message)
+          NSLog("[RemusWatchBridge] transferUserInfo fallback queued")
+          resolve(["status": "fallback_user_info"])
+        }
       })
     } else {
+      NSLog("[RemusWatchBridge] session.isReachable is FALSE, sending via background transfer...")
       do {
         try session.updateApplicationContext(message)
+        NSLog("[RemusWatchBridge] updateApplicationContext succeeded")
         resolve(["status": "queued_application_context"])
       } catch {
         session.transferUserInfo(message)
+        NSLog("[RemusWatchBridge] transferUserInfo queued")
         resolve(["status": "queued_user_info"])
       }
     }

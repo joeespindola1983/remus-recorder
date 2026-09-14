@@ -21,6 +21,7 @@ if (Platform.OS === 'ios') {
       isSupported: () => RemusWatchBridge.isSupported(),
       isPaired: () => RemusWatchBridge.isPaired(),
       isWatchAppInstalled: () => RemusWatchBridge.isWatchAppInstalled(),
+      isReachable: () => RemusWatchBridge.isReachable(),
       getLatestHeartRate: () => RemusWatchBridge.getLatestHeartRate(),
       sendMessage: (payload: Record<string, unknown>) =>
         RemusWatchBridge.sendMessage(payload),
@@ -92,17 +93,13 @@ export function useWearables() {
 
   const startRecording = useCallback(async () => {
     setIsRecording(true);
-    for (const dev of devices) {
-      await wearableHub.sendDataToDevice(dev.id, { command: 'START_RECORD' });
-    }
-  }, [devices]);
+    await wearableHub.startRecording();
+  }, []);
 
   const stopRecording = useCallback(async () => {
     setIsRecording(false);
-    for (const dev of devices) {
-      await wearableHub.sendDataToDevice(dev.id, { command: 'STOP_RECORD' });
-    }
-  }, [devices]);
+    await wearableHub.stopRecording();
+  }, []);
 
   const sendPing = useCallback(async (deviceId?: string) => {
     const targetId = deviceId || devices[0]?.id;

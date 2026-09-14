@@ -207,10 +207,12 @@ export default function App(): React.JSX.Element {
         activityCorrelationId: started.activityCorrelationId,
         recordingIdsBySource: participatingRecordingIds,
       });
-      await Promise.allSettled([
+      console.log('[App] Starting bladeDevice & wearable capture...');
+      const results = await Promise.allSettled([
         bladeDevice.startWorkoutCapture(),
         wearable.startRecording(),
       ]);
+      console.log('[App] blade & wearable start results:', JSON.stringify(results));
     } catch (error) {
       Alert.alert(
         'Não foi possível iniciar a gravação',

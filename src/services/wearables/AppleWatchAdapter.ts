@@ -147,14 +147,18 @@ export class AppleWatchAdapter implements IWearableAdapter {
   }
 
   async sendData(_deviceId: string, payload: Record<string, unknown>): Promise<boolean> {
+    console.log('[AppleWatchAdapter] sendData called. Payload:', JSON.stringify(payload));
     if (!this.nativeBridge?.sendMessage) {
+      console.warn('[AppleWatchAdapter] nativeBridge.sendMessage is undefined!');
       return false;
     }
 
     try {
-      await this.nativeBridge.sendMessage(payload);
+      const res = await this.nativeBridge.sendMessage(payload);
+      console.log('[AppleWatchAdapter] nativeBridge.sendMessage result:', JSON.stringify(res));
       return true;
-    } catch {
+    } catch (err) {
+      console.error('[AppleWatchAdapter] nativeBridge.sendMessage error:', err);
       return false;
     }
   }

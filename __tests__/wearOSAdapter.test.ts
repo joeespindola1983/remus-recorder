@@ -113,6 +113,17 @@ describe('WearOSAdapter (TDD)', () => {
     );
   });
 
+  it('broadcasts data to all connected nodes when deviceId is broadcast', async () => {
+    mockNativeModule.getConnectedNodes.mockResolvedValue([
+      { id: 'node-1', name: 'Watch 1' },
+      { id: 'node-2', name: 'Watch 2' },
+    ]);
+    const sent = await adapter.sendData('broadcast', { command: 'START_RECORD' });
+    expect(sent).toBe(true);
+    expect(mockNativeModule.sendMessage).toHaveBeenCalledWith('node-1', { command: 'START_RECORD' });
+    expect(mockNativeModule.sendMessage).toHaveBeenCalledWith('node-2', { command: 'START_RECORD' });
+  });
+
   it('does not publish missing, zero, or invalid heart-rate observations', () => {
     const received = jest.fn();
     adapter.onSensorData(received);

@@ -51,28 +51,24 @@ describe('AppShell Component (TDD)', () => {
     expect(handleSelectTab).toHaveBeenCalledWith('activities' as NavigationTab);
   });
 
-  it('triggers onSettingsPress when settings mark is pressed', async () => {
-    const handleSettings = jest.fn();
+  it('does not render settings mark or light-dark icon in header', async () => {
     let renderer!: ReactTestRenderer.ReactTestRenderer;
     await ReactTestRenderer.act(async () => {
       renderer = ReactTestRenderer.create(
-        <AppShell
-          activeTab="home"
-          onSelectTab={jest.fn()}
-          onSettingsPress={handleSettings}
-        >
+        <AppShell activeTab="home" onSelectTab={jest.fn()}>
           <Text>Content</Text>
         </AppShell>,
       );
     });
 
-    const settingsButton = renderer.root.findByProps({
+    const settingsButtons = renderer.root.findAllByProps({
       accessibilityLabel: t('nav.settings'),
     });
-    expect(settingsButton).toBeTruthy();
-    await ReactTestRenderer.act(async () => {
-      settingsButton.props.onPress();
-    });
-    expect(handleSettings).toHaveBeenCalled();
+    expect(settingsButtons).toHaveLength(0);
+
+    const sunIcons = renderer.root
+      .findAllByType(Text)
+      .filter(node => node.props.children === '☼');
+    expect(sunIcons).toHaveLength(0);
   });
 });
