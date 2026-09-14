@@ -225,6 +225,7 @@ final class RemusEvidenceStore {
     }
 
     var coordinatorError: NSError?
+    var innerError: Error?
     var tempZipURL: URL?
     let coordinator = NSFileCoordinator()
     coordinator.coordinate(readingItemAt: activityDir, options: .forUploading, error: &coordinatorError) { zipUrl in
@@ -232,12 +233,15 @@ final class RemusEvidenceStore {
         try self.fileManager.copyItem(at: zipUrl, to: zipURL)
         tempZipURL = zipURL
       } catch {
-        coordinatorError = error as NSError
+        innerError = error
       }
     }
 
     if let coordinatorError {
       throw coordinatorError
+    }
+    if let innerError {
+      throw innerError
     }
 
     guard let finalZipURL = tempZipURL, fileManager.fileExists(atPath: finalZipURL.path) else {
