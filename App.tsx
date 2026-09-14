@@ -51,7 +51,7 @@ export default function App(): React.JSX.Element {
       if (sourceState.readiness) {
         dispatch({
           type: 'update_source_readiness',
-          sourceId: 'phone:primary',
+          sourceId: sourceState.sourceId,
           readiness: sourceState.readiness,
         });
       }

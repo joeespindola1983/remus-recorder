@@ -107,3 +107,27 @@ test('moves from ready through recording to a preserved summary', async () => {
     ),
   ).toHaveLength(1);
 });
+
+test('handles requesting phone permissions from ready screen without error', async () => {
+  let renderer!: ReactTestRenderer.ReactTestRenderer;
+  await ReactTestRenderer.act(async () => {
+    renderer = ReactTestRenderer.create(<App />);
+  });
+
+  const readyScreenNode = renderer.root.find(
+    node => typeof node.props.onRequestPermissions === 'function',
+  );
+  expect(readyScreenNode).toBeDefined();
+
+  await ReactTestRenderer.act(async () => {
+    await readyScreenNode.props.onRequestPermissions();
+  });
+
+  expect(
+    renderer.root.findAll(
+      node =>
+        node.type === Text && node.props.children === 'Tudo pronto para remar?',
+    ),
+  ).toHaveLength(1);
+});
+

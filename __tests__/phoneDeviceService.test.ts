@@ -27,6 +27,7 @@ describe('PhoneDeviceService (TDD)', () => {
 
       const sourceState = await service.getPhoneSourceState();
 
+      expect(sourceState.sourceId).toBe('phone:primary');
       expect(sourceState.deviceFamily).toBe('iphone');
       expect(sourceState.operationalState).toBe('available_idle');
       expect(sourceState.sensorPlacement).toBe('body');
@@ -79,6 +80,7 @@ describe('PhoneDeviceService (TDD)', () => {
       const androidService = new PhoneDeviceService(permissionManager, noGyroProfile);
       const sourceState = await androidService.getPhoneSourceState();
 
+      expect(sourceState.sourceId).toBe('phone:primary');
       expect(sourceState.deviceFamily).toBe('android_phone');
       const ids = sourceState.readiness?.availableMeasurementIdentifiers ?? [];
       expect(ids).toContain('positionWgs84');
@@ -104,6 +106,7 @@ describe('PhoneDeviceService (TDD)', () => {
       const androidService = new PhoneDeviceService(permissionManager, noAccProfile);
       const sourceState = await androidService.getPhoneSourceState();
 
+      expect(sourceState.sourceId).toBe('phone:primary');
       const ids = sourceState.readiness?.availableMeasurementIdentifiers ?? [];
       expect(ids).toContain('positionWgs84');
       expect(ids).not.toContain('accelerationIncludingGravityG');
@@ -119,6 +122,7 @@ describe('PhoneDeviceService (TDD)', () => {
       });
 
       const updatedState = await service.requestPermissions();
+      expect(updatedState.sourceId).toBe('phone:primary');
       expect(updatedState.readiness?.liveTelemetryState).toBe('qualified');
       const ids = updatedState.readiness?.availableMeasurementIdentifiers ?? [];
       expect(ids).toContain('positionWgs84');

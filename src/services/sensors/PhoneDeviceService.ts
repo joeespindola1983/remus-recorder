@@ -24,12 +24,15 @@ export const DEFAULT_ANDROID_HARDWARE: PhoneHardwareProfile = {
 export class PhoneDeviceService {
   private permissionManager: PermissionManager;
   private hardwareProfile: PhoneHardwareProfile;
+  private sourceId: string;
 
   constructor(
     permissionManager: PermissionManager = new PermissionManager(),
     hardwareProfile?: PhoneHardwareProfile,
+    sourceId: string = 'phone:primary',
   ) {
     this.permissionManager = permissionManager;
+    this.sourceId = sourceId;
     if (hardwareProfile) {
       this.hardwareProfile = hardwareProfile;
     } else {
@@ -51,7 +54,7 @@ export class PhoneDeviceService {
   ): Promise<CaptureSourceState & { hardwareProfile: PhoneHardwareProfile; missingPermissions: string[] }> {
     const isIos = Platform.OS === 'ios';
     const deviceFamily = isIos ? 'iphone' : 'android_phone';
-    const sourceId = `phone:${Platform.OS}`;
+    const sourceId = this.sourceId;
 
     const permissions =
       explicitPermissions ?? (await this.permissionManager.checkPermissions());
