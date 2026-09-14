@@ -126,12 +126,6 @@ describe('RemusBladeAdapter (TDD)', () => {
       expect(mockBridge.sendCommand).toHaveBeenCalledWith('STOP');
     });
 
-    it('sends AID command with latitude and longitude for A-GPS injection', async () => {
-      const result = await adapter.sendGpsAid(-23.55052, -46.633308);
-      expect(result).toBe(true);
-      expect(mockBridge.sendCommand).toHaveBeenCalledWith('AID,-23.550520,-46.633308');
-    });
-
     it('emits SensorSample when bridge receives onRemusBladeSnapshot', async () => {
       const sensorSpy = jest.fn();
       await adapter.initialize();
@@ -167,29 +161,59 @@ describe('RemusBladeAdapter (TDD)', () => {
     });
 
     it('calls disconnectPeripheral on native bridge when disconnect is called', async () => {
-      const mockBridge = {
+      const disconnectBridge = {
         isSupported: jest.fn().mockResolvedValue(true),
         getBluetoothState: jest.fn().mockResolvedValue('poweredOn'),
         startScan: jest.fn().mockResolvedValue(true),
         stopScan: jest.fn().mockResolvedValue(undefined),
         disconnectPeripheral: jest.fn().mockResolvedValue(undefined),
       };
-      const adapter = new RemusBladeAdapter(mockBridge as any);
-      await adapter.disconnect();
-      expect(mockBridge.disconnectPeripheral).toHaveBeenCalledTimes(1);
+      const disconnectAdapter = new RemusBladeAdapter(disconnectBridge as any);
+      await disconnectAdapter.disconnect();
+      expect(disconnectBridge.disconnectPeripheral).toHaveBeenCalledTimes(1);
     });
 
     it('calls startScan on native bridge when startScan is called', async () => {
-      const mockBridge = {
+      const scanBridge = {
         isSupported: jest.fn().mockResolvedValue(true),
         getBluetoothState: jest.fn().mockResolvedValue('poweredOn'),
         startScan: jest.fn().mockResolvedValue(true),
         stopScan: jest.fn().mockResolvedValue(undefined),
       };
-      const adapter = new RemusBladeAdapter(mockBridge as any);
-      const res = await adapter.startScan();
-      expect(mockBridge.startScan).toHaveBeenCalledTimes(1);
+      const scanAdapter = new RemusBladeAdapter(scanBridge as any);
+      const res = await scanAdapter.startScan();
+      expect(scanBridge.startScan).toHaveBeenCalledTimes(1);
       expect(res).toBe(true);
+    });
+
+    it('calls connectPeripheral on native bridge when connect is called', async () => {
+      const connectBridge = {
+        connectPeripheral: jest.fn().mockResolvedValue(true),
+      };
+      const connectAdapter = new RemusBladeAdapter(connectBridge as any);
+      const res = await connectAdapter.connect('blade-123');
+      expect(connectBridge.connectPeripheral).toHaveBeenCalledWith('blade-123');
+      expect(res).toBe(true);
+    });
+
+    it('normalizes detected state as detected when emitted from native bridge', async () => {
+      const emitter = new NativeEventEmitter();
+      const detectedBridge = {};
+      const detectedAdapter = new RemusBladeAdapter(detectedBridge as any);
+      await detectedAdapter.initialize();
+
+      let detectedDevice: any = null;
+      detectedAdapter.onDeviceStateChanged(dev => {
+        detectedDevice = dev;
+      });
+
+      (emitter as any).emit('onRemusBladeStateChanged', { state: 'detected', deviceName: 'Remus Blade P1' });
+      expect(detectedDevice).toEqual(
+        expect.objectContaining({
+          state: 'detected',
+          name: 'Remus Blade P1',
+        }),
+      );
     });
   });
 });

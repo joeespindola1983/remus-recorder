@@ -107,7 +107,8 @@ export type CaptureScenarioStep =
       type: 'update_source_readiness';
       sourceId: string;
       readiness: SourceReadinessSnapshot;
-    };
+    }
+  | {type: 'reset_to_ready'};
 
 const decimalInteger = (value: string, field: string): bigint => {
   if (!/^(0|[1-9]\d*)$/.test(value)) {
@@ -179,6 +180,33 @@ export const applyCaptureScenarioStep = (
   step: CaptureScenarioStep,
 ): CaptureSimulationState => {
   switch (step.type) {
+    case 'reset_to_ready':
+      return {
+        ...state,
+        nowElapsedSeconds: 0,
+        capture: {
+          phase: 'ready',
+          metrics: {elapsedSeconds: 0},
+          sources: Object.fromEntries(
+            Object.entries(state.capture.sources).map(([sourceId, source]) => [
+              sourceId,
+              {
+                ...source,
+                operationalState:
+                  source.readiness?.sourceConnectionState === 'unavailable'
+                    ? 'unavailable' as const
+                    : 'available_idle' as const,
+                recordingId: undefined,
+                recordingState: undefined,
+                finalizationReason: undefined,
+                coverageSegments: [],
+              },
+            ]),
+          ),
+        },
+        artifactTransfers: {},
+        events: [],
+      };
     case 'commit_capture':
       return {
         ...state,

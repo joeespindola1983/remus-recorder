@@ -5,6 +5,7 @@ import {
   WearableDevice,
   Vector3,
   PositionCoordinates,
+  WearableConnectionState,
 } from '../../types/wearables';
 
 export const REMUS_BLADE_SERVICE_UUID = '4fafc201-1fb5-459e-8fcc-c5c9c331914b';
@@ -148,16 +149,17 @@ export class RemusBladeAdapter implements IWearableAdapter {
     return this.sendCommand('STOP');
   }
 
-  async sendGpsAid(lat: number, lon: number): Promise<boolean> {
-    const latStr = lat.toFixed(6);
-    const lonStr = lon.toFixed(6);
-    return this.sendCommand(`AID,${latStr},${lonStr}`);
-  }
-
   async disconnect(): Promise<void> {
     if (this.nativeBridge?.disconnectPeripheral) {
       await this.nativeBridge.disconnectPeripheral();
     }
+  }
+
+  async connect(deviceId?: string): Promise<boolean> {
+    if (this.nativeBridge?.connectPeripheral) {
+      return this.nativeBridge.connectPeripheral(deviceId ?? '');
+    }
+    return false;
   }
 
   async startScan(): Promise<boolean> {
@@ -298,17 +300,16 @@ export class RemusBladeAdapter implements IWearableAdapter {
   }
 
   private normalizeConnectionState(
-    state: string,
-  ): 'connected' | 'disconnected' | 'connecting' | 'error' {
+    state?: string,
+  ): WearableConnectionState {
     if (state === 'connected') return 'connected';
-    if (state === 'connecting' || state === 'detected') {
-      return 'connecting';
-    }
+    if (state === 'connecting') return 'connecting';
+    if (state === 'detected') return 'detected';
     if (state === 'error') return 'error';
     return 'disconnected';
   }
 
-  private notifyDeviceState(state: 'connected' | 'disconnected' | 'connecting' | 'error'): void {
+  private notifyDeviceState(state: WearableConnectionState): void {
     const device: WearableDevice = {
       id: this.deviceId,
       name: this.deviceName,

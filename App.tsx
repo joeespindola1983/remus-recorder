@@ -14,6 +14,7 @@ import {
   SummaryScreen,
 } from './src/ui/screens/RecorderScreens';
 import { color } from './src/ui/theme/tokens';
+import {ProfileScreen} from './src/ui/screens/ProfileScreen';
 import { t } from './src/i18n';
 import { PhoneDeviceService } from './src/services/sensors/PhoneDeviceService';
 import { RemusBladeDeviceService } from './src/services/blade/RemusBladeDeviceService';
@@ -286,13 +287,12 @@ export default function App(): React.JSX.Element {
         </SafeAreaView>
       ) : (
         <AppShell activeTab={activeTab} onSelectTab={setActiveTab}>
-          {state.phase === 'ready' ? (
+          {activeTab === 'profile' ? (
+            <ProfileScreen service={recordingService} />
+          ) : state.phase === 'ready' ? (
             <ReadyScreen
               bladeSnapshot={bladeSnapshot}
               onRequestPermissions={handleRequestPermissions}
-              onSendGpsAid={() => {
-                bladeDevice.sendGpsAid(-23.55052, -46.633308).catch(() => {});
-              }}
               onDisconnectBlade={() => {
                 bladeDevice.disconnect().catch(() => {});
               }}
@@ -310,6 +310,11 @@ export default function App(): React.JSX.Element {
             <SummaryScreen
               lastManifest={lastManifest}
               onExport={handleExport}
+              onDone={() => {
+                setLastManifest(null);
+                dispatch({type: 'reset_to_ready'});
+                setActiveTab('activities');
+              }}
               state={state}
             />
           ) : null}

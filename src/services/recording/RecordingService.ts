@@ -27,6 +27,16 @@ export interface RecordingProjection {
   accelerationIncludingGravityG?: number;
 }
 
+export interface RecordedWorkoutSummary {
+  activityId: string;
+  status: 'finalized' | 'interrupted';
+  startedAtEpochMilliseconds: number;
+  endedAtEpochMilliseconds?: number;
+  durationSeconds: number;
+  sourceIds: string[];
+  sampleCounts: Record<string, number>;
+}
+
 export interface NativeRecordingBridge {
   startRecording(options: {sourceIds: string[]}): Promise<RecordingStartResult>;
   stopRecording(): Promise<RecordingManifest>;
@@ -38,6 +48,8 @@ export interface NativeRecordingBridge {
   requestLocationPermission?(): Promise<string>;
   getLocationPermissionStatus?(): Promise<string>;
   exportRecording?(options: {activityId?: string}): Promise<{zipPath: string; shared: boolean}>;
+  listRecordings?(): Promise<RecordedWorkoutSummary[]>;
+  deleteRecording?(activityId: string): Promise<boolean>;
   getPhoneHardwareProfile?(): Promise<{
     hasGps?: boolean;
     hasAccelerometer?: boolean;
@@ -79,6 +91,18 @@ export class RecordingService {
       return Promise.reject(new Error('Native recording is unavailable'));
     }
     return this.bridge.exportRecording({activityId});
+  }
+
+  listRecordings(): Promise<RecordedWorkoutSummary[]> {
+    if (!this.bridge?.listRecordings) return Promise.resolve([]);
+    return this.bridge.listRecordings();
+  }
+
+  deleteRecording(activityId: string): Promise<boolean> {
+    if (!this.bridge?.deleteRecording) {
+      return Promise.reject(new Error('Native recording is unavailable'));
+    }
+    return this.bridge.deleteRecording(activityId);
   }
 
   getState(): Promise<{isRecording: boolean; activityId?: string; artifactDirectory?: string}> {

@@ -40,7 +40,6 @@ export function ReadyScreen({
   onStart,
   onRequestPermissions,
   bladeSnapshot,
-  onSendGpsAid,
   onDisconnectBlade,
   onConnectBlade,
 }: {
@@ -48,7 +47,6 @@ export function ReadyScreen({
   onStart: () => void;
   onRequestPermissions?: () => void;
   bladeSnapshot?: RemusBladeSnapshot | null;
-  onSendGpsAid?: () => void;
   onDisconnectBlade?: () => void;
   onConnectBlade?: () => void;
 }): React.JSX.Element {
@@ -79,7 +77,6 @@ export function ReadyScreen({
         }}
         sources={sourcesList}
         bladeSnapshot={bladeSnapshot}
-        onSendGpsAid={onSendGpsAid}
         onDisconnectBlade={onDisconnectBlade}
         onConnectBlade={onConnectBlade}
       />
@@ -145,11 +142,13 @@ export function SummaryScreen({
   lastManifest,
   onExport,
   onViewAnalysis,
+  onDone,
 }: {
   state: ActivityCaptureState;
   lastManifest?: RecordingManifest | null;
   onExport?: () => void;
   onViewAnalysis?: () => void;
+  onDone?: () => void;
 }): React.JSX.Element {
   const interrupted = Object.values(state.sources).filter(
     source => source.recordingState === 'interrupted',
@@ -282,6 +281,10 @@ export function SummaryScreen({
           onPress={onExport}
           tone="secondary"
         />
+      ) : null}
+
+      {onDone ? (
+        <ActionButton label={t('summary.newWorkout')} onPress={onDone} />
       ) : null}
 
       <View style={styles.analysisCard}>

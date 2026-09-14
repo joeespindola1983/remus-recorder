@@ -90,4 +90,16 @@ describe('RecordingService', () => {
     expect(result.zipPath).toContain('activity-1.zip');
     expect(result.shared).toBe(true);
   });
+
+  it('lists and deletes persisted workouts through the native repository', async () => {
+    const bridge = {
+      startRecording: jest.fn(), stopRecording: jest.fn(), getRecordingState: jest.fn(),
+      listRecordings: jest.fn().mockResolvedValue([{activityId: 'activity:1'}]),
+      deleteRecording: jest.fn().mockResolvedValue(true),
+    } as unknown as NativeRecordingBridge;
+    const service = new RecordingService(bridge);
+    expect(await service.listRecordings()).toEqual([{activityId: 'activity:1'}]);
+    expect(await service.deleteRecording('activity:1')).toBe(true);
+    expect(bridge.deleteRecording).toHaveBeenCalledWith('activity:1');
+  });
 });

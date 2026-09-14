@@ -9,13 +9,13 @@ import {
   RemusBladeAdapter,
   RemusBladeSnapshot,
 } from './RemusBladeAdapter';
-import { WearableDevice } from '../../types/wearables';
+import { WearableConnectionState, WearableDevice } from '../../types/wearables';
 
 export class RemusBladeDeviceService {
   private adapter: RemusBladeAdapter;
   private sourceState: CaptureSourceState;
   private latestSnapshot: RemusBladeSnapshot | null = null;
-  private connectionState: 'disconnected' | 'connecting' | 'connected' | 'error' = 'disconnected';
+  private connectionState: WearableConnectionState = 'disconnected';
   private listeners: Set<(state: CaptureSourceState) => void> = new Set();
   private unsubSnapshot: (() => void) | null = null;
   private unsubDeviceState: (() => void) | null = null;
@@ -83,6 +83,9 @@ export class RemusBladeDeviceService {
     this.unsubDeviceState = this.adapter.onDeviceStateChanged((device: WearableDevice) => {
       if (device.state === 'disconnected' || device.state === 'error') {
         this.handleDisconnection();
+      } else if (device.state === 'detected') {
+        this.connectionState = 'detected';
+        this.markDetected();
       } else if (device.state === 'connected') {
         // BLE service discovery is not sufficient evidence of a live data source.
         // A valid snapshot promotes the source to connected in handleSnapshot().
@@ -197,7 +200,7 @@ export class RemusBladeDeviceService {
     return this.latestSnapshot;
   }
 
-  getConnectionState(): 'disconnected' | 'connecting' | 'connected' | 'error' {
+  getConnectionState(): WearableConnectionState {
     return this.connectionState;
   }
 
@@ -230,10 +233,6 @@ export class RemusBladeDeviceService {
     return true;
   }
 
-  async sendGpsAid(lat: number, lon: number): Promise<boolean> {
-    return this.adapter.sendGpsAid(lat, lon);
-  }
-
   async disconnect(): Promise<void> {
     await this.adapter.disconnect();
     this.handleDisconnection();
@@ -242,7 +241,7 @@ export class RemusBladeDeviceService {
   async connect(): Promise<boolean> {
     this.connectionState = 'connecting';
     this.markDetected();
-    return this.adapter.startScan();
+    return this.adapter.connect();
   }
 
   onStateChange(listener: (state: CaptureSourceState) => void): () => void {

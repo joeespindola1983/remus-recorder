@@ -190,6 +190,57 @@ final class RemusEvidenceStore {
     try evidenceRoot()
   }
 
+  func listRecordings() throws -> [[String: Any]] {
+    try queue.sync {
+      let directories = try fileManager.contentsOfDirectory(
+        at: evidenceRoot(),
+        includingPropertiesForKeys: [.isDirectoryKey],
+        options: [.skipsHiddenFiles]
+      )
+      return directories.compactMap { directory in
+        let manifestURL = directory.appendingPathComponent("manifest.json")
+        guard let data = try? Data(contentsOf: manifestURL),
+              let manifest = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let status = manifest["status"] as? String,
+              status == "finalized" || status == "interrupted",
+              let activityId = manifest["activityId"] as? String,
+              let startedAt = manifest["startedAtEpochMilliseconds"] as? NSNumber else { return nil }
+        let endedAt = manifest["endedAtEpochMilliseconds"] as? NSNumber
+        let recordings = manifest["recordingIdsBySource"] as? [String: Any] ?? [:]
+        return [
+          "activityId": activityId,
+          "status": status,
+          "startedAtEpochMilliseconds": startedAt,
+          "endedAtEpochMilliseconds": endedAt ?? NSNull(),
+          "durationSeconds": endedAt.map { max(0, ($0.doubleValue - startedAt.doubleValue) / 1_000) } ?? 0,
+          "sourceIds": Array(recordings.keys).sorted(),
+          "sampleCounts": manifest["sampleCounts"] as? [String: Any] ?? [:],
+        ]
+      }.sorted {
+        ($0["startedAtEpochMilliseconds"] as? NSNumber)?.int64Value ?? 0 >
+          ($1["startedAtEpochMilliseconds"] as? NSNumber)?.int64Value ?? 0
+      }
+    }
+  }
+
+  func deleteRecording(activityId: String) throws -> Bool {
+    try queue.sync {
+      guard active?.activityId != activityId,
+            activityId.hasPrefix("activity:"),
+            !activityId.contains("/"),
+            !activityId.contains("..") else { return false }
+      let dirName = activityId.replacingOccurrences(of: ":", with: "-")
+      let directory = try evidenceRoot().appendingPathComponent(dirName, isDirectory: true)
+      guard fileManager.fileExists(atPath: directory.path) else { return false }
+      try fileManager.removeItem(at: directory)
+      let documentsURL = try fileManager.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+      let zipURL = documentsURL.appendingPathComponent("RemusExport/\(dirName).zip")
+      if fileManager.fileExists(atPath: zipURL.path) { try fileManager.removeItem(at: zipURL) }
+      if latestActivityId == activityId { latestActivityId = nil }
+      return true
+    }
+  }
+
   func exportActivity(activityId: String? = nil) throws -> URL {
     let targetActivityId = activityId ?? latestActivityId
     guard let targetActivityId else {

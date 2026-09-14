@@ -12,7 +12,6 @@ export interface DeviceReadinessPanelProps {
   onToggleExpand?: (sourceId: string) => void;
   onRequestPermissions?: () => void;
   bladeSnapshot?: RemusBladeSnapshot | null;
-  onSendGpsAid?: () => void;
   onDisconnectBlade?: () => void;
   onConnectBlade?: () => void;
 }
@@ -23,7 +22,6 @@ export function DeviceReadinessPanel({
   onToggleExpand,
   onRequestPermissions,
   bladeSnapshot,
-  onSendGpsAid,
   onDisconnectBlade,
   onConnectBlade,
 }: DeviceReadinessPanelProps): React.JSX.Element {
@@ -54,7 +52,6 @@ export function DeviceReadinessPanel({
           onToggleExpand={() => handleToggle(source.sourceId)}
           source={source}
           bladeSnapshot={bladeSnapshot}
-          onSendGpsAid={onSendGpsAid}
           onDisconnectBlade={onDisconnectBlade}
           onConnectBlade={onConnectBlade}
         />

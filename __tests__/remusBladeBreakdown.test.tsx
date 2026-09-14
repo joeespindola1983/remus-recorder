@@ -112,29 +112,6 @@ describe('RemusBladeBreakdown (TDD)', () => {
     expect(textNodes).toContain('Standby (pronto para gravar)');
   });
 
-  it('triggers onSendGpsAid when A-GPS action button is pressed', () => {
-    const onSendGpsAid = jest.fn();
-    let renderer: ReactTestRenderer.ReactTestRenderer;
-    act(() => {
-      renderer = ReactTestRenderer.create(
-        <RemusBladeBreakdown
-          readiness={mockReadiness}
-          snapshot={mockSnapshot}
-          connectionState="connected"
-          onSendGpsAid={onSendGpsAid}
-        />
-      );
-    });
-
-    const agpsButton = renderer!.root.findByProps({ testID: 'blade-agps-button' });
-    expect(agpsButton).toBeTruthy();
-    act(() => {
-      agpsButton.props.onPress();
-    });
-
-    expect(onSendGpsAid).toHaveBeenCalledTimes(1);
-  });
-
   it('renders disconnected state with offline warning badge', () => {
     let renderer: ReactTestRenderer.ReactTestRenderer;
     act(() => {
@@ -187,7 +164,7 @@ describe('RemusBladeBreakdown (TDD)', () => {
     expect(onDisconnect).toHaveBeenCalledTimes(1);
   });
 
-  it('renders connect button when disconnected and fires onConnect callback', () => {
+  it('does not offer connection while no Blade is detected', () => {
     const onConnect = jest.fn();
     let renderer: ReactTestRenderer.ReactTestRenderer;
     act(() => {
@@ -205,10 +182,25 @@ describe('RemusBladeBreakdown (TDD)', () => {
       );
     });
 
-    const connectBtn = renderer!.root.findByProps({ testID: 'blade-connect-button' });
-    expect(connectBtn).toBeTruthy();
-    const btnText = connectBtn.findByType('Text' as any).props.children;
-    expect(btnText).toBe('Conectar pá');
+    expect(renderer!.root.findAllByProps({testID: 'blade-connect-button'})).toHaveLength(0);
+  });
+
+  it('renders detected state and connects only after an explicit tap', () => {
+    const onConnect = jest.fn();
+    let renderer: ReactTestRenderer.ReactTestRenderer;
+    act(() => {
+      renderer = ReactTestRenderer.create(
+        <RemusBladeBreakdown
+          readiness={{sourceConnectionState: 'detected', liveTelemetryState: 'evaluation_pending', availableMeasurementIdentifiers: []}}
+          snapshot={null}
+          connectionState="detected"
+          onConnect={onConnect}
+        />,
+      );
+    });
+    const labels = renderer!.root.findAllByType('Text' as any).map(node => node.props.children);
+    expect(labels).toContain('Pá detectada');
+    const connectBtn = renderer!.root.findByProps({testID: 'blade-connect-button'});
 
     act(() => {
       connectBtn.props.onPress();

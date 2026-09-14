@@ -13,8 +13,7 @@ import { color, fontFamily, radius, spacing } from '../theme/tokens';
 export interface RemusBladeBreakdownProps {
   readiness?: SourceReadinessSnapshot;
   snapshot?: RemusBladeSnapshot | null;
-  connectionState?: 'disconnected' | 'connecting' | 'connected' | 'error';
-  onSendGpsAid?: () => void;
+  connectionState?: 'disconnected' | 'detected' | 'connecting' | 'connected' | 'error';
   onDisconnect?: () => void;
   onConnect?: () => void;
 }
@@ -23,11 +22,16 @@ export function RemusBladeBreakdown({
   readiness,
   snapshot,
   connectionState = 'disconnected',
-  onSendGpsAid,
   onDisconnect,
   onConnect,
 }: RemusBladeBreakdownProps): React.JSX.Element {
   const isConnected = connectionState === 'connected';
+  const isDetected = connectionState === 'detected';
+  const badgeLabel = isConnected
+    ? t('blade.connected')
+    : isDetected
+      ? t('blade.detected')
+      : t('blade.disconnected');
   const hasGpsLock =
     (readiness?.availableMeasurementIdentifiers?.includes('positionWgs84') ?? false) ||
     !!snapshot?.location;
@@ -45,16 +49,24 @@ export function RemusBladeBreakdown({
         <View
           style={[
             styles.badge,
-            isConnected ? styles.badgeSuccess : styles.badgeWarning,
+            isConnected
+              ? styles.badgeSuccess
+              : isDetected
+                ? styles.badgeWarning
+                : styles.badgeNeutral,
           ]}
         >
           <Text
             style={[
               styles.badgeText,
-              isConnected ? styles.badgeTextSuccess : styles.badgeTextWarning,
+              isConnected
+                ? styles.badgeTextSuccess
+                : isDetected
+                  ? styles.badgeTextWarning
+                  : styles.badgeTextNeutral,
             ]}
           >
-            {isConnected ? t('blade.connected') : t('blade.disconnected')}
+            {badgeLabel}
           </Text>
         </View>
       </View>
@@ -154,16 +166,6 @@ export function RemusBladeBreakdown({
 
       {/* Action Footer */}
       <View style={styles.actions}>
-        {onSendGpsAid && (
-          <TouchableOpacity
-            testID="blade-agps-button"
-            style={styles.actionButton}
-            onPress={onSendGpsAid}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.actionButtonText}>{t('blade.agpsAction')}</Text>
-          </TouchableOpacity>
-        )}
         {isConnected && onDisconnect && (
           <TouchableOpacity
             testID="blade-disconnect-button"
@@ -176,7 +178,7 @@ export function RemusBladeBreakdown({
             </Text>
           </TouchableOpacity>
         )}
-        {!isConnected && onConnect && (
+        {isDetected && onConnect && (
           <TouchableOpacity
             testID="blade-connect-button"
             style={styles.actionButton}

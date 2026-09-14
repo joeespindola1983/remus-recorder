@@ -17,6 +17,8 @@ import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelUuid
 import android.util.Log
 import androidx.core.content.ContextCompat
@@ -44,6 +46,19 @@ class RemusBladeModule(
 
   private var bluetoothGatt: BluetoothGatt? = null
   private var targetCharacteristic: BluetoothGattCharacteristic? = null
+  private var discoveredDevice: BluetoothDevice? = null
+  private var lastAdvertisementAtMillis = 0L
+  private val discoveryHandler = Handler(Looper.getMainLooper())
+  private val discoveryExpiry = object : Runnable {
+    override fun run() {
+      if (bluetoothGatt == null && discoveredDevice != null &&
+        System.currentTimeMillis() - lastAdvertisementAtMillis > 6_000L) {
+        discoveredDevice = null
+        sendStateEvent("scanning", null, null)
+      }
+      discoveryHandler.postDelayed(this, 2_000L)
+    }
+  }
   private var isScanning = false
   private var listenerCount = 0
 
@@ -156,7 +171,8 @@ class RemusBladeModule(
       return
     }
     try {
-      val device = bluetoothAdapter?.getRemoteDevice(identifier)
+      val device = discoveredDevice?.takeIf { identifier.isBlank() || it.address == identifier }
+        ?: if (identifier.isNotBlank()) bluetoothAdapter?.getRemoteDevice(identifier) else null
       if (device == null) {
         promise.resolve(false)
         return
@@ -171,7 +187,9 @@ class RemusBladeModule(
   @ReactMethod
   fun disconnectPeripheral(promise: Promise) {
     disconnectCurrentGatt()
-    sendStateEvent("disconnected", null, null)
+    val detected = discoveredDevice
+    sendStateEvent(if (detected == null) "disconnected" else "detected", detected?.address, detectedName())
+    ensurePassiveScan()
     promise.resolve(true)
   }
 
@@ -214,6 +232,8 @@ class RemusBladeModule(
   fun addListener(@Suppress("UNUSED_PARAMETER") eventName: String) {
     listenerCount += 1
     if (listenerCount == 1) {
+      discoveryHandler.removeCallbacks(discoveryExpiry)
+      discoveryHandler.postDelayed(discoveryExpiry, 2_000L)
       if (canScan() && bluetoothAdapter?.isEnabled == true && bluetoothGatt == null && !isScanning) {
         try {
           val scanner = bluetoothAdapter?.bluetoothLeScanner
@@ -239,6 +259,7 @@ class RemusBladeModule(
     listenerCount = (listenerCount - count.toInt()).coerceAtLeast(0)
     if (listenerCount == 0) {
       stopInternalScan()
+      discoveryHandler.removeCallbacks(discoveryExpiry)
     }
   }
 
@@ -272,7 +293,9 @@ class RemusBladeModule(
       val matchesName = name?.contains("Remus", ignoreCase = true) == true
       Log.d(TAG, "ScanResult: ${device.address}, name: $name, matchesUuid: $matchesUuid, matchesName: $matchesName")
       if (matchesUuid || matchesName) {
-        connectToDevice(device)
+        discoveredDevice = device
+        lastAdvertisementAtMillis = System.currentTimeMillis()
+        sendStateEvent("detected", device.address, name ?: "Remus Blade P1")
       }
     }
 
@@ -302,23 +325,9 @@ class RemusBladeModule(
         }
       } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
         disconnectCurrentGatt()
-        sendStateEvent("disconnected", deviceId, deviceName)
-        if (canScan() && bluetoothAdapter?.isEnabled == true && listenerCount > 0 && !isScanning) {
-          try {
-            val scanner = bluetoothAdapter?.bluetoothLeScanner
-            if (scanner != null) {
-              val filters = listOf(
-                ScanFilter.Builder().setServiceUuid(ParcelUuid(remusServiceUuid)).build()
-              )
-              val settings = ScanSettings.Builder()
-                .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
-                .build()
-              isScanning = true
-              sendStateEvent("scanning", null, null)
-              scanner.startScan(filters, settings, scanCallback)
-            }
-          } catch (_: Exception) {}
-        }
+        discoveredDevice = gatt.device
+        sendStateEvent("detected", deviceId, deviceName)
+        ensurePassiveScan()
       }
     }
 
@@ -412,6 +421,21 @@ class RemusBladeModule(
         }
       }
     }
+  }
+
+  private fun detectedName(): String? = try {
+    discoveredDevice?.name ?: "Remus Blade P1"
+  } catch (_: SecurityException) { "Remus Blade P1" }
+
+  private fun ensurePassiveScan() {
+    if (listenerCount <= 0 || isScanning || !canScan() || bluetoothAdapter?.isEnabled != true) return
+    try {
+      val scanner = bluetoothAdapter?.bluetoothLeScanner ?: return
+      val filters = listOf(ScanFilter.Builder().setServiceUuid(ParcelUuid(remusServiceUuid)).build())
+      val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
+      isScanning = true
+      scanner.startScan(filters, settings, scanCallback)
+    } catch (_: Exception) {}
   }
 
   private fun sendStateEvent(state: String, deviceId: String?, deviceName: String?) {

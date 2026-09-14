@@ -130,6 +130,25 @@ final class RemusRecordingBridge: RCTEventEmitter, CLLocationManagerDelegate {
   }
 
   @objc
+  func listRecordings(
+    _ resolve: @escaping RCTPromiseResolveBlock,
+    rejecter reject: @escaping RCTPromiseRejectBlock
+  ) {
+    do { resolve(try evidenceStore.listRecordings()) }
+    catch { reject("LIST_RECORDINGS_FAILED", error.localizedDescription, error) }
+  }
+
+  @objc
+  func deleteRecording(
+    _ activityId: String,
+    resolver resolve: @escaping RCTPromiseResolveBlock,
+    rejecter reject: @escaping RCTPromiseRejectBlock
+  ) {
+    do { resolve(try evidenceStore.deleteRecording(activityId: activityId)) }
+    catch { reject("DELETE_RECORDING_FAILED", error.localizedDescription, error) }
+  }
+
+  @objc
   func requestLocationPermission(
     _ resolve: @escaping RCTPromiseResolveBlock,
     rejecter reject: @escaping RCTPromiseRejectBlock

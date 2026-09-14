@@ -19,10 +19,10 @@ describe('AppShell Component (TDD)', () => {
     const textContents = textNodes.map(n => n.props.children);
 
     expect(textContents).toContain('Remus');
-    expect(textContents).toContain('Home');
-    expect(textContents).toContain('Activities');
-    expect(textContents).toContain('Community');
-    expect(textContents).toContain('Profile');
+    expect(textContents).toContain(t('nav.home'));
+    expect(textContents).toContain(t('nav.activities'));
+    expect(textContents).toContain(t('nav.community'));
+    expect(textContents).toContain(t('nav.profile'));
     expect(textContents).toContain('Mock Screen Content');
     expect(renderer.root.findByProps({ testID: 'nav-icon-home' })).toBeTruthy();
     expect(renderer.root.findByProps({ testID: 'nav-icon-activities' })).toBeTruthy();

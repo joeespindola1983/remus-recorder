@@ -190,4 +190,12 @@ describe('SummaryScreen Phone Evidence Declaration (TDD)', () => {
     });
     expect(onExport).toHaveBeenCalledTimes(1);
   });
+  it('offers recording a new workout after completion', () => {
+    const onDone = jest.fn();
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    act(() => { renderer = ReactTestRenderer.create(<SummaryScreen state={createFinishedState()} onDone={onDone} />); });
+    const button = renderer.root.findByProps({accessibilityLabel: 'Gravar novo treino'});
+    act(() => button.props.onPress());
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
 });

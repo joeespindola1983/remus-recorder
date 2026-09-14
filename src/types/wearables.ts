@@ -1,6 +1,6 @@
 export type DeviceFamily = 'apple_watch' | 'wear_os' | 'garmin' | 'ble_sensor' | 'remus_blade' | 'phone' | 'mock';
 
-export type WearableConnectionState = 'disconnected' | 'connecting' | 'connected' | 'error';
+export type WearableConnectionState = 'disconnected' | 'detected' | 'connecting' | 'connected' | 'error';
 export type HeartRatePermissionState =
   | 'not_determined'
   | 'granted'

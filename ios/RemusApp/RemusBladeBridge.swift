@@ -6,6 +6,9 @@ import React
 class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralDelegate {
   private var centralManager: CBCentralManager?
   private var connectedPeripheral: CBPeripheral?
+  private var discoveredPeripheral: CBPeripheral?
+  private var lastAdvertisementAt: Date?
+  private var discoveryExpiryTimer: Timer?
   private var targetCharacteristic: CBCharacteristic?
   private var hasListeners = false
 
@@ -28,17 +31,28 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
 
   override func startObserving() {
     hasListeners = true
+    startDiscoveryExpiryTimer()
     if connectedPeripheral?.state == .connected, targetCharacteristic != nil {
       sendStateEvent("connected")
+    } else if discoveredPeripheral != nil,
+              let lastSeen = lastAdvertisementAt,
+              Date().timeIntervalSince(lastSeen) <= 6 {
+      sendStateEvent("detected")
     } else if centralManager?.state == .poweredOn {
       sendStateEvent("scanning")
     } else {
+      discoveredPeripheral = nil
+      connectedPeripheral = nil
+      targetCharacteristic = nil
+      lastAdvertisementAt = nil
       sendStateEvent("disconnected")
     }
   }
 
   override func stopObserving() {
     hasListeners = false
+    discoveryExpiryTimer?.invalidate()
+    discoveryExpiryTimer = nil
   }
 
   @objc
@@ -81,7 +95,7 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
     sendStateEvent("scanning")
     central.scanForPeripherals(
       withServices: [remusServiceUUID],
-      options: [CBCentralManagerScanOptionAllowDuplicatesKey: false]
+      options: [CBCentralManagerScanOptionAllowDuplicatesKey: true]
     )
     resolve(true)
   }
@@ -94,11 +108,14 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
 
   @objc
   func connectPeripheral(_ identifier: String, resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
-    guard let peripheral = connectedPeripheral else {
+    let requested = UUID(uuidString: identifier)
+    guard let peripheral = discoveredPeripheral,
+          requested == nil || requested == peripheral.identifier else {
       resolve(false)
       return
     }
     centralManager?.connect(peripheral, options: nil)
+    sendStateEvent("connecting")
     resolve(true)
   }
 
@@ -109,7 +126,7 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
       connectedPeripheral = nil
       targetCharacteristic = nil
     }
-    sendStateEvent("disconnected")
+    sendStateEvent(discoveredPeripheral == nil ? "disconnected" : "detected")
     resolve(true)
   }
 
@@ -134,8 +151,8 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
     guard hasListeners else { return }
     sendEvent(withName: "onRemusBladeStateChanged", body: [
       "state": state,
-      "deviceId": connectedPeripheral?.identifier.uuidString ?? "remus-blade:p1",
-      "deviceName": connectedPeripheral?.name ?? "Remus Blade P1",
+      "deviceId": (connectedPeripheral ?? discoveredPeripheral)?.identifier.uuidString ?? "remus-blade:p1",
+      "deviceName": (connectedPeripheral ?? discoveredPeripheral)?.name ?? "Remus Blade P1",
     ])
   }
 
@@ -145,7 +162,7 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
       // Automatically scan for Remus Blade when Bluetooth is powered on
       central.scanForPeripherals(
         withServices: [remusServiceUUID],
-        options: [CBCentralManagerScanOptionAllowDuplicatesKey: false]
+        options: [CBCentralManagerScanOptionAllowDuplicatesKey: true]
       )
       sendStateEvent("scanning")
     } else {
@@ -154,34 +171,47 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
   }
 
   func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String: Any], rssi RSSI: NSNumber) {
-    central.stopScan()
-    connectedPeripheral = peripheral
+    discoveredPeripheral = peripheral
+    lastAdvertisementAt = Date()
     peripheral.delegate = self
-    sendStateEvent("connecting")
-    central.connect(peripheral, options: nil)
+    if connectedPeripheral == nil { sendStateEvent("detected") }
   }
 
   func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+    connectedPeripheral = peripheral
     peripheral.discoverServices([remusServiceUUID])
   }
 
   func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
     if connectedPeripheral?.identifier == peripheral.identifier {
-      connectedPeripheral = nil
       targetCharacteristic = nil
     }
     sendStateEvent("error")
   }
 
   func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
+    discoveredPeripheral = peripheral
+    lastAdvertisementAt = Date()
     connectedPeripheral = nil
     targetCharacteristic = nil
-    sendStateEvent("disconnected")
+    sendStateEvent("detected")
     if central.state == .poweredOn {
       central.scanForPeripherals(
         withServices: [remusServiceUUID],
-        options: [CBCentralManagerScanOptionAllowDuplicatesKey: false]
+        options: [CBCentralManagerScanOptionAllowDuplicatesKey: true]
       )
+    }
+  }
+
+  private func startDiscoveryExpiryTimer() {
+    discoveryExpiryTimer?.invalidate()
+    discoveryExpiryTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+      guard let self, self.connectedPeripheral == nil,
+            let lastSeen = self.lastAdvertisementAt,
+            Date().timeIntervalSince(lastSeen) > 6 else { return }
+      self.discoveredPeripheral = nil
+      self.lastAdvertisementAt = nil
+      self.sendStateEvent("scanning")
     }
   }
 

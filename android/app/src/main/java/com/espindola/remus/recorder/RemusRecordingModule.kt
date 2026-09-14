@@ -189,6 +189,39 @@ class RemusRecordingModule(private val reactContext: ReactApplicationContext) :
   }
 
   @ReactMethod
+  fun listRecordings(promise: Promise) {
+    try {
+      val result = Arguments.createArray()
+      for (workout in evidenceStore.listRecordings(reactContext)) {
+        val item = Arguments.createMap()
+        item.putString("activityId", workout["activityId"] as String)
+        item.putString("status", workout["status"] as String)
+        item.putDouble("startedAtEpochMilliseconds", (workout["startedAtEpochMilliseconds"] as Number).toDouble())
+        item.putDouble("endedAtEpochMilliseconds", (workout["endedAtEpochMilliseconds"] as Number).toDouble())
+        item.putDouble("durationSeconds", (workout["durationSeconds"] as Number).toDouble())
+        val sources = Arguments.createArray()
+        @Suppress("UNCHECKED_CAST")
+        for (sourceId in workout["sourceIds"] as List<String>) sources.pushString(sourceId)
+        item.putArray("sourceIds", sources)
+        val counts = Arguments.createMap()
+        @Suppress("UNCHECKED_CAST")
+        for ((stream, count) in workout["sampleCounts"] as Map<String, Long>) counts.putDouble(stream, count.toDouble())
+        item.putMap("sampleCounts", counts)
+        result.pushMap(item)
+      }
+      promise.resolve(result)
+    } catch (e: Exception) {
+      promise.reject("LIST_RECORDINGS_ERROR", e.message, e)
+    }
+  }
+
+  @ReactMethod
+  fun deleteRecording(activityId: String, promise: Promise) {
+    try { promise.resolve(evidenceStore.deleteRecording(reactContext, activityId)) }
+    catch (e: Exception) { promise.reject("DELETE_RECORDING_ERROR", e.message, e) }
+  }
+
+  @ReactMethod
   fun getPhoneHardwareProfile(promise: Promise) {
     try {
       val hasGps = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)

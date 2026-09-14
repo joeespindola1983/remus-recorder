@@ -17,6 +17,16 @@ import {
 import {createInitialActivityCapture, activityCaptureReducer} from '../src/application/capture/ActivityCapture';
 
 describe('deterministic capture simulator', () => {
+  it('returns to ready while preserving readiness and clearing workout data', () => {
+    const initial = createCaptureSimulation(createDemoActivityCapture());
+    const recording = runCaptureScenario(initial, [{type: 'commit_capture', activityId: 'activity:reset', activityCorrelationId: 'correlation:reset', recordingIdsBySource: {'phone:primary': 'recording:phone:reset'}}, {type: 'advance_time', seconds: 30, metrics: {distanceMeters: 100}}]);
+    const result = runCaptureScenario(recording, [{type: 'reset_to_ready'}]);
+    expect(result.capture.phase).toBe('ready');
+    expect(result.capture.metrics).toEqual({elapsedSeconds: 0});
+    expect(result.capture.sources['phone:primary'].readiness).toEqual(initial.capture.sources['phone:primary'].readiness);
+    expect(result.capture.sources['phone:primary'].recordingId).toBeUndefined();
+  });
+
   it('completes an app-only activity without requiring another source', () => {
     const result = runCaptureScenario(
       createCaptureSimulation(createInitialActivityCapture(phoneSource)),

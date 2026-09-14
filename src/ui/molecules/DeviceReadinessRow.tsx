@@ -17,7 +17,6 @@ export interface DeviceReadinessRowProps {
   onRequestPermissions?: () => void;
   onToggleExpand?: () => void;
   bladeSnapshot?: RemusBladeSnapshot | null;
-  onSendGpsAid?: () => void;
   onDisconnectBlade?: () => void;
   onConnectBlade?: () => void;
 }
@@ -28,7 +27,6 @@ export function DeviceReadinessRow({
   onRequestPermissions,
   onToggleExpand,
   bladeSnapshot,
-  onSendGpsAid,
   onDisconnectBlade,
   onConnectBlade,
 }: DeviceReadinessRowProps): React.JSX.Element {
@@ -86,8 +84,13 @@ export function DeviceReadinessRow({
         <RemusBladeBreakdown
           readiness={source.readiness}
           snapshot={bladeSnapshot}
-          connectionState={connected ? 'connected' : 'disconnected'}
-          onSendGpsAid={onSendGpsAid}
+          connectionState={
+            source.readiness?.sourceConnectionState === 'detected'
+              ? 'detected'
+              : connected
+                ? 'connected'
+                : 'disconnected'
+          }
           onDisconnect={onDisconnectBlade}
           onConnect={onConnectBlade}
         />

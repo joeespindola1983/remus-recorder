@@ -311,6 +311,55 @@ class RemusEvidenceStore private constructor() {
     return zipFile
   }
 
+  fun listRecordings(context: Context): List<Map<String, Any>> {
+    val evidenceRoot = File(context.filesDir, "evidence")
+    return (evidenceRoot.listFiles() ?: emptyArray())
+      .mapNotNull { directory ->
+        val manifestFile = File(directory, "manifest.json")
+        if (!directory.isDirectory || !manifestFile.isFile) return@mapNotNull null
+        try {
+          val manifest = JSONObject(manifestFile.readText())
+          val status = manifest.optString("status")
+          if (status != "finalized" && status != "interrupted") return@mapNotNull null
+          val startedAt = manifest.optLong("startedAtEpochMilliseconds")
+          val endedAt = if (manifest.has("endedAtEpochMilliseconds")) manifest.optLong("endedAtEpochMilliseconds") else null
+          val recordingIds = manifest.optJSONObject("recordingIdsBySource") ?: JSONObject()
+          val sourceIds = mutableListOf<String>()
+          recordingIds.keys().forEach { sourceIds.add(it) }
+          val countsJson = manifest.optJSONObject("sampleCounts") ?: JSONObject()
+          val counts = mutableMapOf<String, Long>()
+          countsJson.keys().forEach { key -> counts[key] = countsJson.optLong(key) }
+          mapOf(
+            "activityId" to manifest.getString("activityId"),
+            "status" to status,
+            "startedAtEpochMilliseconds" to startedAt,
+            "endedAtEpochMilliseconds" to (endedAt ?: 0L),
+            "durationSeconds" to if (endedAt == null) 0.0 else ((endedAt - startedAt).coerceAtLeast(0) / 1000.0),
+            "sourceIds" to sourceIds.sorted(),
+            "sampleCounts" to counts
+          )
+        } catch (_: Exception) { null }
+      }
+      .sortedByDescending { (it["startedAtEpochMilliseconds"] as Number).toLong() }
+  }
+
+  fun deleteRecording(context: Context, activityId: String): Boolean {
+    synchronized(this) {
+      if (isRecording && currentActivityId == activityId) return false
+      if (!activityId.startsWith("activity:") || activityId.contains('/') || activityId.contains("..")) return false
+      val dirName = activityId.replace(":", "-")
+      val directory = File(File(context.filesDir, "evidence"), dirName)
+      if (!directory.isDirectory) return false
+      if (!directory.deleteRecursively()) return false
+      File(File(context.cacheDir, "exports"), "$dirName.zip").delete()
+      if (currentActivityId == activityId) {
+        currentActivityId = null
+        currentDirectory = null
+      }
+      return true
+    }
+  }
+
   private fun computeSha256(file: File): String {
     val digest = MessageDigest.getInstance("SHA-256")
     val buffer = ByteArray(8192)

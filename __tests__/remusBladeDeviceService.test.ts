@@ -93,12 +93,6 @@ describe('RemusBladeDeviceService (TDD)', () => {
     expect(mockBridge.sendCommand).toHaveBeenCalledWith('STOP');
   });
 
-  it('forwards GPS aiding from phone coordinates to hardware', async () => {
-    await service.initialize();
-    await service.sendGpsAid(-23.55052, -46.633308);
-    expect(mockBridge.sendCommand).toHaveBeenCalledWith('AID,-23.550520,-46.633308');
-  });
-
   it('transitions to disconnected and marks source unavailable when hardware disconnects', async () => {
     await service.initialize();
     const listenerSpy = jest.fn();
@@ -204,10 +198,17 @@ describe('RemusBladeDeviceService (TDD)', () => {
     expect(mockBridge.disconnectPeripheral).toHaveBeenCalled();
   });
 
-  it('manually triggers connection and starts scanning', async () => {
+  it('manually triggers connection and calls connectPeripheral', async () => {
     const res = await service.connect();
-    expect(service.getConnectionState()).toBe('connecting');
-    expect(mockBridge.startScan).toHaveBeenCalled();
+    expect(mockBridge.connectPeripheral).toHaveBeenCalledTimes(1);
     expect(res).toBe(true);
+  });
+
+  it('transitions to detected when hardware emits detected state', async () => {
+    await service.initialize();
+    const emitter = new NativeEventEmitter();
+    (emitter as any).emit('onRemusBladeStateChanged', { state: 'detected', deviceName: 'Remus Blade P1' });
+    expect(service.getConnectionState()).toBe('detected');
+    expect(service.getSourceState().readiness?.sourceConnectionState).toBe('detected');
   });
 });
