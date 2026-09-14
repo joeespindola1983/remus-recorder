@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import { SourceDescriptor } from '../../contracts/acquisition';
 import {
   activityCaptureReducer,
@@ -16,7 +17,7 @@ const baseCapabilities = {
 
 export const phoneSource: SourceDescriptor = {
   sourceId: 'phone:primary',
-  deviceFamily: 'iphone',
+  deviceFamily: Platform.OS === 'android' ? 'android_phone' : 'iphone',
   operationalState: 'available_idle',
   sensorPlacement: 'body',
   placementProvenance: 'device_metadata',
