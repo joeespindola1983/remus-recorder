@@ -69,6 +69,8 @@ export const translations = {
     'blade.sdOffline': 'MicroSD não detectado',
     'blade.agpsAction': 'Enviar A-GPS',
     'blade.agpsSent': 'Assistência enviada',
+    'blade.disconnectAction': 'Desconectar pá',
+    'blade.connectAction': 'Conectar pá',
     // Flow 03 / 04 - Active Capture & Events
     'active.recording': 'GRAVANDO',
     'active.metric.strokeRate': 'VOGA',
@@ -242,6 +244,8 @@ export const translations = {
     'blade.sdOffline': 'MicroSD not detected',
     'blade.agpsAction': 'Send A-GPS',
     'blade.agpsSent': 'Assistance sent',
+    'blade.disconnectAction': 'Disconnect blade',
+    'blade.connectAction': 'Connect blade',
     // Flow 03 / 04 - Active Capture & Events
     'active.recording': 'RECORDING',
     'active.metric.strokeRate': 'STROKE RATE',

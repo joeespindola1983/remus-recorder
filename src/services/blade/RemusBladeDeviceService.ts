@@ -234,6 +234,17 @@ export class RemusBladeDeviceService {
     return this.adapter.sendGpsAid(lat, lon);
   }
 
+  async disconnect(): Promise<void> {
+    await this.adapter.disconnect();
+    this.handleDisconnection();
+  }
+
+  async connect(): Promise<boolean> {
+    this.connectionState = 'connecting';
+    this.markDetected();
+    return this.adapter.startScan();
+  }
+
   onStateChange(listener: (state: CaptureSourceState) => void): () => void {
     this.listeners.add(listener);
     return () => {

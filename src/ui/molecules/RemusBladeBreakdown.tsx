@@ -15,6 +15,8 @@ export interface RemusBladeBreakdownProps {
   snapshot?: RemusBladeSnapshot | null;
   connectionState?: 'disconnected' | 'connecting' | 'connected' | 'error';
   onSendGpsAid?: () => void;
+  onDisconnect?: () => void;
+  onConnect?: () => void;
 }
 
 export function RemusBladeBreakdown({
@@ -22,6 +24,8 @@ export function RemusBladeBreakdown({
   snapshot,
   connectionState = 'disconnected',
   onSendGpsAid,
+  onDisconnect,
+  onConnect,
 }: RemusBladeBreakdownProps): React.JSX.Element {
   const isConnected = connectionState === 'connected';
   const hasGpsLock =
@@ -158,6 +162,28 @@ export function RemusBladeBreakdown({
             activeOpacity={0.7}
           >
             <Text style={styles.actionButtonText}>{t('blade.agpsAction')}</Text>
+          </TouchableOpacity>
+        )}
+        {isConnected && onDisconnect && (
+          <TouchableOpacity
+            testID="blade-disconnect-button"
+            style={[styles.actionButton, styles.actionButtonSecondary]}
+            onPress={onDisconnect}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.actionButtonText, styles.actionButtonTextSecondary]}>
+              {t('blade.disconnectAction')}
+            </Text>
+          </TouchableOpacity>
+        )}
+        {!isConnected && onConnect && (
+          <TouchableOpacity
+            testID="blade-connect-button"
+            style={styles.actionButton}
+            onPress={onConnect}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.actionButtonText}>{t('blade.connectAction')}</Text>
           </TouchableOpacity>
         )}
       </View>

@@ -41,12 +41,16 @@ export function ReadyScreen({
   onRequestPermissions,
   bladeSnapshot,
   onSendGpsAid,
+  onDisconnectBlade,
+  onConnectBlade,
 }: {
   state: ActivityCaptureState;
   onStart: () => void;
   onRequestPermissions?: () => void;
   bladeSnapshot?: RemusBladeSnapshot | null;
   onSendGpsAid?: () => void;
+  onDisconnectBlade?: () => void;
+  onConnectBlade?: () => void;
 }): React.JSX.Element {
   const [expandedSourceId, setExpandedSourceId] = useState<string | null>(null);
   const sourcesList = Object.values(state.sources);
@@ -76,6 +80,8 @@ export function ReadyScreen({
         sources={sourcesList}
         bladeSnapshot={bladeSnapshot}
         onSendGpsAid={onSendGpsAid}
+        onDisconnectBlade={onDisconnectBlade}
+        onConnectBlade={onConnectBlade}
       />
       <ActionButton label={t('ready.startAction')} onPress={onStart} />
     </ScrollView>

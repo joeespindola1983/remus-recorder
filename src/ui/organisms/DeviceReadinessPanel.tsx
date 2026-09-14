@@ -13,6 +13,8 @@ export interface DeviceReadinessPanelProps {
   onRequestPermissions?: () => void;
   bladeSnapshot?: RemusBladeSnapshot | null;
   onSendGpsAid?: () => void;
+  onDisconnectBlade?: () => void;
+  onConnectBlade?: () => void;
 }
 
 export function DeviceReadinessPanel({
@@ -22,6 +24,8 @@ export function DeviceReadinessPanel({
   onRequestPermissions,
   bladeSnapshot,
   onSendGpsAid,
+  onDisconnectBlade,
+  onConnectBlade,
 }: DeviceReadinessPanelProps): React.JSX.Element {
   const [internalExpanded, setInternalExpanded] = React.useState<string[]>([]);
 
@@ -51,6 +55,8 @@ export function DeviceReadinessPanel({
           source={source}
           bladeSnapshot={bladeSnapshot}
           onSendGpsAid={onSendGpsAid}
+          onDisconnectBlade={onDisconnectBlade}
+          onConnectBlade={onConnectBlade}
         />
       ))}
     </View>

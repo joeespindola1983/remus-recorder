@@ -161,4 +161,58 @@ describe('RemusBladeBreakdown (TDD)', () => {
     const reconnectBtn = renderer!.root.findAllByProps({ testID: 'blade-reconnect-button' });
     expect(reconnectBtn.length).toBe(0);
   });
+
+  it('renders disconnect button when connected and fires onDisconnect callback', () => {
+    const onDisconnect = jest.fn();
+    let renderer: ReactTestRenderer.ReactTestRenderer;
+    act(() => {
+      renderer = ReactTestRenderer.create(
+        <RemusBladeBreakdown
+          readiness={mockReadiness}
+          snapshot={mockSnapshot}
+          connectionState="connected"
+          onDisconnect={onDisconnect}
+        />
+      );
+    });
+
+    const disconnectBtn = renderer!.root.findByProps({ testID: 'blade-disconnect-button' });
+    expect(disconnectBtn).toBeTruthy();
+    const btnText = disconnectBtn.findByType('Text' as any).props.children;
+    expect(btnText).toBe('Desconectar pá');
+
+    act(() => {
+      disconnectBtn.props.onPress();
+    });
+    expect(onDisconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders connect button when disconnected and fires onConnect callback', () => {
+    const onConnect = jest.fn();
+    let renderer: ReactTestRenderer.ReactTestRenderer;
+    act(() => {
+      renderer = ReactTestRenderer.create(
+        <RemusBladeBreakdown
+          readiness={{
+            sourceConnectionState: 'unavailable',
+            liveTelemetryState: 'unavailable',
+            availableMeasurementIdentifiers: [],
+          }}
+          snapshot={null}
+          connectionState="disconnected"
+          onConnect={onConnect}
+        />
+      );
+    });
+
+    const connectBtn = renderer!.root.findByProps({ testID: 'blade-connect-button' });
+    expect(connectBtn).toBeTruthy();
+    const btnText = connectBtn.findByType('Text' as any).props.children;
+    expect(btnText).toBe('Conectar pá');
+
+    act(() => {
+      connectBtn.props.onPress();
+    });
+    expect(onConnect).toHaveBeenCalledTimes(1);
+  });
 });

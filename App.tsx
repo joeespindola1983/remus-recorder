@@ -293,6 +293,12 @@ export default function App(): React.JSX.Element {
               onSendGpsAid={() => {
                 bladeDevice.sendGpsAid(-23.55052, -46.633308).catch(() => {});
               }}
+              onDisconnectBlade={() => {
+                bladeDevice.disconnect().catch(() => {});
+              }}
+              onConnectBlade={() => {
+                bladeDevice.connect().catch(() => {});
+              }}
               onStart={startCapture}
               state={state}
             />

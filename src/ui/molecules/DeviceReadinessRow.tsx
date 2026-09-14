@@ -18,6 +18,8 @@ export interface DeviceReadinessRowProps {
   onToggleExpand?: () => void;
   bladeSnapshot?: RemusBladeSnapshot | null;
   onSendGpsAid?: () => void;
+  onDisconnectBlade?: () => void;
+  onConnectBlade?: () => void;
 }
 
 export function DeviceReadinessRow({
@@ -27,6 +29,8 @@ export function DeviceReadinessRow({
   onToggleExpand,
   bladeSnapshot,
   onSendGpsAid,
+  onDisconnectBlade,
+  onConnectBlade,
 }: DeviceReadinessRowProps): React.JSX.Element {
   const batteryLevelPercent = source.readiness?.batteryLevelPercent;
   const connected =
@@ -84,6 +88,8 @@ export function DeviceReadinessRow({
           snapshot={bladeSnapshot}
           connectionState={connected ? 'connected' : 'disconnected'}
           onSendGpsAid={onSendGpsAid}
+          onDisconnect={onDisconnectBlade}
+          onConnect={onConnectBlade}
         />
       ) : null}
     </View>

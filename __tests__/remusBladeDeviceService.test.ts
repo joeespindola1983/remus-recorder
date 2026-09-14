@@ -188,4 +188,26 @@ describe('RemusBladeDeviceService (TDD)', () => {
 
     jest.useRealTimers();
   });
+
+  it('manually disconnects peripheral and marks source unavailable', async () => {
+    await service.initialize();
+    const emitter = new NativeEventEmitter();
+    (emitter as any).emit('onRemusBladeSnapshot', {
+      rawCsv: '124456,0.012,-0.045,0.982,1.20,-0.40,0.15,-23.550520,-46.633308,8.50,6/10:32:3.2m,120,480,24.5',
+    });
+    expect(service.getConnectionState()).toBe('connected');
+
+    await service.disconnect();
+    expect(service.getConnectionState()).toBe('disconnected');
+    expect(service.getSourceState().operationalState).toBe('unavailable');
+    expect(service.getSourceState().readiness?.sourceConnectionState).toBe('unavailable');
+    expect(mockBridge.disconnectPeripheral).toHaveBeenCalled();
+  });
+
+  it('manually triggers connection and starts scanning', async () => {
+    const res = await service.connect();
+    expect(service.getConnectionState()).toBe('connecting');
+    expect(mockBridge.startScan).toHaveBeenCalled();
+    expect(res).toBe(true);
+  });
 });

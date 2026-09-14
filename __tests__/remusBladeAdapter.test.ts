@@ -165,5 +165,31 @@ describe('RemusBladeAdapter (TDD)', () => {
         expect.objectContaining({ state: 'disconnected' }),
       );
     });
+
+    it('calls disconnectPeripheral on native bridge when disconnect is called', async () => {
+      const mockBridge = {
+        isSupported: jest.fn().mockResolvedValue(true),
+        getBluetoothState: jest.fn().mockResolvedValue('poweredOn'),
+        startScan: jest.fn().mockResolvedValue(true),
+        stopScan: jest.fn().mockResolvedValue(undefined),
+        disconnectPeripheral: jest.fn().mockResolvedValue(undefined),
+      };
+      const adapter = new RemusBladeAdapter(mockBridge as any);
+      await adapter.disconnect();
+      expect(mockBridge.disconnectPeripheral).toHaveBeenCalledTimes(1);
+    });
+
+    it('calls startScan on native bridge when startScan is called', async () => {
+      const mockBridge = {
+        isSupported: jest.fn().mockResolvedValue(true),
+        getBluetoothState: jest.fn().mockResolvedValue('poweredOn'),
+        startScan: jest.fn().mockResolvedValue(true),
+        stopScan: jest.fn().mockResolvedValue(undefined),
+      };
+      const adapter = new RemusBladeAdapter(mockBridge as any);
+      const res = await adapter.startScan();
+      expect(mockBridge.startScan).toHaveBeenCalledTimes(1);
+      expect(res).toBe(true);
+    });
   });
 });

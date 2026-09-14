@@ -326,13 +326,52 @@ describe('ReadyScreen (TDD)', () => {
 
     expect(textNodes).toContain('GPS pronto · Movimento disponível · Remus Blade offline');
     expect(textNodes).toContain('Buscando automaticamente...');
+  });
 
-    // Tap blade to expand
-    const bladeButton = renderer!.root.findByProps({
-      accessibilityLabel: 'Remus Blade P1',
-    });
+  it('triggers onDisconnectBlade from blade breakdown inside ReadyScreen', () => {
+    const onDisconnectBlade = jest.fn();
+    const bladeSource: CaptureSourceState = {
+      ...rbp1Source,
+      required: false,
+      coverageSegments: [],
+      operationalState: 'available_idle',
+      readiness: {
+        sourceConnectionState: 'connected',
+        liveTelemetryState: 'qualified',
+        availableMeasurementIdentifiers: ['accelerationIncludingGravityG'],
+      },
+    };
+    const base = createCaptureState();
+    const customState: ActivityCaptureState = {
+      ...base,
+      sources: {
+        ...base.sources,
+        [rbp1Source.sourceId]: bladeSource,
+      },
+    };
+
+    let renderer: ReactTestRenderer.ReactTestRenderer;
     act(() => {
-      bladeButton.props.onPress();
+      renderer = ReactTestRenderer.create(
+        <ReadyScreen
+          onStart={jest.fn()}
+          onRequestPermissions={jest.fn()}
+          state={customState}
+          onDisconnectBlade={onDisconnectBlade}
+        />
+      );
     });
+
+    const bladeRow = renderer!.root.findByProps({ accessibilityLabel: 'Remus Blade P1' });
+    act(() => {
+      bladeRow.props.onPress();
+    });
+
+    const disconnectBtn = renderer!.root.findByProps({ testID: 'blade-disconnect-button' });
+    expect(disconnectBtn).toBeTruthy();
+    act(() => {
+      disconnectBtn.props.onPress();
+    });
+    expect(onDisconnectBlade).toHaveBeenCalledTimes(1);
   });
 });

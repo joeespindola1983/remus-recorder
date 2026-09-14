@@ -154,6 +154,19 @@ export class RemusBladeAdapter implements IWearableAdapter {
     return this.sendCommand(`AID,${latStr},${lonStr}`);
   }
 
+  async disconnect(): Promise<void> {
+    if (this.nativeBridge?.disconnectPeripheral) {
+      await this.nativeBridge.disconnectPeripheral();
+    }
+  }
+
+  async startScan(): Promise<boolean> {
+    if (this.nativeBridge?.startScan) {
+      return this.nativeBridge.startScan();
+    }
+    return false;
+  }
+
   parseSnapshotCsv(rawCsv: string): RemusBladeSnapshot | null {
     if (!rawCsv || typeof rawCsv !== 'string') {
       return null;
