@@ -48,6 +48,30 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
   }
 
   @objc
+  func getBluetoothState(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+    guard let central = centralManager else {
+      resolve("unsupported")
+      return
+    }
+    switch central.state {
+    case .poweredOn:
+      resolve("poweredOn")
+    case .poweredOff:
+      resolve("poweredOff")
+    case .unauthorized:
+      resolve("unauthorized")
+    case .unsupported:
+      resolve("unsupported")
+    case .resetting:
+      resolve("resetting")
+    case .unknown:
+      resolve("unknown")
+    @unknown default:
+      resolve("unknown")
+    }
+  }
+
+  @objc
   func startScan(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
     guard let central = centralManager, central.state == .poweredOn else {
       resolve(false)

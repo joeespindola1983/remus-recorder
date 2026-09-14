@@ -108,6 +108,7 @@ export interface PhoneSensorStreamsBreakdown {
   gpsAccuracyMeters?: number;
   accelerometer: string;
   gyroscope: string;
+  bluetooth: string;
 }
 
 export const describePhoneSensorStreams = (
@@ -128,11 +129,24 @@ export const describePhoneSensorStreams = (
     gpsText = `Pronto (±${Math.round(accuracy)} m)`;
   }
 
+  const bluetoothState = source.readiness?.bluetoothState;
+  let bluetoothText = 'Disponível';
+  if (bluetoothState === 'powered_off') {
+    bluetoothText = 'Desligado';
+  } else if (bluetoothState === 'unauthorized') {
+    bluetoothText = 'Permissão necessária';
+  } else if (bluetoothState === 'unsupported') {
+    bluetoothText = 'Não suportado';
+  } else if (bluetoothState === 'powered_on') {
+    bluetoothText = 'Disponível';
+  }
+
   return {
     gps: gpsText,
     gpsAccuracyMeters: accuracy,
     accelerometer: hasAcc ? 'Disponível' : 'Ausente',
     gyroscope: hasGyro ? 'Disponível' : 'Não suportado',
+    bluetooth: bluetoothText,
   };
 };
 

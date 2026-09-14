@@ -18,11 +18,12 @@ export function PhoneSensorBreakdown({
   const isAndroid = source.deviceFamily === 'android_phone';
   const hasMissingPermission =
     streams.gps === 'Permissão necessária' ||
-    streams.accelerometer === 'Permissão necessária';
+    streams.accelerometer === 'Permissão necessária' ||
+    streams.bluetooth === 'Permissão necessária';
 
   const renderBadge = (status: string) => {
     const isReady = status.startsWith('Pronto') || status === 'Disponível';
-    const isWarn = status === 'Permissão necessária';
+    const isWarn = status === 'Permissão necessária' || status === 'Desligado';
     const isMissing = status === 'Não suportado' || status === 'Ausente';
 
     return (
@@ -79,6 +80,16 @@ export function PhoneSensorBreakdown({
         </View>
         <Text style={styles.sensorDescription}>
           Velocidade angular nos 3 eixos (yaw/roll/pitch)
+        </Text>
+      </View>
+
+      <View style={styles.card}>
+        <View style={styles.row}>
+          <Text style={styles.sensorName}>{t('phone.sensor.bluetooth')}</Text>
+          {renderBadge(streams.bluetooth)}
+        </View>
+        <Text style={styles.sensorDescription}>
+          {t('phone.sensor.bluetoothDescription')}
         </Text>
       </View>
 

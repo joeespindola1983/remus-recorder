@@ -284,4 +284,37 @@ describe('device readiness presentation', () => {
     expect(summary.isReady).toBe(true);
     expect(summary.summary).toBe('GPS pronto · Movimento disponível · Remus Blade offline');
   });
+
+  it('describes phone sensor streams including Bluetooth status', () => {
+    const { describePhoneSensorStreams } = require('../src/ui/presentation/deviceReadiness');
+    const phone = source({
+      deviceFamily: 'iphone',
+      readiness: {
+        sourceConnectionState: 'connected',
+        availableMeasurementIdentifiers: [
+          'positionWgs84',
+          'accelerationIncludingGravityG',
+          'rotationRateRadiansPerSecond',
+        ],
+        liveTelemetryState: 'qualified',
+        bluetoothState: 'powered_on',
+      },
+    });
+
+    const streams = describePhoneSensorStreams(phone);
+    expect(streams.bluetooth).toBe('Disponível');
+
+    const phoneBtOff = source({
+      deviceFamily: 'iphone',
+      readiness: {
+        sourceConnectionState: 'connected',
+        availableMeasurementIdentifiers: ['positionWgs84'],
+        liveTelemetryState: 'qualified',
+        bluetoothState: 'powered_off',
+      },
+    });
+
+    const streamsBtOff = describePhoneSensorStreams(phoneBtOff);
+    expect(streamsBtOff.bluetooth).toBe('Desligado');
+  });
 });

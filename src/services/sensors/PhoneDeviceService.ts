@@ -66,6 +66,9 @@ export class PhoneDeviceService {
     if (permissions.sensors !== PermissionStatus.GRANTED) {
       missingPermissions.push('sensors');
     }
+    if (permissions.bluetooth !== PermissionStatus.GRANTED) {
+      missingPermissions.push('bluetooth');
+    }
 
     const availableIds: MeasurementIdentifier[] = [];
 
@@ -129,6 +132,10 @@ export class PhoneDeviceService {
           : undefined,
         availableMeasurementIdentifiers: availableIds,
         liveTelemetryState,
+        bluetoothState:
+          permissions.bluetooth === PermissionStatus.GRANTED
+            ? 'powered_on'
+            : 'unauthorized',
       },
       hardwareProfile: this.hardwareProfile,
       missingPermissions,

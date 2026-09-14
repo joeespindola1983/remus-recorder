@@ -26,6 +26,7 @@ export interface RemusBladeSnapshot {
 
 export interface NativeBladeBridge {
   isSupported?(): Promise<boolean>;
+  getBluetoothState?(): Promise<string>;
   startScan?(): Promise<boolean>;
   stopScan?(): Promise<void>;
   connectPeripheral?(id: string): Promise<boolean>;
@@ -323,6 +324,13 @@ export class RemusBladeAdapter implements IWearableAdapter {
     return () => {
       this.deviceStateListeners.delete(listener);
     };
+  }
+
+  async getBluetoothState(): Promise<string> {
+    if (this.nativeBridge?.getBluetoothState) {
+      return this.nativeBridge.getBluetoothState();
+    }
+    return 'unsupported';
   }
 
   destroy(): void {

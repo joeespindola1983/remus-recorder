@@ -150,4 +150,33 @@ describe('PhoneSensorBreakdown Molecule (TDD)', () => {
     });
     expect(onRequestPermissions).toHaveBeenCalledTimes(1);
   });
+
+  it('renders Bluetooth (BLE) status card in phone sensor breakdown', () => {
+    const source = createPhoneSource({
+      readiness: {
+        sourceConnectionState: 'connected',
+        availableMeasurementIdentifiers: [
+          'positionWgs84',
+          'accelerationIncludingGravityG',
+          'rotationRateRadiansPerSecond',
+        ],
+        liveTelemetryState: 'qualified',
+        bluetoothState: 'powered_on',
+      },
+    });
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    act(() => {
+      renderer = ReactTestRenderer.create(
+        <PhoneSensorBreakdown source={source} />,
+      );
+    });
+
+    const textNodes = renderer.root
+      .findAllByType('Text' as any)
+      .map(node => node.props.children);
+
+    expect(textNodes).toContain('Bluetooth (BLE)');
+    expect(textNodes).toContain('Disponível');
+  });
 });

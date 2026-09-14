@@ -37,6 +37,7 @@ export interface SourceReadinessSnapshot {
   availableMeasurementIdentifiers: MeasurementIdentifier[];
   liveTelemetryState: 'qualified' | 'evaluation_pending' | 'unavailable';
   heartRatePermissionState?: HeartRatePermissionState;
+  bluetoothState?: 'powered_on' | 'powered_off' | 'unauthorized' | 'unsupported' | 'unknown';
 }
 
 export interface CaptureSourceState extends SourceDescriptor {
