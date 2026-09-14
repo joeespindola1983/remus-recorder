@@ -177,5 +177,61 @@ describe('PhoneDeviceService (TDD)', () => {
       expect(result.hasDenied).toBe(true);
       expect(result.readiness?.liveTelemetryState).toBe('unavailable');
     });
+
+    it('queries native bridge for hardware profile, battery level, and GPS accuracy', async () => {
+      jest.spyOn(permissionManager, 'checkPermissions').mockResolvedValue({
+        location: PermissionStatus.GRANTED,
+        backgroundLocation: PermissionStatus.GRANTED,
+        sensors: PermissionStatus.GRANTED,
+        bluetooth: PermissionStatus.GRANTED,
+      });
+
+      const mockBridge = {
+        getPhoneHardwareProfile: jest.fn().mockResolvedValue({
+          hasGps: true,
+          hasAccelerometer: true,
+          hasGyroscope: false,
+          hasMagnetometer: false,
+          hasBarometer: false,
+        }),
+        getBatteryLevel: jest.fn().mockResolvedValue(67),
+        getCurrentLocationAccuracy: jest.fn().mockResolvedValue(12.5),
+      };
+
+      const bridgeService = new PhoneDeviceService(permissionManager, undefined, mockBridge as any);
+      const sourceState = await bridgeService.getPhoneSourceState();
+
+      expect(mockBridge.getPhoneHardwareProfile).toHaveBeenCalled();
+      expect(mockBridge.getBatteryLevel).toHaveBeenCalled();
+      expect(mockBridge.getCurrentLocationAccuracy).toHaveBeenCalled();
+      expect(sourceState.readiness?.batteryLevelPercent).toBe(67);
+      expect(sourceState.readiness?.horizontalAccuracyMeters).toBe(12.5);
+      expect(sourceState.readiness?.availableMeasurementIdentifiers).not.toContain('rotationRateRadiansPerSecond');
+    });
+
+    it('leaves batteryLevelPercent and horizontalAccuracyMeters undefined when bridge returns null without faking values', async () => {
+      jest.spyOn(permissionManager, 'checkPermissions').mockResolvedValue({
+        location: PermissionStatus.GRANTED,
+        backgroundLocation: PermissionStatus.GRANTED,
+        sensors: PermissionStatus.GRANTED,
+        bluetooth: PermissionStatus.GRANTED,
+      });
+
+      const mockBridge = {
+        getPhoneHardwareProfile: jest.fn().mockResolvedValue({
+          hasGps: true,
+          hasAccelerometer: true,
+          hasGyroscope: true,
+        }),
+        getBatteryLevel: jest.fn().mockResolvedValue(null),
+        getCurrentLocationAccuracy: jest.fn().mockResolvedValue(null),
+      };
+
+      const bridgeService = new PhoneDeviceService(permissionManager, undefined, mockBridge as any);
+      const sourceState = await bridgeService.getPhoneSourceState();
+
+      expect(sourceState.readiness?.batteryLevelPercent).toBeUndefined();
+      expect(sourceState.readiness?.horizontalAccuracyMeters).toBeUndefined();
+    });
   });
 });

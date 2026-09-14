@@ -1,7 +1,8 @@
-import { Platform } from 'react-native';
+import { NativeModules, Platform } from 'react-native';
 import { CaptureSourceState } from '../../application/capture/ActivityCapture';
 import { MeasurementIdentifier } from '../../contracts/acquisition';
 import { PermissionManager, PermissionStatus } from '../permissions/PermissionManager';
+import type { NativeRecordingBridge } from '../recording/RecordingService';
 
 export interface PhoneHardwareProfile {
   hasGps: boolean;
@@ -24,14 +25,17 @@ export const DEFAULT_ANDROID_HARDWARE: PhoneHardwareProfile = {
 export class PhoneDeviceService {
   private permissionManager: PermissionManager;
   private hardwareProfile: PhoneHardwareProfile;
+  private bridge?: NativeRecordingBridge;
   private sourceId: string;
 
   constructor(
     permissionManager: PermissionManager = new PermissionManager(),
     hardwareProfile?: PhoneHardwareProfile,
+    bridge: NativeRecordingBridge | undefined = NativeModules.RemusRecordingBridge,
     sourceId: string = 'phone:primary',
   ) {
     this.permissionManager = permissionManager;
+    this.bridge = bridge;
     this.sourceId = sourceId;
     if (hardwareProfile) {
       this.hardwareProfile = hardwareProfile;
@@ -55,6 +59,21 @@ export class PhoneDeviceService {
     const isIos = Platform.OS === 'ios';
     const deviceFamily = isIos ? 'iphone' : 'android_phone';
     const sourceId = this.sourceId;
+
+    if (this.bridge?.getPhoneHardwareProfile) {
+      try {
+        const detected = await this.bridge.getPhoneHardwareProfile();
+        if (detected) {
+          this.hardwareProfile = {
+            hasGps: detected.hasGps ?? this.hardwareProfile.hasGps,
+            hasAccelerometer: detected.hasAccelerometer ?? this.hardwareProfile.hasAccelerometer,
+            hasGyroscope: detected.hasGyroscope ?? this.hardwareProfile.hasGyroscope,
+          };
+        }
+      } catch {
+        // Keep fallback profile on error
+      }
+    }
 
     const permissions =
       explicitPermissions ?? (await this.permissionManager.checkPermissions());
@@ -94,6 +113,30 @@ export class PhoneDeviceService {
       }
     }
 
+    let batteryLevelPercent: number | undefined;
+    if (this.bridge?.getBatteryLevel) {
+      try {
+        const level = await this.bridge.getBatteryLevel();
+        if (level !== null && level !== undefined && level >= 0) {
+          batteryLevelPercent = level;
+        }
+      } catch {
+        // Leave undefined
+      }
+    }
+
+    let horizontalAccuracyMeters: number | undefined;
+    if (availableIds.includes('positionWgs84') && this.bridge?.getCurrentLocationAccuracy) {
+      try {
+        const acc = await this.bridge.getCurrentLocationAccuracy();
+        if (acc !== null && acc !== undefined && acc >= 0) {
+          horizontalAccuracyMeters = acc;
+        }
+      } catch {
+        // Leave undefined
+      }
+    }
+
     const liveTelemetryState =
       missingPermissions.length > 0
         ? 'unavailable'
@@ -126,10 +169,8 @@ export class PhoneDeviceService {
       coverageSegments: [],
       readiness: {
         sourceConnectionState: 'connected',
-        batteryLevelPercent: 92,
-        horizontalAccuracyMeters: availableIds.includes('positionWgs84')
-          ? 4.0
-          : undefined,
+        batteryLevelPercent,
+        horizontalAccuracyMeters,
         availableMeasurementIdentifiers: availableIds,
         liveTelemetryState,
         bluetoothState:

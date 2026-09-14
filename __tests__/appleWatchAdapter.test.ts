@@ -39,6 +39,14 @@ describe('AppleWatchAdapter (TDD)', () => {
     await expect(adapter.getConnectedDevices()).resolves.toEqual([]);
   });
 
+  it('reports disconnected when the watch is paired but not reachable', async () => {
+    mockNativeModule.isReachable = jest.fn().mockResolvedValue(false);
+
+    await adapter.initialize();
+    const devices = await adapter.getConnectedDevices();
+    expect(devices).toHaveLength(0);
+  });
+
   it('should normalize a raw watch payload into a canonical SensorSample', done => {
     adapter.onSensorData((sample: SensorSample) => {
       expect(sample.deviceFamily).toBe('apple_watch');

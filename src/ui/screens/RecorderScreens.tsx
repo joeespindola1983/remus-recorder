@@ -241,7 +241,7 @@ export function SummaryScreen({
           <Text style={styles.evidenceDiskTitle}>
             {t('summary.realEvidenceTitle')}
           </Text>
-          {lastManifest.sampleCounts.phoneMotion !== undefined ? (
+          {lastManifest.sampleCounts?.phoneMotion !== undefined ? (
             <View style={styles.evidenceRow}>
               <Text style={styles.evidenceMetricLabel}>
                 {t('summary.phoneMotionSamples')}
@@ -251,7 +251,7 @@ export function SummaryScreen({
               </Text>
             </View>
           ) : null}
-          {lastManifest.sampleCounts.phoneLocation !== undefined ? (
+          {lastManifest.sampleCounts?.phoneLocation !== undefined ? (
             <View style={styles.evidenceRow}>
               <Text style={styles.evidenceMetricLabel}>
                 {t('summary.phoneLocationSamples')}
@@ -261,7 +261,7 @@ export function SummaryScreen({
               </Text>
             </View>
           ) : null}
-          {lastManifest.sampleCounts.watchHeartRate !== undefined &&
+          {lastManifest.sampleCounts?.watchHeartRate !== undefined &&
           lastManifest.sampleCounts.watchHeartRate > 0 ? (
             <View style={styles.evidenceRow}>
               <Text style={styles.evidenceMetricLabel}>
@@ -272,7 +272,7 @@ export function SummaryScreen({
               </Text>
             </View>
           ) : null}
-          {lastManifest.sampleCounts.remusBladeLive !== undefined &&
+          {lastManifest.sampleCounts?.remusBladeLive !== undefined &&
           lastManifest.sampleCounts.remusBladeLive > 0 ? (
             <View style={styles.evidenceRow}>
               <Text style={styles.evidenceMetricLabel}>

@@ -169,6 +169,50 @@ final class RemusRecordingBridge: RCTEventEmitter, CLLocationManagerDelegate {
     }
   }
 
+  @objc
+  func getPhoneHardwareProfile(
+    _ resolve: @escaping RCTPromiseResolveBlock,
+    rejecter reject: @escaping RCTPromiseRejectBlock
+  ) {
+    resolve([
+      "hasGps": CLLocationManager.locationServicesEnabled(),
+      "hasAccelerometer": motionManager.isAccelerometerAvailable,
+      "hasGyroscope": motionManager.isGyroAvailable,
+      "hasMagnetometer": motionManager.isMagnetometerAvailable,
+      "hasBarometer": CMAltimeter.isRelativeAltitudeAvailable()
+    ])
+  }
+
+  @objc
+  func getBatteryLevel(
+    _ resolve: @escaping RCTPromiseResolveBlock,
+    rejecter reject: @escaping RCTPromiseRejectBlock
+  ) {
+    DispatchQueue.main.async {
+      UIDevice.current.isBatteryMonitoringEnabled = true
+      let level = UIDevice.current.batteryLevel
+      if level >= 0 {
+        resolve(Int(round(level * 100)))
+      } else {
+        resolve(NSNull())
+      }
+    }
+  }
+
+  @objc
+  func getCurrentLocationAccuracy(
+    _ resolve: @escaping RCTPromiseResolveBlock,
+    rejecter reject: @escaping RCTPromiseRejectBlock
+  ) {
+    DispatchQueue.main.async {
+      guard let loc = self.locationManager.location, loc.horizontalAccuracy >= 0 else {
+        resolve(NSNull())
+        return
+      }
+      resolve(loc.horizontalAccuracy)
+    }
+  }
+
   private func startPhoneSensors() {
     switch locationManager.authorizationStatus {
     case .notDetermined:

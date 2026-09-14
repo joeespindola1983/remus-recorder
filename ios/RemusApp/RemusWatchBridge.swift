@@ -34,6 +34,7 @@ class RemusWatchBridge: RCTEventEmitter, WCSessionDelegate {
       sendEvent(withName: "onWatchStateChanged", body: [
         "isPaired": session?.isPaired ?? false,
         "isWatchAppInstalled": session?.isWatchAppInstalled ?? false,
+        "isReachable": session?.isReachable ?? false,
         "heartRatePermissionState": latestPermissionState,
       ])
     }
@@ -41,6 +42,16 @@ class RemusWatchBridge: RCTEventEmitter, WCSessionDelegate {
 
   override func stopObserving() {
     hasListeners = false
+  }
+
+  func sessionReachabilityDidChange(_ session: WCSession) {
+    guard hasListeners else { return }
+    sendEvent(withName: "onWatchStateChanged", body: [
+      "isPaired": session.isPaired,
+      "isWatchAppInstalled": session.isWatchAppInstalled,
+      "isReachable": session.isReachable,
+      "heartRatePermissionState": latestPermissionState as Any,
+    ])
   }
 
   @objc
@@ -64,6 +75,15 @@ class RemusWatchBridge: RCTEventEmitter, WCSessionDelegate {
       return
     }
     resolve(session.isWatchAppInstalled)
+  }
+
+  @objc
+  func isReachable(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+    guard let session = session else {
+      resolve(false)
+      return
+    }
+    resolve(session.isReachable)
   }
 
   @objc

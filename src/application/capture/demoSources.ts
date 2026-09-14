@@ -100,7 +100,7 @@ export const createDemoActivityCapture = (
       ...initialState.sources,
       [phoneSource.sourceId]: {
         ...initialState.sources[phoneSource.sourceId],
-        readiness: {
+        readiness: initialConnectionMode === 'connected' ? {
           sourceConnectionState: 'connected',
           batteryLevelPercent: 92,
           availableMeasurementIdentifiers: [
@@ -110,6 +110,10 @@ export const createDemoActivityCapture = (
             'rotationRateRadiansPerSecond',
           ],
           liveTelemetryState: 'qualified',
+        } : {
+          sourceConnectionState: 'unavailable',
+          availableMeasurementIdentifiers: [],
+          liveTelemetryState: 'evaluation_pending',
         },
       },
     },

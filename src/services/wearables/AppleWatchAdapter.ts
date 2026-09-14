@@ -40,11 +40,12 @@ export interface NativeWatchBridge {
   isSupported?(): Promise<boolean>;
   isPaired?(): Promise<boolean>;
   isWatchAppInstalled?(): Promise<boolean>;
+  isReachable?(): Promise<boolean>;
   getLatestHeartRate?(): Promise<unknown>;
   sendMessage?(message: Record<string, unknown>): Promise<unknown>;
   addListener?(
-    eventName: string,
-    listener: (data: unknown) => void
+    event: string,
+    callback: (data: unknown) => void,
   ): { remove(): void } | void;
   removeListeners?(count: number): void;
 }
@@ -78,9 +79,14 @@ export class AppleWatchAdapter implements IWearableAdapter {
       const isWatchAppInstalled = this.nativeBridge.isWatchAppInstalled
         ? await this.nativeBridge.isWatchAppInstalled()
         : true;
+      const isReachable = this.nativeBridge.isReachable
+        ? await this.nativeBridge.isReachable()
+        : true;
 
-      this.isConnected = isSupported && isPaired && isWatchAppInstalled;
-      if (this.isConnected && !this.messageSubscription && this.nativeBridge.addListener) {
+      const isConfigured = isSupported && isPaired && isWatchAppInstalled;
+      this.isConnected = isConfigured && isReachable;
+
+      if (isConfigured && !this.messageSubscription && this.nativeBridge.addListener) {
         this.messageSubscription =
           this.nativeBridge.addListener('onWatchMessage', data => {
             if (data && typeof data === 'object') {
@@ -93,10 +99,13 @@ export class AppleWatchAdapter implements IWearableAdapter {
             const state = data as {
               isPaired?: boolean;
               isWatchAppInstalled?: boolean;
+              isReachable?: boolean;
               heartRatePermissionState?: WearableDevice['heartRatePermissionState'];
             };
             this.isConnected =
-              state.isPaired !== false && state.isWatchAppInstalled !== false;
+              state.isPaired !== false &&
+              state.isWatchAppInstalled !== false &&
+              state.isReachable !== false;
             this.permissionState = state.heartRatePermissionState;
             const device: WearableDevice = {
               id: 'apple-watch',
@@ -114,7 +123,7 @@ export class AppleWatchAdapter implements IWearableAdapter {
           this.handleRawWatchMessage(latest as RawWatchPayload);
         }
       }
-      return this.isConnected;
+      return isConfigured;
     } catch {
       this.isConnected = false;
       return false;

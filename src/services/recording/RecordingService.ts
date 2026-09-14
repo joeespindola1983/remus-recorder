@@ -38,6 +38,15 @@ export interface NativeRecordingBridge {
   requestLocationPermission?(): Promise<string>;
   getLocationPermissionStatus?(): Promise<string>;
   exportRecording?(options: {activityId?: string}): Promise<{zipPath: string; shared: boolean}>;
+  getPhoneHardwareProfile?(): Promise<{
+    hasGps?: boolean;
+    hasAccelerometer?: boolean;
+    hasGyroscope?: boolean;
+    hasMagnetometer?: boolean;
+    hasBarometer?: boolean;
+  }>;
+  getBatteryLevel?(): Promise<number | null>;
+  getCurrentLocationAccuracy?(): Promise<number | null>;
   addListener?(eventName: string): void;
   removeListeners?(count: number): void;
 }

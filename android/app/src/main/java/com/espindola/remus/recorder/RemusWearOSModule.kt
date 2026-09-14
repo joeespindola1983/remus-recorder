@@ -82,6 +82,21 @@ class RemusWearOSModule(
   }
 
   private fun emit(payload: WearOSMessageBus.HeartRatePayload) {
+    if (RemusEvidenceStore.instance.isRecording) {
+      val now = System.currentTimeMillis()
+      RemusEvidenceStore.instance.appendWatchHeartRate(mapOf(
+        "type" to "HEART_RATE_OBSERVATION",
+        "protocolVersion" to "1.0.0",
+        "messageId" to payload.messageId,
+        "nodeId" to payload.nodeId,
+        "deviceId" to payload.deviceId,
+        "deviceFamily" to "wear_os",
+        "nativeTimestamp" to payload.nativeTimestamp,
+        "sequenceNumber" to payload.sequenceNumber,
+        "heartRateBeatsPerMinute" to payload.heartRateBeatsPerMinute,
+        "receivedAtEpochMilliseconds" to now
+      ))
+    }
     if (listenerCount == 0 || !context.hasActiveReactInstance()) return
     context
       .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)

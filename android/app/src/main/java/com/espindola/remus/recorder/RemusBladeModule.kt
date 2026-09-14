@@ -403,6 +403,13 @@ class RemusBladeModule(
       Log.d(TAG, "handleSnapshotBytes (${bytes.size} bytes): $rawCsv")
       if (rawCsv.isNotEmpty()) {
         emitSnapshot(rawCsv)
+        if (RemusEvidenceStore.instance.isRecording) {
+          RemusEvidenceStore.instance.appendRemusBladeLive(
+            rawCsv,
+            bluetoothGatt?.device?.address ?: "remus-blade:p1",
+            System.currentTimeMillis()
+          )
+        }
       }
     }
   }
