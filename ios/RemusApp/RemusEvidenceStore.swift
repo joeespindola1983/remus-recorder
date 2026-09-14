@@ -36,6 +36,7 @@ final class RemusEvidenceStore {
   private let queue = DispatchQueue(label: "com.espindola.remus.evidence-store", qos: .userInitiated)
   private let fileManager = FileManager.default
   private var active: ActiveRecording?
+  private(set) var latestActivityId: String?
 
   private let streamFiles = [
     "phoneMotion": "phone-motion.ndjson",
@@ -90,6 +91,7 @@ final class RemusEvidenceStore {
         watchMessageIds: [],
         failureDescription: nil
       )
+      latestActivityId = activityId
       try appendOnQueue(stream: "lifecycle", payload: [
         "type": "recording_started",
         "activityId": activityId,
@@ -182,6 +184,71 @@ final class RemusEvidenceStore {
       active = nil
       return result
     }
+  }
+
+  func evidenceRootURL() throws -> URL {
+    try evidenceRoot()
+  }
+
+  func exportActivity(activityId: String? = nil) throws -> URL {
+    let targetActivityId = activityId ?? latestActivityId
+    guard let targetActivityId else {
+      throw NSError(
+        domain: "RemusEvidenceStore",
+        code: 404,
+        userInfo: [NSLocalizedDescriptionKey: "No activity found to export."]
+      )
+    }
+    let root = try evidenceRoot()
+    let dirName = targetActivityId.replacingOccurrences(of: ":", with: "-")
+    let activityDir = root.appendingPathComponent(dirName, isDirectory: true)
+    guard fileManager.fileExists(atPath: activityDir.path) else {
+      throw NSError(
+        domain: "RemusEvidenceStore",
+        code: 404,
+        userInfo: [NSLocalizedDescriptionKey: "Activity directory does not exist: \(dirName)"]
+      )
+    }
+
+    let documentsURL = try fileManager.url(
+      for: .documentDirectory,
+      in: .userDomainMask,
+      appropriateFor: nil,
+      create: true
+    )
+    let exportDir = documentsURL.appendingPathComponent("RemusExport", isDirectory: true)
+    try fileManager.createDirectory(at: exportDir, withIntermediateDirectories: true)
+    let zipURL = exportDir.appendingPathComponent("\(dirName).zip")
+
+    if fileManager.fileExists(atPath: zipURL.path) {
+      try? fileManager.removeItem(at: zipURL)
+    }
+
+    var coordinatorError: NSError?
+    var tempZipURL: URL?
+    let coordinator = NSFileCoordinator()
+    coordinator.coordinate(readingItemAt: activityDir, options: .forUploading, error: &coordinatorError) { zipUrl in
+      do {
+        try self.fileManager.copyItem(at: zipUrl, to: zipURL)
+        tempZipURL = zipURL
+      } catch {
+        coordinatorError = error as NSError
+      }
+    }
+
+    if let coordinatorError {
+      throw coordinatorError
+    }
+
+    guard let finalZipURL = tempZipURL, fileManager.fileExists(atPath: finalZipURL.path) else {
+      throw NSError(
+        domain: "RemusEvidenceStore",
+        code: 500,
+        userInfo: [NSLocalizedDescriptionKey: "Failed to generate zip archive"]
+      )
+    }
+
+    return finalZipURL
   }
 
   private func append(stream: String, sourceId: String, payload: [String: Any]) {

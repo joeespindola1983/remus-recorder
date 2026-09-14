@@ -19,7 +19,10 @@ import { PhoneDeviceService } from './src/services/sensors/PhoneDeviceService';
 import { RemusBladeDeviceService } from './src/services/blade/RemusBladeDeviceService';
 import { RemusBladeAdapter, RemusBladeSnapshot } from './src/services/blade/RemusBladeAdapter';
 import { useWearables } from './src/services/wearables';
-import {RecordingService} from './src/services/recording/RecordingService';
+import {
+  RecordingManifest,
+  RecordingService,
+} from './src/services/recording/RecordingService';
 
 export default function App(): React.JSX.Element {
   const [activeTab, setActiveTab] = useState<NavigationTab>('activities');
@@ -42,6 +45,7 @@ export default function App(): React.JSX.Element {
   });
   const [bladeSnapshot, setBladeSnapshot] = useState<RemusBladeSnapshot | null>(null);
   const [recordingService] = useState(() => new RecordingService());
+  const [lastManifest, setLastManifest] = useState<RecordingManifest | null>(null);
   const wearable = useWearables();
   const didShowWearablePermissionAlert = useRef(false);
   const didShowPhonePermissionAlert = useRef(false);
@@ -223,6 +227,7 @@ export default function App(): React.JSX.Element {
     ]);
     try {
       const manifest = await recordingService.stop();
+      setLastManifest(manifest);
       if (manifest.status !== 'finalized') {
         throw new Error(
           manifest.failureMessage ??
@@ -244,6 +249,17 @@ export default function App(): React.JSX.Element {
       Alert.alert(
         'Falha ao finalizar a gravação',
         error instanceof Error ? error.message : 'A evidência permanece pendente de recuperação.',
+      );
+    }
+  };
+
+  const handleExport = async (): Promise<void> => {
+    try {
+      await recordingService.exportRecording(lastManifest?.activityId);
+    } catch (error) {
+      Alert.alert(
+        t('summary.exportFailedTitle'),
+        error instanceof Error ? error.message : t('summary.exportFailedMessage'),
       );
     }
   };
@@ -283,7 +299,11 @@ export default function App(): React.JSX.Element {
             <FinalizingScreen state={state} />
           ) : null}
           {state.phase === 'completed' ? (
-            <SummaryScreen state={state} />
+            <SummaryScreen
+              lastManifest={lastManifest}
+              onExport={handleExport}
+              state={state}
+            />
           ) : null}
         </AppShell>
       )}

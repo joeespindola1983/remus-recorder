@@ -23,6 +23,7 @@ export function SourceCoverageTimeline({
   startTimeText: string;
   endTimeText: string;
   lanes: SourceCoverageLane[];
+  testID?: string;
 }): React.JSX.Element {
   return (
     <View style={styles.container}>

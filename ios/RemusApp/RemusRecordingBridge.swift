@@ -96,6 +96,40 @@ final class RemusRecordingBridge: RCTEventEmitter, CLLocationManagerDelegate {
   }
 
   @objc
+  func exportRecording(
+    _ options: NSDictionary,
+    resolver resolve: @escaping RCTPromiseResolveBlock,
+    rejecter reject: @escaping RCTPromiseRejectBlock
+  ) {
+    DispatchQueue.main.async {
+      do {
+        let activityId = options["activityId"] as? String
+        let zipURL = try self.evidenceStore.exportActivity(activityId: activityId)
+
+        guard let rootViewController = UIApplication.shared.connectedScenes
+          .compactMap({ ($0 as? UIWindowScene)?.keyWindow })
+          .first?.rootViewController ?? UIApplication.shared.windows.first(where: { $0.isKeyWindow })?.rootViewController else {
+          resolve(["zipPath": zipURL.path, "shared": false])
+          return
+        }
+
+        let activityVC = UIActivityViewController(activityItems: [zipURL], applicationActivities: nil)
+        if let popover = activityVC.popoverPresentationController {
+          popover.sourceView = rootViewController.view
+          popover.sourceRect = CGRect(x: rootViewController.view.bounds.midX, y: rootViewController.view.bounds.midY, width: 0, height: 0)
+          popover.permittedArrowDirections = []
+        }
+
+        rootViewController.present(activityVC, animated: true) {
+          resolve(["zipPath": zipURL.path, "shared": true])
+        }
+      } catch {
+        reject("EXPORT_FAILED", error.localizedDescription, error)
+      }
+    }
+  }
+
+  @objc
   func requestLocationPermission(
     _ resolve: @escaping RCTPromiseResolveBlock,
     rejecter reject: @escaping RCTPromiseRejectBlock

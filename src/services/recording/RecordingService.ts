@@ -37,6 +37,7 @@ export interface NativeRecordingBridge {
   }>;
   requestLocationPermission?(): Promise<string>;
   getLocationPermissionStatus?(): Promise<string>;
+  exportRecording?(options: {activityId?: string}): Promise<{zipPath: string; shared: boolean}>;
   addListener?(eventName: string): void;
   removeListeners?(count: number): void;
 }
@@ -62,6 +63,13 @@ export class RecordingService {
       return Promise.reject(new Error('Native recording is unavailable'));
     }
     return this.bridge.stopRecording();
+  }
+
+  exportRecording(activityId?: string): Promise<{zipPath: string; shared: boolean}> {
+    if (!this.bridge?.exportRecording) {
+      return Promise.reject(new Error('Native recording is unavailable'));
+    }
+    return this.bridge.exportRecording({activityId});
   }
 
   getState(): Promise<{isRecording: boolean; activityId?: string; artifactDirectory?: string}> {

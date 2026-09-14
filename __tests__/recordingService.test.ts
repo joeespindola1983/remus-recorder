@@ -70,4 +70,24 @@ describe('RecordingService', () => {
       expect.any(Function),
     );
   });
+
+  it('exports recording activity as a zip archive', async () => {
+    const bridge: NativeRecordingBridge = {
+      startRecording: jest.fn(),
+      stopRecording: jest.fn(),
+      getRecordingState: jest.fn(),
+      exportRecording: jest.fn().mockResolvedValue({
+        zipPath: '/Documents/RemusExport/activity-1.zip',
+        shared: true,
+      }),
+      addListener: jest.fn(),
+      removeListeners: jest.fn(),
+    };
+    const service = new RecordingService(bridge);
+
+    const result = await service.exportRecording('activity:1');
+    expect(bridge.exportRecording).toHaveBeenCalledWith({activityId: 'activity:1'});
+    expect(result.zipPath).toContain('activity-1.zip');
+    expect(result.shared).toBe(true);
+  });
 });

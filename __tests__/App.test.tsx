@@ -32,6 +32,9 @@ beforeEach(() => {
     getRecordingState: jest.fn().mockResolvedValue({isRecording: false}),
     requestLocationPermission: jest.fn().mockResolvedValue('granted'),
     getLocationPermissionStatus: jest.fn().mockResolvedValue('granted'),
+    exportRecording: jest
+      .fn()
+      .mockResolvedValue({zipPath: '/tmp/activity-test.zip', shared: true}),
     addListener: jest.fn(),
     removeListeners: jest.fn(),
   };
@@ -165,4 +168,39 @@ test('alerts athlete when permissions are denied', async () => {
     expect.stringContaining('negado'),
   );
 });
+
+test('allows exporting recorded activity evidence zip from summary screen', async () => {
+  let renderer!: ReactTestRenderer.ReactTestRenderer;
+  await ReactTestRenderer.act(async () => {
+    renderer = ReactTestRenderer.create(<App />);
+  });
+
+  await ReactTestRenderer.act(async () => {
+    renderer.root
+      .findByProps({ accessibilityLabel: 'Iniciar atividade' })
+      .props.onPress();
+  });
+
+  await ReactTestRenderer.act(async () => {
+    renderer.root
+      .findByProps({ accessibilityLabel: 'Finalizar atividade' })
+      .props.onPress();
+  });
+
+  const exportBtn = renderer.root.findByProps({
+    accessibilityLabel: 'Exportar evidência (.zip)',
+  });
+  expect(exportBtn).toBeTruthy();
+
+  await ReactTestRenderer.act(async () => {
+    exportBtn.props.onPress();
+  });
+
+  expect(
+    NativeModules.RemusRecordingBridge.exportRecording,
+  ).toHaveBeenCalledWith({
+    activityId: 'activity:test',
+  });
+});
+
 

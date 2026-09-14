@@ -17,6 +17,7 @@ import {
 } from '../organisms/AdaptiveCaptureSurface';
 import { DeviceReadinessPanel } from '../organisms/DeviceReadinessPanel';
 import { RemusBladeSnapshot } from '../../services/blade/RemusBladeAdapter';
+import { RecordingManifest } from '../../services/recording/RecordingService';
 import {
   describePhoneSummaryEvidence,
   overallReadinessSummary,
@@ -151,9 +152,13 @@ export function FinalizingScreen({
 
 export function SummaryScreen({
   state,
+  lastManifest,
+  onExport,
   onViewAnalysis,
 }: {
   state: ActivityCaptureState;
+  lastManifest?: RecordingManifest | null;
+  onExport?: () => void;
   onViewAnalysis?: () => void;
 }): React.JSX.Element {
   const interrupted = Object.values(state.sources).filter(
@@ -175,7 +180,13 @@ export function SummaryScreen({
     wear_os: 'Wear OS',
   };
 
-  const lanes: SourceCoverageLane[] = Object.values(state.sources).map(source => {
+  const recordedSources = Object.values(state.sources).filter(
+    source => source.recordingId !== undefined,
+  );
+  const activeSources =
+    recordedSources.length > 0 ? recordedSources : Object.values(state.sources);
+
+  const lanes: SourceCoverageLane[] = activeSources.map(source => {
     const isInterrupted = source.recordingState === 'interrupted';
     return {
       sourceId: source.sourceId,
@@ -186,6 +197,20 @@ export function SummaryScreen({
       isInterrupted,
     };
   });
+
+  const formatClock = (epochMs: number): string => {
+    const d = new Date(epochMs);
+    const h = String(d.getHours()).padStart(2, '0');
+    const m = String(d.getMinutes()).padStart(2, '0');
+    return `${h}:${m}`;
+  };
+
+  const startTimeText = lastManifest?.startedAtEpochMilliseconds
+    ? formatClock(lastManifest.startedAtEpochMilliseconds)
+    : '06:18';
+  const endTimeText = lastManifest?.endedAtEpochMilliseconds
+    ? formatClock(lastManifest.endedAtEpochMilliseconds)
+    : '07:02';
 
   return (
     <ScrollView contentContainerStyle={styles.content}>
@@ -205,10 +230,69 @@ export function SummaryScreen({
       </View>
 
       <SourceCoverageTimeline
-        endTimeText="07:02"
+        testID="source-coverage-timeline"
+        endTimeText={endTimeText}
         lanes={lanes}
-        startTimeText="06:18"
+        startTimeText={startTimeText}
       />
+
+      {lastManifest ? (
+        <View style={styles.evidenceDiskCard}>
+          <Text style={styles.evidenceDiskTitle}>
+            {t('summary.realEvidenceTitle')}
+          </Text>
+          {lastManifest.sampleCounts.phoneMotion !== undefined ? (
+            <View style={styles.evidenceRow}>
+              <Text style={styles.evidenceMetricLabel}>
+                {t('summary.phoneMotionSamples')}
+              </Text>
+              <Text style={styles.evidenceMetricValue}>
+                {String(lastManifest.sampleCounts.phoneMotion)}
+              </Text>
+            </View>
+          ) : null}
+          {lastManifest.sampleCounts.phoneLocation !== undefined ? (
+            <View style={styles.evidenceRow}>
+              <Text style={styles.evidenceMetricLabel}>
+                {t('summary.phoneLocationSamples')}
+              </Text>
+              <Text style={styles.evidenceMetricValue}>
+                {String(lastManifest.sampleCounts.phoneLocation)}
+              </Text>
+            </View>
+          ) : null}
+          {lastManifest.sampleCounts.watchHeartRate !== undefined &&
+          lastManifest.sampleCounts.watchHeartRate > 0 ? (
+            <View style={styles.evidenceRow}>
+              <Text style={styles.evidenceMetricLabel}>
+                {t('summary.watchSamples')}
+              </Text>
+              <Text style={styles.evidenceMetricValue}>
+                {String(lastManifest.sampleCounts.watchHeartRate)}
+              </Text>
+            </View>
+          ) : null}
+          {lastManifest.sampleCounts.remusBladeLive !== undefined &&
+          lastManifest.sampleCounts.remusBladeLive > 0 ? (
+            <View style={styles.evidenceRow}>
+              <Text style={styles.evidenceMetricLabel}>
+                {t('summary.bladeSamples')}
+              </Text>
+              <Text style={styles.evidenceMetricValue}>
+                {String(lastManifest.sampleCounts.remusBladeLive)}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+
+      {onExport ? (
+        <ActionButton
+          label={t('summary.exportZipAction')}
+          onPress={onExport}
+          tone="secondary"
+        />
+      ) : null}
 
       <View style={styles.analysisCard}>
         <Text style={styles.analysisTitle}>{t('summary.analysisReadyTitle')}</Text>
@@ -410,5 +494,37 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontStyle: 'italic',
     marginTop: spacing.xs,
+  },
+  evidenceDiskCard: {
+    backgroundColor: color.surfaceDefault,
+    borderColor: color.borderDefault,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    gap: spacing.xs,
+    padding: spacing.md,
+  },
+  evidenceDiskTitle: {
+    color: color.textPrimary,
+    fontFamily,
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: spacing.xs,
+  },
+  evidenceRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 2,
+  },
+  evidenceMetricLabel: {
+    color: color.textSecondary,
+    fontFamily,
+    fontSize: 13,
+  },
+  evidenceMetricValue: {
+    color: color.textPrimary,
+    fontFamily,
+    fontSize: 13,
+    fontWeight: '600',
   },
 });
