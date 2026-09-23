@@ -1,0 +1,39 @@
+apply plugin: "com.android.application"
+apply plugin: "org.jetbrains.kotlin.android"
+
+android {
+    namespace "com.espindola.remus.recorder.wear"
+    compileSdk rootProject.ext.compileSdkVersion
+
+    defaultConfig {
+        applicationId "com.espindola.remus.recorder"
+        minSdk 30
+        targetSdk rootProject.ext.targetSdkVersion
+        versionCode 12
+        versionName "1.1.1"
+    }
+
+    signingConfigs {
+        debug {
+            storeFile file('../app/debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+        }
+        release {
+            signingConfig signingConfigs.debug
+        }
+    }
+}
+
+dependencies {
+    implementation("androidx.health:health-services-client:1.1.0-rc02")
+    implementation("com.google.android.gms:play-services-wearable:20.0.1")
+    implementation("com.google.guava:listenablefuture:1.0")
+}
