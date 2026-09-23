@@ -53,20 +53,28 @@ export const translations = {
     'blade.connected': 'Conectado via BLE',
     'blade.disconnected': 'Buscando automaticamente...',
     'blade.connecting': 'Conectando...',
+    'blade.statusConnected': 'Conectado',
+    'blade.statusDisconnected': 'Offline',
     'blade.imuTitle': 'IMU (Acelerômetro + Giroscópio)',
     'blade.imuDetail': 'MPU-6050 a 200 Hz (±8g, ±500°/s)',
+    'blade.imuOffline': 'IMU desconectado',
+    'blade.imuOfflineDetail': 'Sensor MPU-6050 não detectado no I2C (0x68/0x69).',
     'blade.gpsTitle': 'GPS Multi-Constelação',
-    'blade.gpsDetailLocked': 'Realtek REB-4126 (Fix 3D)',
-    'blade.gpsDetailSearching': 'Realtek REB-4126 (Buscando sinal)',
-    'blade.gpsAccuracy': 'Precisão: ±{acc} m',
-    'blade.gpsSatellites': '{inUse}/{inView} satélites · SNR: {snr} dB-Hz',
+    'blade.gpsLocked': 'Realtek REB-4126 (Fix 3D)',
+    'blade.gpsSearching': 'Realtek REB-4126 (Buscando sinal)',
+    'blade.gpsSatsDetail': '{inUse}/{inView} satélites · SNR: {snr} dB-Hz',
+    'blade.gpsAccDetail': 'Precisão: ±{acc} m',
     'blade.spmTitle': 'Taxa de remada (Edge SPM)',
     'blade.spmActive': '{spm} SPM (processado no sensor)',
     'blade.spmWaiting': 'Aguardando remadas',
     'blade.sdTitle': 'Cartão MicroSD',
     'blade.sdRecording': '{lines} linhas gravadas (/remus_session.csv)',
     'blade.sdStandby': 'Standby (pronto para gravar)',
-    'blade.sdOffline': 'MicroSD não detectado',
+    'blade.sdReady': 'Pronto',
+    'blade.sdRecordingBadge': 'Gravando',
+    'blade.sdOffline': 'MicroSD offline',
+    'blade.sdOfflineDetail': 'Cartão MicroSD não detectado ou falha no barramento SPI.',
+    'blade.sensorOffline': 'Desconectado',
     'blade.detected': 'Pá detectada',
     'blade.disconnectAction': 'Desconectar pá',
     'blade.connectAction': 'Conectar pá',
@@ -85,6 +93,10 @@ export const translations = {
     'active.banner.connectionLostDetail': 'Seu treino continua. Estamos tentando reconectar em segundo plano.',
     'active.banner.rbp1LostTitle': 'Conexão com RBP1 perdida',
     'active.banner.rbp1LostDetail': 'Treino continua · reconectando…',
+    'active.bladeGps.locked': 'GPS Fix • ±{accuracy}m',
+    'active.bladeGps.lockedNoAcc': 'GPS Fix',
+    'active.bladeGps.searching': 'Buscando sinal',
+    'active.bladeGps.noSignal': 'Sem sinal GPS',
     'active.landscapeGuidance': 'Grade ocupa a tela · FABs empilhados no canto superior direito',
     // Flow 05 - Finalizing
     'finalizing.eyebrow': 'CAPTURA ENCERRADA',
@@ -92,6 +104,10 @@ export const translations = {
     'finalizing.body': 'A atividade só fecha depois que cada fonte responde ou entra em recuperação.',
     'finalizing.sourcesTitle': 'Fontes da atividade',
     'finalizing.sourcesHelper': 'O app funciona sozinho. Fontes adicionais aumentam a cobertura.',
+    'finalizing.downloadingBlade': 'Baixando dados de alta frequência da pá...',
+    'finalizing.downloadProgress': 'Baixando dados da pá: {progress}%',
+    'finalizing.downloadComplete': 'Download da pá concluído!',
+    'finalizing.downloadSkipped': 'Pá desconectada ou sem dados no SD.',
     // Flow 07 - Summary
     'summary.eyebrow': 'ATIVIDADE FINALIZADA',
     'summary.title': 'Atividade preservada',
@@ -233,25 +249,33 @@ export const translations = {
     'ready.closeAction': 'Close',
     'ready.startAction': 'Start activity',
     // Remus Blade P1
-    'blade.title': 'Remus Blade P1',
-    'blade.scanning': 'Scanning for BLE sensor...',
+        'blade.title': 'Remus Blade P1',
+    'blade.scanning': 'Scanning BLE...',
     'blade.connected': 'Connected via BLE',
     'blade.disconnected': 'Scanning automatically...',
     'blade.connecting': 'Connecting...',
+    'blade.statusConnected': 'Connected',
+    'blade.statusDisconnected': 'Offline',
     'blade.imuTitle': 'IMU (Accelerometer + Gyroscope)',
     'blade.imuDetail': 'MPU-6050 at 200 Hz (±8g, ±500°/s)',
-    'blade.gpsTitle': 'Multi-Constellation GPS',
-    'blade.gpsDetailLocked': 'Realtek REB-4126 (3D Lock)',
-    'blade.gpsDetailSearching': 'Realtek REB-4126 (Searching signal)',
-    'blade.gpsAccuracy': 'Accuracy: ±{acc} m',
-    'blade.gpsSatellites': '{inUse}/{inView} satellites · SNR: {snr} dB-Hz',
-    'blade.spmTitle': 'Edge Stroke Rate (Edge SPM)',
-    'blade.spmActive': '{spm} SPM (computed on sensor)',
+    'blade.imuOffline': 'IMU disconnected',
+    'blade.imuOfflineDetail': 'MPU-6050 sensor not detected on I2C (0x68/0x69).',
+    'blade.gpsTitle': 'GPS Multi-Constellation',
+    'blade.gpsLocked': 'Realtek REB-4126 (3D Fix)',
+    'blade.gpsSearching': 'Realtek REB-4126 (Searching signal)',
+    'blade.gpsSatsDetail': '{inUse}/{inView} satellites · SNR: {snr} dB-Hz',
+    'blade.gpsAccDetail': 'Accuracy: ±{acc} m',
+    'blade.spmTitle': 'Stroke Rate (Edge SPM)',
+    'blade.spmActive': '{spm} SPM (processed on sensor)',
     'blade.spmWaiting': 'Waiting for strokes',
     'blade.sdTitle': 'MicroSD Card',
     'blade.sdRecording': '{lines} lines recorded (/remus_session.csv)',
     'blade.sdStandby': 'Standby (ready to record)',
-    'blade.sdOffline': 'MicroSD not detected',
+    'blade.sdReady': 'Ready',
+    'blade.sdRecordingBadge': 'Recording',
+    'blade.sdOffline': 'MicroSD offline',
+    'blade.sdOfflineDetail': 'MicroSD card not detected or SPI bus error.',
+    'blade.sensorOffline': 'Disconnected',
     'blade.detected': 'Blade detected',
     'blade.disconnectAction': 'Disconnect blade',
     'blade.connectAction': 'Connect blade',
@@ -270,6 +294,10 @@ export const translations = {
     'active.banner.connectionLostDetail': 'Your workout continues. Reconnecting in background.',
     'active.banner.rbp1LostTitle': 'Connection to RBP1 lost',
     'active.banner.rbp1LostDetail': 'Workout continues · reconnecting…',
+    'active.bladeGps.locked': 'GPS Fix • ±{accuracy}m',
+    'active.bladeGps.lockedNoAcc': 'GPS Fix',
+    'active.bladeGps.searching': 'Searching signal',
+    'active.bladeGps.noSignal': 'No GPS signal',
     'active.landscapeGuidance': 'Grid fills screen · FABs stacked in top right',
     // Flow 05 - Finalizing
     'finalizing.eyebrow': 'CAPTURE STOPPED',
@@ -277,6 +305,10 @@ export const translations = {
     'finalizing.body': 'The activity only closes after each source responds or enters recovery.',
     'finalizing.sourcesTitle': 'Activity sources',
     'finalizing.sourcesHelper': 'The app works standalone. Additional sources increase coverage.',
+    'finalizing.downloadingBlade': 'Downloading high-frequency blade data...',
+    'finalizing.downloadProgress': 'Downloading blade data: {progress}%',
+    'finalizing.downloadComplete': 'Blade download completed!',
+    'finalizing.downloadSkipped': 'Blade offline or no SD data.',
     // Flow 07 - Summary
     'summary.eyebrow': 'ACTIVITY FINALIZED',
     'summary.title': 'Activity preserved',
@@ -385,7 +417,13 @@ export const getLocale = (): Locale => {
   return currentLocale;
 };
 
-export const t = (key: TranslationKey): string => {
+export const t = (key: TranslationKey, params?: Record<string, string | number>): string => {
   const dictionary = translations[currentLocale] || translations['pt-BR'];
-  return (dictionary as Record<string, string>)[key] || key;
+  let str = dictionary[key] || key;
+  if (params) {
+    for (const [k, v] of Object.entries(params)) {
+      str = str.replace(new RegExp(`\\{${k}\\}`, 'g'), String(v));
+    }
+  }
+  return str;
 };

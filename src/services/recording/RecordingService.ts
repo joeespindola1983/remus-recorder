@@ -50,6 +50,7 @@ export interface NativeRecordingBridge {
   exportRecording?(options: {activityId?: string}): Promise<{zipPath: string; shared: boolean}>;
   listRecordings?(): Promise<RecordedWorkoutSummary[]>;
   deleteRecording?(activityId: string): Promise<boolean>;
+  saveBladeRawBinary?(activityId: string, base64Data: string, rawCsv?: string): Promise<boolean>;
   getPhoneHardwareProfile?(): Promise<{
     hasGps?: boolean;
     hasAccelerometer?: boolean;
@@ -100,9 +101,20 @@ export class RecordingService {
 
   deleteRecording(activityId: string): Promise<boolean> {
     if (!this.bridge?.deleteRecording) {
-      return Promise.reject(new Error('Native recording is unavailable'));
+      return Promise.resolve(false);
     }
     return this.bridge.deleteRecording(activityId);
+  }
+
+  saveBladeRaw(
+    activityId: string,
+    base64Data: string,
+    rawCsv?: string,
+  ): Promise<boolean> {
+    if (!this.bridge?.saveBladeRawBinary) {
+      return Promise.resolve(false);
+    }
+    return this.bridge.saveBladeRawBinary(activityId, base64Data, rawCsv);
   }
 
   getState(): Promise<{isRecording: boolean; activityId?: string; artifactDirectory?: string}> {

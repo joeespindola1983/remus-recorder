@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer';
 import { NativeEventEmitter } from 'react-native';
 import {
   IWearableAdapter,
@@ -23,6 +24,8 @@ export interface RemusBladeSnapshot {
   linesWritten: number;
   charsRx: number;
   liveSpm?: number;
+  sdOk?: boolean;
+  imuOk?: boolean;
 }
 
 export interface NativeBladeBridge {
@@ -55,6 +58,18 @@ export class RemusBladeAdapter implements IWearableAdapter {
   private deviceName = 'Remus Blade P1';
   private snapshotSubscription: { remove(): void } | null = null;
   private stateSubscription: { remove(): void } | null = null;
+  private readonly DOWNLOAD_INACTIVITY_TIMEOUT_MS = 15_000;
+  private activeDownload: {
+    filename: string;
+    totalBytes: number;
+    buffer: Buffer;
+    receivedBytes: number;
+    receivedMask: Uint8Array;
+    onProgress?: (progress: number, received: number, total: number) => void;
+    resolve: (result: { filename: string; data: Buffer }) => void;
+    reject: (error: Error) => void;
+    timeout?: any;
+  } | null = null;
 
   constructor(nativeBridge?: NativeBladeBridge) {
     this.nativeBridge = nativeBridge || null;
@@ -80,14 +95,25 @@ export class RemusBladeAdapter implements IWearableAdapter {
       if (!this.snapshotSubscription) {
         this.snapshotSubscription =
           this.eventEmitter.addListener('onRemusBladeSnapshot', (payload: any) => {
-            const data = payload as { rawCsv?: string; deviceId?: string; deviceName?: string };
+            const data = payload as {
+              rawCsv?: string;
+              rawBase64?: string;
+              deviceId?: string;
+              deviceName?: string;
+            };
             if (data?.deviceId) this.deviceId = data.deviceId;
             if (data?.deviceName) this.deviceName = data.deviceName;
             if (data?.rawCsv) {
+              if (this.handleControlMessage(data.rawCsv)) {
+                return;
+              }
               const snapshot = this.parseSnapshotCsv(data.rawCsv);
               if (snapshot) {
                 this.handleParsedSnapshot(snapshot);
               }
+            }
+            if (data?.rawBase64) {
+              this.handleBinaryChunk(data.rawBase64);
             }
           });
 
@@ -167,6 +193,201 @@ export class RemusBladeAdapter implements IWearableAdapter {
       return this.nativeBridge.startScan();
     }
     return false;
+  }
+
+  async downloadSessionFile(
+    arg1?: string | ((progress: number, received: number, total: number) => void),
+    arg2?: string | ((progress: number, received: number, total: number) => void)
+  ): Promise<{ filename: string; data: Buffer }> {
+    let filename: string | undefined;
+    let onProgress: ((progress: number, received: number, total: number) => void) | undefined;
+
+    if (typeof arg1 === 'function') {
+      onProgress = arg1;
+      if (typeof arg2 === 'string') {
+        filename = arg2;
+      }
+    } else if (typeof arg1 === 'string') {
+      filename = arg1;
+      if (typeof arg2 === 'function') {
+        onProgress = arg2;
+      }
+    } else if (typeof arg2 === 'function') {
+      onProgress = arg2;
+    }
+
+    if (this.activeDownload) {
+      throw new Error('Download already in progress');
+    }
+
+    return new Promise((resolve, reject) => {
+      this.activeDownload = {
+        filename: filename || '',
+        totalBytes: 0,
+        receivedBytes: 0,
+        buffer: Buffer.alloc(0),
+        receivedMask: new Uint8Array(0),
+        onProgress,
+        resolve,
+        reject,
+      };
+
+      // A transferência pode durar mais de 30 s. O timeout agora significa
+      // 15 s sem qualquer atividade BLE de arquivo, e não 30 s desde o início.
+      this.resetDownloadInactivityTimeout();
+
+      const cmd = filename && filename.trim().length > 0 ? `GET ${filename.trim()}` : 'GET';
+      this.sendCommand(cmd).then(accepted => {
+        if (!accepted) {
+          this.failActiveDownload(new Error('GET command was not accepted'));
+        }
+      }).catch((err) => {
+        this.failActiveDownload(
+          err instanceof Error ? err : new Error(String(err)),
+        );
+      });
+    });
+  }
+
+  private resetDownloadInactivityTimeout(): void {
+    const download = this.activeDownload;
+    if (!download) return;
+
+    if (download.timeout) {
+      clearTimeout(download.timeout);
+    }
+
+    download.timeout = setTimeout(() => {
+      if (this.activeDownload !== download) return;
+      this.activeDownload = null;
+      download.reject(new Error('TIMEOUT'));
+    }, this.DOWNLOAD_INACTIVITY_TIMEOUT_MS);
+  }
+
+  private failActiveDownload(error: Error): void {
+    const download = this.activeDownload;
+    if (!download) return;
+
+    if (download.timeout) {
+      clearTimeout(download.timeout);
+    }
+    this.activeDownload = null;
+    download.reject(error);
+  }
+
+  private handleControlMessage(msg: string): boolean {
+    if (!this.activeDownload) return false;
+    const trimmed = msg.trim();
+    if (trimmed.startsWith('FILE_START:')) {
+      const parts = trimmed.split(':');
+      this.activeDownload.filename = parts[1] || 'remus_session.bin';
+      this.activeDownload.totalBytes = parseInt(parts[2], 10) || 0;
+      this.activeDownload.buffer = Buffer.alloc(this.activeDownload.totalBytes);
+      this.activeDownload.receivedBytes = 0;
+      this.activeDownload.receivedMask = new Uint8Array(this.activeDownload.totalBytes);
+      this.resetDownloadInactivityTimeout();
+      return true;
+    }
+    if (trimmed.startsWith('FILE_END:')) {
+      const download = this.activeDownload;
+      const parts = trimmed.split(':');
+      const completedBytes = Number.parseInt(parts[2], 10);
+      const expectedCrc = parts[3]?.trim();
+      if (
+        !Number.isFinite(completedBytes) ||
+        completedBytes !== download.totalBytes ||
+        download.receivedBytes !== download.totalBytes
+      ) {
+        this.failActiveDownload(new Error('INCOMPLETE_TRANSFER'));
+        return true;
+      }
+      const magic = download.buffer.subarray(0, 4).toString('ascii');
+      if (magic !== 'RBP1' && magic !== 'RBP2') {
+        this.failActiveDownload(new Error('INVALID_RBP_HEADER'));
+        return true;
+      }
+      if (expectedCrc) {
+        const actualCrc = this.crc32(download.buffer)
+          .toString(16)
+          .padStart(8, '0');
+        if (actualCrc.toLowerCase() !== expectedCrc.toLowerCase()) {
+          this.failActiveDownload(new Error('CRC_MISMATCH'));
+          return true;
+        }
+      }
+      if (download.timeout) clearTimeout(download.timeout);
+      this.activeDownload = null;
+      download.resolve({ filename: download.filename, data: download.buffer });
+      return true;
+    }
+    if (trimmed.startsWith('FILE_ERR:')) {
+      const err = trimmed.substring(9);
+      this.failActiveDownload(new Error(err || 'Transfer failed'));
+      return true;
+    }
+    return false;
+  }
+
+  private handleBinaryChunk(base64Str: string): void {
+    if (!this.activeDownload) return;
+    try {
+      const chunk = Buffer.from(base64Str, 'base64');
+      const uint8 = new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+      if (uint8.length >= 7 && uint8[0] === 0x20) {
+        const view = new DataView(uint8.buffer, uint8.byteOffset, uint8.byteLength);
+        const offset = view.getUint32(1, true);
+        const len = view.getUint16(5, true);
+        if (len !== uint8.length - 7 || offset + len > this.activeDownload.totalBytes) {
+          this.failActiveDownload(new Error('INVALID_CHUNK'));
+          return;
+        }
+        const data = uint8.subarray(7, 7 + len);
+
+        const targetUint8 = new Uint8Array(
+          this.activeDownload.buffer.buffer,
+          this.activeDownload.buffer.byteOffset,
+          this.activeDownload.buffer.byteLength
+        );
+        targetUint8.set(data, offset);
+        for (let index = 0; index < data.length; index += 1) {
+          const targetIndex = offset + index;
+          if (this.activeDownload.receivedMask[targetIndex] === 0) {
+            this.activeDownload.receivedMask[targetIndex] = 1;
+            this.activeDownload.receivedBytes += 1;
+          }
+        }
+        this.resetDownloadInactivityTimeout();
+
+        const progress =
+          this.activeDownload.totalBytes > 0
+            ? Math.min(100, Math.round((this.activeDownload.receivedBytes / this.activeDownload.totalBytes) * 100))
+            : 0;
+
+        if (typeof this.activeDownload.onProgress === 'function') {
+          this.activeDownload.onProgress(
+            progress,
+            this.activeDownload.receivedBytes,
+            this.activeDownload.totalBytes
+          );
+        }
+      }
+    } catch (err) {
+      console.warn('[RemusBladeAdapter] Error handling binary chunk:', err);
+    }
+  }
+
+  private crc32(data: Uint8Array): number {
+    /* eslint-disable no-bitwise -- CRC32 is defined in terms of bit operations. */
+    let crc = 0xffffffff;
+    for (const byte of data) {
+      crc ^= byte;
+      for (let bit = 0; bit < 8; bit += 1) {
+        crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+      }
+    }
+    const result = (~crc) >>> 0;
+    /* eslint-enable no-bitwise */
+    return result;
   }
 
   parseSnapshotCsv(rawCsv: string): RemusBladeSnapshot | null {
@@ -251,6 +472,8 @@ export class RemusBladeAdapter implements IWearableAdapter {
 
     // Live SPM: if 0.0 or <= 0, SPM is unavailable / waiting, NEVER 0 spm
     const liveSpm = (!isNaN(rawSpm) && rawSpm > 0) ? rawSpm : undefined;
+    const imuOk = parts[14] !== undefined ? parts[14].trim() === '1' : true;
+    const sdOk = parts[15] !== undefined ? parts[15].trim() === '1' : (linesWritten > 0);
 
     return {
       timestampMs,
@@ -264,6 +487,8 @@ export class RemusBladeAdapter implements IWearableAdapter {
       linesWritten,
       charsRx,
       liveSpm,
+      sdOk,
+      imuOk,
     };
   }
 
@@ -348,6 +573,10 @@ export class RemusBladeAdapter implements IWearableAdapter {
   }
 
   destroy(): void {
+    if (this.activeDownload?.timeout) {
+      clearTimeout(this.activeDownload.timeout);
+    }
+    this.activeDownload = null;
     this.snapshotSubscription?.remove();
     this.snapshotSubscription = null;
     this.stateSubscription?.remove();

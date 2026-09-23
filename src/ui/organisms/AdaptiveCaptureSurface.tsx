@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { LiveCaptureMetrics } from '../../application/capture/ActivityCapture';
-import { t } from '../../i18n';
+import { getLocale, t } from '../../i18n';
 import { CaptureFab } from '../atoms/CaptureFab';
 import { LiveMetricCell } from '../molecules/LiveMetricCell';
 import { color, fontFamily, spacing } from '../theme/tokens';
@@ -21,8 +21,16 @@ const elapsed = (seconds: number): string => {
     .join(':');
 };
 
+export interface BladeGpsStatus {
+  hasGpsLock: boolean;
+  satsInUse: number;
+  satsInView: number;
+  maxSnrDbHz?: number;
+  accuracyMeters?: number;
+}
+
 const formatPace = (seconds?: number): string => {
-  if (seconds === undefined) return '—';
+  if (seconds === undefined || seconds > 625) return '—';
   const rounded = Math.max(0, Math.round(seconds));
   return `${String(Math.floor(rounded / 60)).padStart(2, '0')}:${String(
     rounded % 60,
@@ -32,23 +40,60 @@ const formatPace = (seconds?: number): string => {
 const formatDecimal = (value?: number): string =>
   value === undefined ? '—' : value.toFixed(1).replace('.', ',');
 
+const formatAccuracy = (accuracyMeters?: number): string => {
+  if (accuracyMeters === undefined || accuracyMeters <= 0) return '';
+  const numStr =
+    accuracyMeters < 10
+      ? accuracyMeters.toFixed(1)
+      : String(Math.round(accuracyMeters));
+  return getLocale() === 'en-US' ? numStr : numStr.replace('.', ',');
+};
+
+const getGpsBadgeInfo = (gps: BladeGpsStatus) => {
+  if (gps.hasGpsLock) {
+    const acc = formatAccuracy(gps.accuracyMeters);
+    const text = acc
+      ? t('active.bladeGps.locked').replace('{accuracy}', acc)
+      : t('active.bladeGps.lockedNoAcc');
+    return {
+      text,
+      badgeStyle: styles.badgeSuccess,
+      textStyle: styles.textSuccess,
+    };
+  }
+  if (gps.satsInView > 0 || (gps.maxSnrDbHz !== undefined && gps.maxSnrDbHz > 0)) {
+    return {
+      text: t('active.bladeGps.searching'),
+      badgeStyle: styles.badgeWarning,
+      textStyle: styles.textWarning,
+    };
+  }
+  return {
+    text: t('active.bladeGps.noSignal'),
+    badgeStyle: styles.badgeDanger,
+    textStyle: styles.textDanger,
+  };
+};
+
 export function AdaptiveCaptureSurface({
   metrics,
   onFinish,
   onPause,
   orientation,
   viewportWidth = orientation === 'portrait' ? 393 : 852,
+  bladeGpsStatus,
 }: {
   metrics: LiveCaptureMetrics;
   onFinish: () => void;
   onPause: () => void;
   orientation: CaptureOrientation;
   viewportWidth?: number;
+  bladeGpsStatus?: BladeGpsStatus | null;
 }): React.JSX.Element {
   const isLandscape = orientation === 'landscape';
   const valueFontSize = isLandscape
-    ? Math.max(56, Math.min(76, viewportWidth * 0.075))
-    : Math.max(52, Math.min(72, viewportWidth * 0.142));
+    ? Math.max(40, Math.min(54, viewportWidth * 0.06))
+    : Math.max(48, Math.min(64, viewportWidth * 0.13));
   const cells = [
     {
       identifier: 'strokeRateSpm',
@@ -91,6 +136,14 @@ export function AdaptiveCaptureSurface({
         <View style={styles.statusRow}>
           <View style={styles.recordingDot} />
           <Text style={styles.recordingLabel}>{t('active.recording')}</Text>
+          {bladeGpsStatus ? (() => {
+            const info = getGpsBadgeInfo(bladeGpsStatus);
+            return (
+              <View style={[styles.gpsBadge, info.badgeStyle]} testID="blade-gps-badge">
+                <Text style={[styles.gpsBadgeText, info.textStyle]}>{info.text}</Text>
+              </View>
+            );
+          })() : null}
           <Text style={styles.elapsed}>{elapsed(metrics.elapsedSeconds)}</Text>
         </View>
         <View style={styles.grid}>
@@ -172,5 +225,37 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     paddingTop: 20,
     width: 108,
+  },
+  gpsBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  badgeSuccess: {
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    borderColor: '#10b981',
+  },
+  badgeWarning: {
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    borderColor: '#f59e0b',
+  },
+  badgeDanger: {
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    borderColor: '#ef4444',
+  },
+  gpsBadgeText: {
+    fontFamily,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  textSuccess: {
+    color: '#10b981',
+  },
+  textWarning: {
+    color: '#f59e0b',
+  },
+  textDanger: {
+    color: '#ef4444',
   },
 });

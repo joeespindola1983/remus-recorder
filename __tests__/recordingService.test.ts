@@ -102,4 +102,14 @@ describe('RecordingService', () => {
     expect(await service.deleteRecording('activity:1')).toBe(true);
     expect(bridge.deleteRecording).toHaveBeenCalledWith('activity:1');
   });
+
+  it('saves downloaded Remus Blade raw binary and CSV to activity evidence', async () => {
+    const bridge = {
+      saveBladeRawBinary: jest.fn().mockResolvedValue(true),
+    };
+    const service = new RecordingService(bridge as any);
+    const ok = await service.saveBladeRaw('activity:1', 'UkJQMQ==', 'header,data');
+    expect(bridge.saveBladeRawBinary).toHaveBeenCalledWith('activity:1', 'UkJQMQ==', 'header,data');
+    expect(ok).toBe(true);
+  });
 });

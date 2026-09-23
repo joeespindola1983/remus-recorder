@@ -211,4 +211,34 @@ describe('RemusBladeDeviceService (TDD)', () => {
     expect(service.getConnectionState()).toBe('detected');
     expect(service.getSourceState().readiness?.sourceConnectionState).toBe('detected');
   });
+
+  it('forwards downloadSessionFile to adapter', async () => {
+    await service.initialize();
+    const emitter = new NativeEventEmitter();
+    const progressSpy = jest.fn();
+
+    const downloadPromise = service.downloadSessionFile(progressSpy);
+
+    const file = Buffer.from('RBP2abcdef');
+    const chunk = Buffer.alloc(7 + file.length);
+    chunk[0] = 0x20;
+    chunk.writeUInt32LE(0, 1);
+    chunk.writeUInt16LE(file.length, 5);
+    file.copy(chunk, 7);
+
+    (emitter as any).emit('onRemusBladeSnapshot', {
+      rawCsv: `FILE_START:/remus_sensor_1.bin:${file.length}:1`,
+    });
+    (emitter as any).emit('onRemusBladeSnapshot', {
+      rawBase64: chunk.toString('base64'),
+    });
+    (emitter as any).emit('onRemusBladeSnapshot', {
+      rawCsv: `FILE_END:/remus_sensor_1.bin:${file.length}`,
+    });
+
+    const result = await downloadPromise;
+    expect(result.filename).toBe('/remus_sensor_1.bin');
+    expect(result.data).toEqual(file);
+    expect(progressSpy).toHaveBeenLastCalledWith(100, file.length, file.length);
+  });
 });

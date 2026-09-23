@@ -222,6 +222,16 @@ class RemusRecordingModule(private val reactContext: ReactApplicationContext) :
   }
 
   @ReactMethod
+  fun saveBladeRawBinary(activityId: String, base64Data: String, rawCsv: String?, promise: Promise) {
+    try {
+      val ok = evidenceStore.saveBladeRawBinary(reactContext, activityId, base64Data, rawCsv)
+      promise.resolve(ok)
+    } catch (e: Exception) {
+      promise.reject("SAVE_BLADE_RAW_ERROR", e.message, e)
+    }
+  }
+
+  @ReactMethod
   fun getPhoneHardwareProfile(promise: Promise) {
     try {
       val hasGps = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)

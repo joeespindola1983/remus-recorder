@@ -2,10 +2,13 @@
  * @format
  */
 
+import { Buffer } from 'buffer';
 import React from 'react';
 import { Alert, NativeModules, Text } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 import App from '../App';
+import { RemusBladeDeviceService } from '../src/services/blade/RemusBladeDeviceService';
+import { RecordingService } from '../src/services/recording/RecordingService';
 
 beforeEach(() => {
   NativeModules.RemusRecordingBridge = {
@@ -34,7 +37,12 @@ beforeEach(() => {
     getLocationPermissionStatus: jest.fn().mockResolvedValue('granted'),
     exportRecording: jest
       .fn()
-      .mockResolvedValue({zipPath: '/tmp/activity-test.zip', shared: true}),
+      .mockResolvedValue('/evidence/activity-test.zip'),
+    saveBladeRawBinary: jest.fn().mockResolvedValue({
+      success: true,
+      binPath: '/evidence/activity-test/samples/blade_200hz.bin',
+      csvPath: '/evidence/activity-test/samples/blade_200hz.csv',
+    }),
     addListener: jest.fn(),
     removeListeners: jest.fn(),
   };
@@ -204,5 +212,172 @@ test('allows exporting recorded activity evidence zip from summary screen', asyn
   ).toHaveBeenCalledWith({
     activityId: 'activity:test',
   });
+});
+
+test('downloads and saves blade session binary when blade is connected on stop', async () => {
+  const connSpy = jest
+    .spyOn(RemusBladeDeviceService.prototype, 'getConnectionState')
+    .mockReturnValue('connected');
+  const downloadSpy = jest
+    .spyOn(RemusBladeDeviceService.prototype, 'downloadSessionFile')
+    .mockImplementation(async onProgress => {
+      if (typeof onProgress === "function") { (onProgress as any)(100, 32, 32); }
+      // Minimal valid RBP1B buffer: 32 bytes header
+      const buf = Buffer.alloc(32);
+      buf.write('RBP1B', 0, 'ascii');
+      buf.writeUInt8(1, 5);
+      return {
+        filename: 'remus_sensor_123.bin',
+        data: buf,
+      };
+    });
+
+  let renderer!: ReactTestRenderer.ReactTestRenderer;
+  await ReactTestRenderer.act(async () => {
+    renderer = ReactTestRenderer.create(<App />);
+  });
+
+  await ReactTestRenderer.act(async () => {
+    renderer.root
+      .findByProps({ accessibilityLabel: 'Iniciar atividade' })
+      .props.onPress();
+  });
+
+  await ReactTestRenderer.act(async () => {
+    renderer.root
+      .findByProps({ accessibilityLabel: 'Finalizar atividade' })
+      .props.onPress();
+  });
+
+  expect(downloadSpy).toHaveBeenCalled();
+  expect(
+    NativeModules.RemusRecordingBridge.saveBladeRawBinary,
+  ).toHaveBeenCalledWith(
+    'activity:test',
+    expect.any(String),
+    expect.any(String),
+  );
+
+  connSpy.mockRestore();
+  downloadSpy.mockRestore();
+});
+
+test('suppresses pace when speed is below 0.8 m/s and formats pace above threshold', async () => {
+  let updateListener: ((projection: any) => void) | undefined;
+  const onUpdateSpy = jest
+    .spyOn(RecordingService.prototype, 'onUpdate')
+    .mockImplementation(listener => {
+      updateListener = listener;
+      return () => undefined;
+    });
+
+  let renderer!: ReactTestRenderer.ReactTestRenderer;
+  await ReactTestRenderer.act(async () => {
+    renderer = ReactTestRenderer.create(<App />);
+  });
+
+  await ReactTestRenderer.act(async () => {
+    renderer.root
+      .findByProps({ accessibilityLabel: 'Iniciar atividade' })
+      .props.onPress();
+  });
+
+  // Emitting low speed (< 0.8 m/s)
+  await ReactTestRenderer.act(async () => {
+    if (updateListener) {
+      updateListener({
+        elapsedSeconds: 10,
+        groundSpeedMetersPerSecond: 0.5,
+        distanceMeters: 50,
+      });
+    }
+  });
+
+  expect(
+    renderer.root.findByProps({ testID: 'metric-value-paceSecondsPer500Meters' })
+      .props.children,
+  ).toBe('—');
+
+  // Emitting moving speed (>= 0.8 m/s, e.g. 2.5 m/s -> 200s = 03:20)
+  await ReactTestRenderer.act(async () => {
+    if (updateListener) {
+      updateListener({
+        elapsedSeconds: 15,
+        groundSpeedMetersPerSecond: 2.5,
+        distanceMeters: 62,
+      });
+    }
+  });
+
+  expect(
+    renderer.root.findByProps({ testID: 'metric-value-paceSecondsPer500Meters' })
+      .props.children,
+  ).toBe('03:20');
+
+  await ReactTestRenderer.act(async () => {
+    renderer.unmount();
+  });
+
+  onUpdateSpy.mockRestore();
+});
+
+test('updates stroke rate from blade snapshot and resets when SPM is 0', async () => {
+  let stateChangeListener: ((state: any) => void) | undefined;
+  let currentSnapshot: any = null;
+
+  const onStateSpy = jest
+    .spyOn(RemusBladeDeviceService.prototype, 'onStateChange')
+    .mockImplementation(listener => {
+      stateChangeListener = listener;
+      return () => undefined;
+    });
+
+  const getSnapshotSpy = jest
+    .spyOn(RemusBladeDeviceService.prototype, 'getLatestSnapshot')
+    .mockImplementation(() => currentSnapshot);
+
+  let renderer!: ReactTestRenderer.ReactTestRenderer;
+  await ReactTestRenderer.act(async () => {
+    renderer = ReactTestRenderer.create(<App />);
+  });
+
+  await ReactTestRenderer.act(async () => {
+    renderer.root
+      .findByProps({ accessibilityLabel: 'Iniciar atividade' })
+      .props.onPress();
+  });
+
+  // Emitting positive SPM (e.g. 28 SPM)
+  currentSnapshot = { liveSpm: 28 };
+  await ReactTestRenderer.act(async () => {
+    if (stateChangeListener) {
+      stateChangeListener({});
+    }
+  });
+
+  expect(
+    renderer.root.findByProps({ testID: 'metric-value-strokeRateSpm' })
+      .props.children,
+  ).toBe('28');
+
+  // Emitting zero SPM (stopped)
+  currentSnapshot = { liveSpm: 0 };
+  await ReactTestRenderer.act(async () => {
+    if (stateChangeListener) {
+      stateChangeListener({});
+    }
+  });
+
+  expect(
+    renderer.root.findByProps({ testID: 'metric-value-strokeRateSpm' })
+      .props.children,
+  ).toBe('—');
+
+  await ReactTestRenderer.act(async () => {
+    renderer.unmount();
+  });
+
+  onStateSpy.mockRestore();
+  getSnapshotSpy.mockRestore();
 });
 

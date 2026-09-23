@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer';
 import { NativeEventEmitter } from 'react-native';
 
 jest.mock('react-native', () => {
@@ -214,6 +215,130 @@ describe('RemusBladeAdapter (TDD)', () => {
           name: 'Remus Blade P1',
         }),
       );
+    });
+
+    it('sends GET command and receives binary file chunks until FILE_END', async () => {
+      const emitter = new NativeEventEmitter();
+      mockBridge = {
+        sendCommand: jest.fn().mockResolvedValue(true),
+      };
+      adapter = new RemusBladeAdapter(mockBridge as any);
+      await adapter.initialize();
+
+      const progressSpy = jest.fn();
+      const downloadPromise = adapter.downloadSessionFile(progressSpy);
+      expect(mockBridge.sendCommand).toHaveBeenCalledWith('GET');
+
+      // 1. FILE_START
+      (emitter as any).emit('onRemusBladeSnapshot', {
+        rawCsv: 'FILE_START:/remus_sensor_1234.bin:34:2',
+      });
+
+      // 2. Binary chunk 1 (0x20 + offset + len + 34 bytes)
+      const chunk = Buffer.alloc(7 + 34);
+      chunk.writeUInt8(0x20, 0);
+      chunk.writeUInt32LE(0, 1);
+      chunk.writeUInt16LE(34, 5);
+      chunk.write('RBP1', 7, 4, 'ascii');
+
+      (emitter as any).emit('onRemusBladeSnapshot', {
+        rawBase64: chunk.toString('base64'),
+      });
+
+      expect(progressSpy).toHaveBeenCalledWith(100, 34, 34);
+
+      // 3. FILE_END
+      (emitter as any).emit('onRemusBladeSnapshot', {
+        rawCsv: 'FILE_END:/remus_sensor_1234.bin:34',
+      });
+
+      const result = await downloadPromise;
+      expect(result.filename).toBe('/remus_sensor_1234.bin');
+      expect(result.data.length).toBe(34);
+    });
+
+    it('handles FILE_ERR gracefully and rejects download promise', async () => {
+      const emitter = new NativeEventEmitter();
+      mockBridge = {
+        sendCommand: jest.fn().mockResolvedValue(true),
+      };
+      adapter = new RemusBladeAdapter(mockBridge as any);
+      await adapter.initialize();
+
+      const downloadPromise = adapter.downloadSessionFile();
+      (emitter as any).emit('onRemusBladeSnapshot', {
+        rawCsv: 'FILE_ERR:NOT_FOUND',
+      });
+
+      await expect(downloadPromise).rejects.toThrow('NOT_FOUND');
+    });
+
+    it('does not count a repeated offset twice and verifies the final CRC32', async () => {
+      const emitter = new NativeEventEmitter();
+      mockBridge = { sendCommand: jest.fn().mockResolvedValue(true) };
+      adapter = new RemusBladeAdapter(mockBridge as any);
+      await adapter.initialize();
+
+      const payload = Buffer.alloc(32);
+      payload.write('RBP2', 0, 4, 'ascii');
+      const crc = (() => {
+        /* eslint-disable no-bitwise -- mirrors the firmware CRC32 contract. */
+        let value = 0xffffffff;
+        for (const byte of payload) {
+          value ^= byte;
+          for (let bit = 0; bit < 8; bit += 1) {
+            value = (value >>> 1) ^ (0xedb88320 & -(value & 1));
+          }
+        }
+        const result = (~value) >>> 0;
+        /* eslint-enable no-bitwise */
+        return result;
+      })();
+      const progressSpy = jest.fn();
+      const downloadPromise = adapter.downloadSessionFile(progressSpy);
+      (emitter as any).emit('onRemusBladeSnapshot', {
+        rawCsv: 'FILE_START:/session.bin:32:0',
+      });
+      const chunk = Buffer.alloc(39);
+      chunk.writeUInt8(0x20, 0);
+      chunk.writeUInt32LE(0, 1);
+      chunk.writeUInt16LE(32, 5);
+      payload.copy(chunk, 7);
+      const rawBase64 = chunk.toString('base64');
+      (emitter as any).emit('onRemusBladeSnapshot', { rawBase64 });
+      (emitter as any).emit('onRemusBladeSnapshot', { rawBase64 });
+      (emitter as any).emit('onRemusBladeSnapshot', {
+        rawCsv: `FILE_END:/session.bin:32:${crc.toString(16).padStart(8, '0')}`,
+      });
+
+      const result = await downloadPromise;
+      expect(result.data.equals(payload)).toBe(true);
+      expect(progressSpy).toHaveBeenLastCalledWith(100, 32, 32);
+    });
+
+    it('rejects FILE_END when byte coverage is incomplete', async () => {
+      const emitter = new NativeEventEmitter();
+      mockBridge = { sendCommand: jest.fn().mockResolvedValue(true) };
+      adapter = new RemusBladeAdapter(mockBridge as any);
+      await adapter.initialize();
+
+      const downloadPromise = adapter.downloadSessionFile();
+      (emitter as any).emit('onRemusBladeSnapshot', {
+        rawCsv: 'FILE_START:/session.bin:32:0',
+      });
+      const chunk = Buffer.alloc(7 + 4);
+      chunk.writeUInt8(0x20, 0);
+      chunk.writeUInt32LE(0, 1);
+      chunk.writeUInt16LE(4, 5);
+      chunk.write('RBP2', 7, 4, 'ascii');
+      (emitter as any).emit('onRemusBladeSnapshot', {
+        rawBase64: chunk.toString('base64'),
+      });
+      (emitter as any).emit('onRemusBladeSnapshot', {
+        rawCsv: 'FILE_END:/session.bin:32',
+      });
+
+      await expect(downloadPromise).rejects.toThrow('INCOMPLETE_TRANSFER');
     });
   });
 });

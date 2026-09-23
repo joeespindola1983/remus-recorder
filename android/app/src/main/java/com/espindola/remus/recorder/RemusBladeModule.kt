@@ -20,6 +20,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelUuid
+import android.util.Base64
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.facebook.react.bridge.Arguments
@@ -408,17 +409,21 @@ class RemusBladeModule(
     }
 
     private fun handleSnapshotBytes(bytes: ByteArray) {
-      val rawCsv = String(bytes, Charsets.UTF_8).trim()
+      if (bytes.isEmpty()) return
+      val rawBase64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+      val rawCsv = try {
+        String(bytes, Charsets.UTF_8).trim()
+      } catch (e: Exception) {
+        ""
+      }
       Log.d(TAG, "handleSnapshotBytes (${bytes.size} bytes): $rawCsv")
-      if (rawCsv.isNotEmpty()) {
-        emitSnapshot(rawCsv)
-        if (RemusEvidenceStore.instance.isRecording) {
-          RemusEvidenceStore.instance.appendRemusBladeLive(
-            rawCsv,
-            bluetoothGatt?.device?.address ?: "remus-blade:p1",
-            System.currentTimeMillis()
-          )
-        }
+      emitSnapshot(rawCsv, rawBase64)
+      if (rawCsv.isNotEmpty() && RemusEvidenceStore.instance.isRecording) {
+        RemusEvidenceStore.instance.appendRemusBladeLive(
+          rawCsv,
+          bluetoothGatt?.device?.address ?: "remus-blade:p1",
+          System.currentTimeMillis()
+        )
       }
     }
   }
@@ -451,10 +456,14 @@ class RemusBladeModule(
       .emit("onRemusBladeStateChanged", body)
   }
 
-  private fun emitSnapshot(rawCsv: String) {
+  private fun emitSnapshot(rawCsv: String, rawBase64: String) {
     if (listenerCount == 0 || !reactContext.hasActiveReactInstance()) return
     val body = Arguments.createMap().apply {
       putString("rawCsv", rawCsv)
+      putString("rawBase64", rawBase64)
+      putString("deviceId", bluetoothGatt?.device?.address ?: "remus-blade:p1")
+      putString("deviceName", try { bluetoothGatt?.device?.name } catch (e: SecurityException) { null } ?: "Remus Blade P1")
+      putDouble("receivedAtEpochMilliseconds", System.currentTimeMillis().toDouble())
     }
     reactContext
       .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)

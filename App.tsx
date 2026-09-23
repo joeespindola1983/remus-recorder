@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer';
 import React, { useEffect, useReducer, useRef, useState } from 'react';
 import { Alert, NativeModules, Platform, StatusBar, StyleSheet } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -9,10 +10,12 @@ import {
 import { AppShell, NavigationTab } from './src/ui/organisms/AppShell';
 import {
   ActiveScreen,
+  BladeDownloadStatus,
   FinalizingScreen,
   ReadyScreen,
   SummaryScreen,
 } from './src/ui/screens/RecorderScreens';
+import { convertRemusBladeBinaryToCsv } from './src/services/blade/RemusBladeBinaryDecoder';
 import { color } from './src/ui/theme/tokens';
 import {ProfileScreen} from './src/ui/screens/ProfileScreen';
 import { t } from './src/i18n';
@@ -45,6 +48,7 @@ export default function App(): React.JSX.Element {
     return new RemusBladeDeviceService(adapter);
   });
   const [bladeSnapshot, setBladeSnapshot] = useState<RemusBladeSnapshot | null>(null);
+  const [bladeDownloadStatus, setBladeDownloadStatus] = useState<BladeDownloadStatus | undefined>(undefined);
   const [recordingService] = useState(() => new RecordingService());
   const [lastManifest, setLastManifest] = useState<RecordingManifest | null>(null);
   const wearable = useWearables();
@@ -141,15 +145,20 @@ export default function App(): React.JSX.Element {
     });
   }, [wearable.currentSample, wearableSourceId]);
 
+  const MOVING_SPEED_THRESHOLD_METERS_PER_SECOND = 0.8;
+  const lastBladeTelemetryAt = useRef<number>(0);
+
   useEffect(
     () => recordingService.onUpdate(projection => {
       const speed = projection.groundSpeedMetersPerSecond;
+      const isMoving =
+        speed !== undefined && speed >= MOVING_SPEED_THRESHOLD_METERS_PER_SECOND;
       dispatch({
         type: 'update_live_metrics',
         metrics: {
           groundSpeedMetersPerSecond: speed,
           paceSecondsPer500Meters:
-            speed !== undefined && speed > 0 ? 500 / speed : undefined,
+            isMoving ? 500 / speed : undefined,
           distanceMeters: projection.distanceMeters,
         },
       });
@@ -158,10 +167,28 @@ export default function App(): React.JSX.Element {
   );
 
   useEffect(() => {
-    const spm = bladeSnapshot?.liveSpm;
-    if (spm === undefined) return;
-    dispatch({type: 'update_live_metrics', metrics: {strokeRateSpm: spm}});
+    if (!bladeSnapshot) return;
+    lastBladeTelemetryAt.current = Date.now();
+    const spm = bladeSnapshot.liveSpm;
+    if (spm !== undefined && spm > 0) {
+      dispatch({type: 'update_live_metrics', metrics: {strokeRateSpm: spm}});
+    } else {
+      dispatch({type: 'update_live_metrics', metrics: {strokeRateSpm: undefined}});
+    }
   }, [bladeSnapshot]);
+
+  useEffect(() => {
+    if (state.phase !== 'recording') return;
+    const interval = setInterval(() => {
+      if (
+        lastBladeTelemetryAt.current > 0 &&
+        Date.now() - lastBladeTelemetryAt.current > 3_500
+      ) {
+        dispatch({type: 'update_live_metrics', metrics: {strokeRateSpm: undefined}});
+      }
+    }, 1_000);
+    return () => clearInterval(interval);
+  }, [state.phase]);
 
   useEffect(() => {
     if (state.phase !== 'recording') return;
@@ -228,6 +255,45 @@ export default function App(): React.JSX.Element {
       bladeDevice.stopWorkoutCapture(),
       wearable.stopRecording(),
     ]);
+
+    if (bladeDevice.getConnectionState() === 'connected' && state.activityId) {
+      setBladeDownloadStatus({
+        isDownloading: true,
+        bytesTransferred: 0,
+        totalBytes: 0,
+        progress: 0,
+      });
+      try {
+        const fileResult = await bladeDevice.downloadSessionFile(
+          (progress, received, total) => {
+            setBladeDownloadStatus({
+              isDownloading: true,
+              bytesTransferred: received,
+              totalBytes: total,
+              progress,
+            });
+          },
+        );
+
+        if (fileResult && fileResult.data && fileResult.data.length > 0) {
+          const csv = convertRemusBladeBinaryToCsv(fileResult.data);
+          const base64Data = Buffer.from(fileResult.data as any).toString('base64');
+          await recordingService.saveBladeRaw(state.activityId, base64Data, csv);
+          setBladeDownloadStatus({
+            isDownloading: false,
+            bytesTransferred: fileResult.data.length,
+            totalBytes: fileResult.data.length,
+            progress: 100,
+          });
+        } else {
+          setBladeDownloadStatus(undefined);
+        }
+      } catch (dlError) {
+        console.warn('[App] Failed to download blade session binary:', dlError);
+        setBladeDownloadStatus(undefined);
+      }
+    }
+
     try {
       const manifest = await recordingService.stop();
       setLastManifest(manifest);
@@ -280,6 +346,7 @@ export default function App(): React.JSX.Element {
       {isFullScreen ? (
         <SafeAreaView style={styles.safeArea}>
           <ActiveScreen
+            bladeSnapshot={bladeSnapshot}
             onPause={() => undefined}
             onStop={stopCapture}
             state={state}
@@ -304,7 +371,10 @@ export default function App(): React.JSX.Element {
             />
           ) : null}
           {state.phase === 'finalizing' ? (
-            <FinalizingScreen state={state} />
+            <FinalizingScreen
+              state={state}
+              bladeDownloadStatus={bladeDownloadStatus}
+            />
           ) : null}
           {state.phase === 'completed' ? (
             <SummaryScreen
@@ -312,6 +382,7 @@ export default function App(): React.JSX.Element {
               onExport={handleExport}
               onDone={() => {
                 setLastManifest(null);
+                setBladeDownloadStatus(undefined);
                 dispatch({type: 'reset_to_ready'});
                 setActiveTab('activities');
               }}

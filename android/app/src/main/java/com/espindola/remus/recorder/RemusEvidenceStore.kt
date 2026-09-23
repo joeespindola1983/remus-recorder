@@ -1,6 +1,7 @@
 package com.espindola.remus.recorder
 
 import android.content.Context
+import android.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedWriter
@@ -221,6 +222,25 @@ class RemusEvidenceStore private constructor() {
         }
       }
 
+      val binFile = File(dir, "blade_200hz.bin")
+      if (binFile.exists()) {
+        parts.add(mapOf(
+          "stream" to "remusBladeRawBinary",
+          "filename" to "blade_200hz.bin",
+          "byteLength" to binFile.length(),
+          "sha256" to computeSha256(binFile)
+        ))
+      }
+      val csvFile = File(dir, "blade_200hz.csv")
+      if (csvFile.exists()) {
+        parts.add(mapOf(
+          "stream" to "remusBladeRawCsv",
+          "filename" to "blade_200hz.csv",
+          "byteLength" to csvFile.length(),
+          "sha256" to computeSha256(csvFile)
+        ))
+      }
+
       writeManifest("finalized", endedAt, parts)
 
       val manifestMap = mapOf<String, Any>(
@@ -282,6 +302,60 @@ class RemusEvidenceStore private constructor() {
       val manifestFile = File(dir, "manifest.json")
       manifestFile.writeText(manifest.toString(2))
     } catch (_: Exception) {}
+  }
+
+  fun saveBladeRawBinary(context: Context, activityId: String, base64Data: String, rawCsv: String?): Boolean {
+    val bytes = Base64.decode(base64Data, Base64.DEFAULT)
+    val baseDir = File(context.filesDir, "evidence")
+    val dirName = activityId.replace(":", "-")
+    val activityDir = File(baseDir, dirName)
+    if (!activityDir.exists()) {
+      activityDir.mkdirs()
+    }
+
+    val binFile = File(activityDir, "blade_200hz.bin")
+    binFile.writeBytes(bytes)
+
+    if (!rawCsv.isNullOrEmpty()) {
+      val csvFile = File(activityDir, "blade_200hz.csv")
+      csvFile.writeText(rawCsv)
+    }
+
+    val manifestFile = File(activityDir, "manifest.json")
+    if (manifestFile.exists()) {
+      try {
+        val manifest = JSONObject(manifestFile.readText())
+        val partsArr = manifest.optJSONArray("parts") ?: JSONArray()
+        val newParts = JSONArray()
+        for (i in 0 until partsArr.length()) {
+          val item = partsArr.getJSONObject(i)
+          val fname = item.optString("filename")
+          if (fname != "blade_200hz.bin" && fname != "blade_200hz.csv") {
+            newParts.put(item)
+          }
+        }
+        val binPart = JSONObject()
+        binPart.put("stream", "remusBladeRawBinary")
+        binPart.put("filename", "blade_200hz.bin")
+        binPart.put("byteLength", binFile.length())
+        binPart.put("sha256", computeSha256(binFile))
+        newParts.put(binPart)
+
+        if (!rawCsv.isNullOrEmpty()) {
+          val csvFile = File(activityDir, "blade_200hz.csv")
+          val csvPart = JSONObject()
+          csvPart.put("stream", "remusBladeRawCsv")
+          csvPart.put("filename", "blade_200hz.csv")
+          csvPart.put("byteLength", csvFile.length())
+          csvPart.put("sha256", computeSha256(csvFile))
+          newParts.put(csvPart)
+        }
+
+        manifest.put("parts", newParts)
+        manifestFile.writeText(manifest.toString(2))
+      } catch (_: Exception) {}
+    }
+    return true
   }
 
   fun exportActivity(context: Context, activityId: String?): File {

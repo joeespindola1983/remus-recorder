@@ -17,18 +17,31 @@ export function LiveMetricCell({
   valueFontSize: number;
   style?: StyleProp<ViewStyle>;
 }): React.JSX.Element {
+  const lengthScale =
+    value.length >= 5 ? 0.72 : value.length >= 3 ? 0.85 : 1.0;
+  const adaptiveFontSize = Math.round(valueFontSize * lengthScale);
+
   return (
     <View style={[styles.cell, style]}>
       <Text style={styles.label}>{label}</Text>
-      <Text
-        adjustsFontSizeToFit
-        minimumFontScale={0.62}
-        numberOfLines={1}
-        style={[styles.value, { fontSize: valueFontSize }]}
-        testID={`metric-value-${identifier}`}
-      >
-        {value}
-      </Text>
+
+      <View style={styles.valueContainer}>
+        <Text
+          adjustsFontSizeToFit
+          minimumFontScale={0.35}
+          numberOfLines={1}
+          style={[
+            styles.value,
+            {
+              fontSize: adaptiveFontSize,
+            },
+          ]}
+          testID={`metric-value-${identifier}`}
+        >
+          {value}
+        </Text>
+      </View>
+
       <Text style={styles.unit}>{unit}</Text>
     </View>
   );
@@ -39,9 +52,9 @@ const styles = StyleSheet.create({
     backgroundColor: color.surfaceDefault,
     borderColor: color.borderDefault,
     borderWidth: 0.5,
-    justifyContent: 'space-between',
     padding: spacing.md,
   },
+
   label: {
     color: color.textSecondary,
     fontFamily,
@@ -49,13 +62,24 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     letterSpacing: 0.2,
   },
+
+  valueContainer: {
+    flex: 1,
+    width: '100%',
+    minHeight: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+
   value: {
     color: color.textPrimary,
     fontFamily,
     fontWeight: '800',
-    letterSpacing: -1.5,
-    lineHeight: 76,
+    letterSpacing: -0.5,
+    textAlign: 'center',
   },
+
   unit: {
     alignSelf: 'flex-end',
     color: color.textPrimary,

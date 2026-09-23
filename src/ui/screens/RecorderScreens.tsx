@@ -89,16 +89,31 @@ export function ActiveScreen({
   state,
   onStop,
   onPause,
+  bladeSnapshot,
 }: {
   state: ActivityCaptureState;
   onStop: () => void;
   onPause: () => void;
+  bladeSnapshot?: RemusBladeSnapshot | null;
 }): React.JSX.Element {
   const { width, height } = useWindowDimensions();
   const orientation = captureOrientationFor(width, height);
   const interrupted = Object.values(state.sources).some(
     source => source.recordingState === 'interrupted',
   );
+
+  const bladeGpsStatus = bladeSnapshot
+    ? {
+        hasGpsLock: Boolean(
+          bladeSnapshot.location?.latitude && bladeSnapshot.location?.longitude,
+        ),
+        satsInUse: bladeSnapshot.satsInUse,
+        satsInView: bladeSnapshot.satsInView,
+        maxSnrDbHz: bladeSnapshot.maxSnrDbHz,
+        accuracyMeters: bladeSnapshot.horizontalAccuracyMeters,
+      }
+    : undefined;
+
   return (
     <View style={styles.screen}>
       <AdaptiveCaptureSurface
@@ -107,6 +122,7 @@ export function ActiveScreen({
         onPause={onPause}
         orientation={orientation}
         viewportWidth={width}
+        bladeGpsStatus={bladeGpsStatus}
       />
       {interrupted ? (
         <View
@@ -122,17 +138,50 @@ export function ActiveScreen({
   );
 }
 
+export interface BladeDownloadStatus {
+  isDownloading: boolean;
+  progress: number;
+  receivedBytes?: number;
+  bytesTransferred?: number;
+  totalBytes?: number;
+}
+
+export interface FinalizingScreenProps {
+  state?: ActivityCaptureState;
+  capture?: ActivityCaptureState;
+  bladeDownloadStatus?: BladeDownloadStatus;
+}
+
 export function FinalizingScreen({
   state,
-}: {
-  state: ActivityCaptureState;
-}): React.JSX.Element {
+  capture: _capture,
+  bladeDownloadStatus,
+}: FinalizingScreenProps): React.JSX.Element {
+  const activeState = (state ?? _capture)!;
   return (
     <ScrollView contentContainerStyle={styles.content}>
       <Text style={styles.eyebrow}>{t('finalizing.eyebrow')}</Text>
       <Text style={styles.title}>{t('finalizing.title')}</Text>
       <Text style={styles.body}>{t('finalizing.body')}</Text>
-      <SourceFleetPanel sources={Object.values(state.sources)} />
+
+      {bladeDownloadStatus?.isDownloading ? (
+        <View style={styles.downloadCard}>
+          <Text style={styles.downloadTitle}>{t('finalizing.downloadingBlade')}</Text>
+          <Text style={styles.downloadProgress}>
+            {t('finalizing.downloadProgress', { progress: bladeDownloadStatus.progress })}
+          </Text>
+          <View style={styles.progressBarTrack}>
+            <View
+              style={[
+                styles.progressBarFill,
+                { width: `${Math.min(100, Math.max(0, bladeDownloadStatus.progress))}%` },
+              ]}
+            />
+          </View>
+        </View>
+      ) : null}
+
+      <SourceFleetPanel sources={Object.values(activeState.sources)} />
     </ScrollView>
   );
 }
@@ -507,6 +556,37 @@ const styles = StyleSheet.create({
     color: color.textSecondary,
     fontFamily,
     fontSize: 13,
+  },
+  downloadCard: {
+    backgroundColor: color.surfaceDefault,
+    borderColor: color.borderDefault,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    padding: spacing.md,
+    marginTop: spacing.md,
+  },
+  downloadTitle: {
+    color: color.textPrimary,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  downloadProgress: {
+    color: color.textSecondary,
+    fontSize: 14,
+    marginTop: spacing.xs,
+  },
+  progressBarTrack: {
+    backgroundColor: color.backgroundTertiary,
+    borderRadius: radius.full,
+    height: 8,
+    marginTop: spacing.sm,
+    overflow: 'hidden',
+    width: '100%',
+  },
+  progressBarFill: {
+    backgroundColor: color.actionPrimary,
+    borderRadius: radius.full,
+    height: '100%',
   },
   evidenceMetricValue: {
     color: color.textPrimary,

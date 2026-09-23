@@ -41,29 +41,23 @@ export function RemusBladeBreakdown({
   const snr = snapshot?.maxSnrDbHz ?? 0;
   const liveSpm = snapshot?.liveSpm;
   const linesWritten = snapshot?.linesWritten ?? 0;
+  const sdOk = snapshot?.sdOk ?? true;
+  const imuOk = snapshot?.imuOk ?? true;
 
   return (
-    <View style={styles.container} testID="remus-blade-breakdown">
+    <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>{t('blade.title')}</Text>
         <View
           style={[
             styles.badge,
-            isConnected
-              ? styles.badgeSuccess
-              : isDetected
-                ? styles.badgeWarning
-                : styles.badgeNeutral,
+            isConnected ? styles.badgeSuccess : styles.badgeNeutral,
           ]}
         >
           <Text
             style={[
               styles.badgeText,
-              isConnected
-                ? styles.badgeTextSuccess
-                : isDetected
-                  ? styles.badgeTextWarning
-                  : styles.badgeTextNeutral,
+              isConnected ? styles.badgeTextSuccess : styles.badgeTextNeutral,
             ]}
           >
             {badgeLabel}
@@ -76,11 +70,15 @@ export function RemusBladeBreakdown({
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <Text style={styles.cardTitle}>{t('blade.imuTitle')}</Text>
-            <View style={[styles.miniBadge, styles.badgeSuccess]}>
-              <Text style={[styles.miniBadgeText, styles.badgeTextSuccess]}>200 Hz</Text>
+            <View style={[styles.miniBadge, imuOk ? styles.badgeSuccess : styles.badgeWarning]}>
+              <Text style={[styles.miniBadgeText, imuOk ? styles.badgeTextSuccess : styles.badgeTextWarning]}>
+                {imuOk ? '200 Hz' : t('blade.sensorOffline')}
+              </Text>
             </View>
           </View>
-          <Text style={styles.cardDetail}>{t('blade.imuDetail')}</Text>
+          <Text style={styles.cardDetail}>
+            {imuOk ? t('blade.imuDetail') : t('blade.imuOfflineDetail')}
+          </Text>
         </View>
 
         {/* GPS Section */}
@@ -104,15 +102,15 @@ export function RemusBladeBreakdown({
             </View>
           </View>
           <Text style={styles.cardDetail}>
-            {hasGpsLock ? t('blade.gpsDetailLocked') : t('blade.gpsDetailSearching')}
+            {hasGpsLock ? t('blade.gpsLocked') : t('blade.gpsSearching')}
           </Text>
           {accuracy !== undefined && accuracy > 0 && (
             <Text style={styles.cardMetric}>
-              {t('blade.gpsAccuracy').replace('{acc}', accuracy.toFixed(1))}
+              {t('blade.gpsAccDetail').replace('{acc}', (accuracy ?? 0).toFixed(1))}
             </Text>
           )}
           <Text style={styles.cardSub}>
-            {t('blade.gpsSatellites')
+            {t('blade.gpsSatsDetail')
               .replace('{inUse}', String(satsInUse))
               .replace('{inView}', String(satsInView))
               .replace('{snr}', String(snr))}
@@ -143,21 +141,35 @@ export function RemusBladeBreakdown({
             <View
               style={[
                 styles.miniBadge,
-                linesWritten > 0 ? styles.badgeSuccess : styles.badgeNeutral,
+                !sdOk
+                  ? styles.badgeWarning
+                  : linesWritten > 0
+                  ? styles.badgeSuccess
+                  : styles.badgeNeutral,
               ]}
             >
               <Text
                 style={[
                   styles.miniBadgeText,
-                  linesWritten > 0 ? styles.badgeTextSuccess : styles.badgeTextNeutral,
+                  !sdOk
+                    ? styles.badgeTextWarning
+                    : linesWritten > 0
+                    ? styles.badgeTextSuccess
+                    : styles.badgeTextNeutral,
                 ]}
               >
-                SPI
+                {!sdOk
+                  ? t('blade.sdOffline')
+                  : linesWritten > 0
+                  ? t('blade.sdRecordingBadge')
+                  : t('blade.sdReady')}
               </Text>
             </View>
           </View>
           <Text style={styles.cardDetail}>
-            {linesWritten > 0
+            {!sdOk
+              ? t('blade.sdOfflineDetail')
+              : linesWritten > 0
               ? t('blade.sdRecording').replace('{lines}', String(linesWritten))
               : t('blade.sdStandby')}
           </Text>

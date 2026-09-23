@@ -145,7 +145,23 @@ final class RemusRecordingBridge: RCTEventEmitter, CLLocationManagerDelegate {
     rejecter reject: @escaping RCTPromiseRejectBlock
   ) {
     do { resolve(try evidenceStore.deleteRecording(activityId: activityId)) }
-    catch { reject("DELETE_RECORDING_FAILED", error.localizedDescription, error) }
+    catch { reject("DELETE_RECORDING_ERROR", error.localizedDescription, error) }
+  }
+
+  @objc
+  func saveBladeRawBinary(
+    _ activityId: String,
+    base64Data: String,
+    rawCsv: String?,
+    resolver resolve: @escaping RCTPromiseResolveBlock,
+    rejecter reject: @escaping RCTPromiseRejectBlock
+  ) {
+    do {
+      try evidenceStore.saveBladeRawBinary(activityId: activityId, base64Data: base64Data, rawCsv: rawCsv)
+      resolve(true)
+    } catch {
+      reject("SAVE_BLADE_RAW_ERROR", error.localizedDescription, error)
+    }
   }
 
   @objc

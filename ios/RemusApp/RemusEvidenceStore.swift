@@ -241,6 +241,58 @@ final class RemusEvidenceStore {
     }
   }
 
+  func saveBladeRawBinary(activityId: String, base64Data: String, rawCsv: String? = nil) throws {
+    guard let data = Data(base64Encoded: base64Data) else {
+      throw NSError(domain: "RemusEvidenceStore", code: 400, userInfo: [NSLocalizedDescriptionKey: "Invalid base64 data"])
+    }
+    let root = try evidenceRoot()
+    let dirName = activityId.replacingOccurrences(of: ":", with: "-")
+    let activityDir = root.appendingPathComponent(dirName, isDirectory: true)
+
+    if !fileManager.fileExists(atPath: activityDir.path) {
+      try fileManager.createDirectory(at: activityDir, withIntermediateDirectories: true)
+    }
+
+    let binURL = activityDir.appendingPathComponent("blade_200hz.bin")
+    try data.write(to: binURL)
+
+    if let csv = rawCsv, !csv.isEmpty {
+      let csvURL = activityDir.appendingPathComponent("blade_200hz.csv")
+      try csv.write(to: csvURL, atomically: true, encoding: .utf8)
+    }
+
+    let manifestURL = activityDir.appendingPathComponent("manifest.json")
+    if let manifestData = try? Data(contentsOf: manifestURL),
+       var manifest = (try? JSONSerialization.jsonObject(with: manifestData)) as? [String: Any] {
+      var parts = manifest["parts"] as? [[String: Any]] ?? []
+      parts.removeAll { ($0["filename"] as? String) == "blade_200hz.bin" || ($0["filename"] as? String) == "blade_200hz.csv" }
+
+      if let binValues = try? binURL.resourceValues(forKeys: [.fileSizeKey]), let binSize = binValues.fileSize {
+        parts.append([
+          "stream": "remusBladeRawBinary",
+          "filename": "blade_200hz.bin",
+          "byteLength": binSize,
+          "sha256": (try? sha256(binURL)) ?? "",
+        ])
+      }
+      if let csv = rawCsv, !csv.isEmpty {
+        let csvURL = activityDir.appendingPathComponent("blade_200hz.csv")
+        if let csvValues = try? csvURL.resourceValues(forKeys: [.fileSizeKey]), let csvSize = csvValues.fileSize {
+          parts.append([
+            "stream": "remusBladeRawCsv",
+            "filename": "blade_200hz.csv",
+            "byteLength": csvSize,
+            "sha256": (try? sha256(csvURL)) ?? "",
+          ])
+        }
+      }
+      manifest["parts"] = parts.sorted { ($0["stream"] as? String ?? "") < ($1["stream"] as? String ?? "") }
+      if let updatedData = try? JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys]) {
+        try? updatedData.write(to: manifestURL, options: [.atomic])
+      }
+    }
+  }
+
   func exportActivity(activityId: String? = nil) throws -> URL {
     let targetActivityId = activityId ?? latestActivityId
     guard let targetActivityId else {
@@ -399,7 +451,7 @@ final class RemusEvidenceStore {
     directory: URL,
     counts: [String: Int]
   ) throws -> [[String: Any]] {
-    try streamFiles.map { stream, filename in
+    var parts = try streamFiles.map { stream, filename in
       let url = directory.appendingPathComponent(filename)
       let values = try url.resourceValues(forKeys: [.fileSizeKey])
       return [
@@ -409,7 +461,30 @@ final class RemusEvidenceStore {
         "byteLength": values.fileSize ?? 0,
         "sha256": try sha256(url),
       ]
-    }.sorted { ($0["stream"] as? String ?? "") < ($1["stream"] as? String ?? "") }
+    }
+    let binURL = directory.appendingPathComponent("blade_200hz.bin")
+    if fileManager.fileExists(atPath: binURL.path),
+       let binValues = try? binURL.resourceValues(forKeys: [.fileSizeKey]),
+       let binSize = binValues.fileSize {
+      parts.append([
+        "stream": "remusBladeRawBinary",
+        "filename": "blade_200hz.bin",
+        "byteLength": binSize,
+        "sha256": try sha256(binURL),
+      ])
+    }
+    let csvURL = directory.appendingPathComponent("blade_200hz.csv")
+    if fileManager.fileExists(atPath: csvURL.path),
+       let csvValues = try? csvURL.resourceValues(forKeys: [.fileSizeKey]),
+       let csvSize = csvValues.fileSize {
+      parts.append([
+        "stream": "remusBladeRawCsv",
+        "filename": "blade_200hz.csv",
+        "byteLength": csvSize,
+        "sha256": try sha256(csvURL),
+      ])
+    }
+    return parts.sorted { ($0["stream"] as? String ?? "") < ($1["stream"] as? String ?? "") }
   }
 
   private func sha256(_ url: URL) throws -> String {

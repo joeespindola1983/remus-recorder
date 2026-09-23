@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer';
 import {
   CaptureSourceState,
   SourceReadinessSnapshot,
@@ -242,6 +243,13 @@ export class RemusBladeDeviceService {
     this.connectionState = 'connecting';
     this.markDetected();
     return this.adapter.connect();
+  }
+
+  async downloadSessionFile(
+    arg1?: string | ((progress: number, received: number, total: number) => void),
+    arg2?: string | ((progress: number, received: number, total: number) => void)
+  ): Promise<{ filename: string; data: Buffer }> {
+    return this.adapter.downloadSessionFile(arg1, arg2);
   }
 
   onStateChange(listener: (state: CaptureSourceState) => void): () => void {
