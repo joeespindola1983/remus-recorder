@@ -32,6 +32,21 @@ describe('AppleWatchAdapter (TDD)', () => {
     expect(devices[0].state).toBe('connected');
   });
 
+  it('requires the companion watch app to be installed', async () => {
+    mockNativeModule.isWatchAppInstalled.mockResolvedValue(false);
+
+    await expect(adapter.initialize()).resolves.toBe(false);
+    await expect(adapter.getConnectedDevices()).resolves.toEqual([]);
+  });
+
+  it('reports disconnected when the watch is paired but not reachable', async () => {
+    mockNativeModule.isReachable = jest.fn().mockResolvedValue(false);
+
+    await adapter.initialize();
+    const devices = await adapter.getConnectedDevices();
+    expect(devices).toHaveLength(0);
+  });
+
   it('should normalize a raw watch payload into a canonical SensorSample', done => {
     adapter.onSensorData((sample: SensorSample) => {
       expect(sample.deviceFamily).toBe('apple_watch');
@@ -88,5 +103,38 @@ describe('AppleWatchAdapter (TDD)', () => {
     const sent = await adapter.sendData('apple-watch', { command: 'START_RECORD' });
     expect(sent).toBe(true);
     expect(mockNativeModule.sendMessage).toHaveBeenCalledWith({ command: 'START_RECORD' });
+  });
+
+  it('publishes and retains the watch heart-rate permission state', async () => {
+    await adapter.initialize();
+    const [, stateListener] = mockNativeModule.addListener.mock.calls.find(
+      ([eventName]: [string]) => eventName === 'onWatchStateChanged',
+    );
+    const changed = jest.fn();
+    adapter.onDeviceStateChanged(changed);
+
+    stateListener({
+      isPaired: true,
+      isWatchAppInstalled: true,
+      heartRatePermissionState: 'denied',
+    });
+
+    expect(changed).toHaveBeenCalledWith(
+      expect.objectContaining({heartRatePermissionState: 'denied'}),
+    );
+    await expect(adapter.getConnectedDevices()).resolves.toEqual([
+      expect.objectContaining({heartRatePermissionState: 'denied'}),
+    ]);
+  });
+
+  it('does not publish missing, zero, or invalid heart-rate observations', () => {
+    const received = jest.fn();
+    adapter.onSensorData(received);
+
+    adapter.handleRawWatchMessage({type: 'STATE_SNAPSHOT'});
+    adapter.handleRawWatchMessage({type: 'SENSOR_UPDATE', heartRateBeatsPerMinute: 0});
+    adapter.handleRawWatchMessage({type: 'SENSOR_UPDATE', heartRateBeatsPerMinute: Number.NaN});
+
+    expect(received).not.toHaveBeenCalled();
   });
 });

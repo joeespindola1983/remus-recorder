@@ -33,6 +33,10 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Remus conecta-se ao sensor Remus Blade via Bluetooth LE para coletar dados do remo e métricas em tempo real.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>Remus comunica-se com o sensor Remus Blade via Bluetooth LE.</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Remus acessa seus dados de sensores corporais e batimentos cardíacos do Apple Watch para monitoramento de métricas.</string>
 	<key>NSHealthUpdateUsageDescription</key>
@@ -49,6 +53,7 @@
 	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
+		<string>bluetooth-central</string>
 		<string>location</string>
 		<string>processing</string>
 	</array>
@@ -71,5 +76,9 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 </dict>
 </plist>

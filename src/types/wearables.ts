@@ -1,6 +1,12 @@
-export type DeviceFamily = 'apple_watch' | 'wear_os' | 'garmin' | 'ble_sensor' | 'phone' | 'mock';
+export type DeviceFamily = 'apple_watch' | 'wear_os' | 'garmin' | 'ble_sensor' | 'remus_blade' | 'phone' | 'mock';
 
-export type WearableConnectionState = 'disconnected' | 'connecting' | 'connected' | 'error';
+export type WearableConnectionState = 'disconnected' | 'detected' | 'connecting' | 'connected' | 'error';
+export type HeartRatePermissionState =
+  | 'not_determined'
+  | 'granted'
+  | 'denied'
+  | 'unavailable'
+  | 'unknown';
 
 export interface WearableDevice {
   id: string;
@@ -8,6 +14,7 @@ export interface WearableDevice {
   deviceFamily: DeviceFamily;
   state: WearableConnectionState;
   batteryLevel?: number;
+  heartRatePermissionState?: HeartRatePermissionState;
 }
 
 export interface PositionCoordinates {

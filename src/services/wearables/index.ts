@@ -18,7 +18,13 @@ if (Platform.OS === 'ios') {
   if (RemusWatchBridge) {
     const emitter = new NativeEventEmitter(RemusWatchBridge);
     nativeBridgeWithEvents = {
-      ...RemusWatchBridge,
+      isSupported: () => RemusWatchBridge.isSupported(),
+      isPaired: () => RemusWatchBridge.isPaired(),
+      isWatchAppInstalled: () => RemusWatchBridge.isWatchAppInstalled(),
+      isReachable: () => RemusWatchBridge.isReachable(),
+      getLatestHeartRate: () => RemusWatchBridge.getLatestHeartRate(),
+      sendMessage: (payload: Record<string, unknown>) =>
+        RemusWatchBridge.sendMessage(payload),
       addListener: (event: string, cb: (data: unknown) => void) =>
         emitter.addListener(event, cb),
       removeListeners: (_count: number) => emitter.removeAllListeners('onWatchMessage'),
@@ -28,7 +34,24 @@ if (Platform.OS === 'ios') {
   const appleWatchAdapter = new AppleWatchAdapter(nativeBridgeWithEvents);
   wearableHub.registerAdapter(appleWatchAdapter);
 } else if (Platform.OS === 'android') {
-  const wearOSAdapter = new WearOSAdapter(RemusWearOSBridge);
+  let nativeBridgeWithEvents = RemusWearOSBridge;
+  if (RemusWearOSBridge) {
+    const emitter = new NativeEventEmitter(RemusWearOSBridge);
+    nativeBridgeWithEvents = {
+      isAvailable: () => RemusWearOSBridge.isAvailable(),
+      getConnectedNodes: () => RemusWearOSBridge.getConnectedNodes(),
+      getLatestHeartRate: () => RemusWearOSBridge.getLatestHeartRate(),
+      sendMessage: (nodeId: string, payload: Record<string, unknown>) =>
+        RemusWearOSBridge.sendMessage(nodeId, payload),
+      addListener: (event: string, cb: (data: unknown) => void) =>
+        emitter.addListener(event, cb),
+      removeListeners: (_count: number) =>
+        ['onWearOSMessage', 'onWearOSStateChanged'].forEach(event =>
+          emitter.removeAllListeners(event),
+        ),
+    };
+  }
+  const wearOSAdapter = new WearOSAdapter(nativeBridgeWithEvents);
   wearableHub.registerAdapter(wearOSAdapter);
 }
 
@@ -70,17 +93,13 @@ export function useWearables() {
 
   const startRecording = useCallback(async () => {
     setIsRecording(true);
-    for (const dev of devices) {
-      await wearableHub.sendDataToDevice(dev.id, { command: 'START_RECORD' });
-    }
-  }, [devices]);
+    await wearableHub.startRecording();
+  }, []);
 
   const stopRecording = useCallback(async () => {
     setIsRecording(false);
-    for (const dev of devices) {
-      await wearableHub.sendDataToDevice(dev.id, { command: 'STOP_RECORD' });
-    }
-  }, [devices]);
+    await wearableHub.stopRecording();
+  }, []);
 
   const sendPing = useCallback(async (deviceId?: string) => {
     const targetId = deviceId || devices[0]?.id;

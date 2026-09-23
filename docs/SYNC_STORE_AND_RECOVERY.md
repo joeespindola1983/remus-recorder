@@ -391,7 +391,8 @@ The shared contract suite covers at least:
 2. autonomous RBP1 capture, interrupted transfer, resume, verification and exact
    post-sync deletion;
 3. autonomous Apple Watch and Wear OS fixtures using the same logical states;
-4. simultaneous RBP1, phone, watch and SpeedCoach with independent clocks/roles;
+4. simultaneous RBP1, phone and watch, plus a later imported SpeedCoach CSV,
+   with independent clocks/roles;
 5. duplicated, reordered, missing and corrupt chunks without false completion;
 6. partial acknowledgement or mismatched hash never authorizing deletion;
 7. battery depletion preserving a finalized/recoverable prefix;

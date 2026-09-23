@@ -7,6 +7,11 @@ import {
 export interface RawWatchPayload {
   type: string;
   nativeTimestamp?: number;
+  deviceId?: string;
+  messageId?: string;
+  sequenceNumber?: string;
+  clockDomainId?: string;
+  receivedAtEpochMilliseconds?: number;
   heartRateBeatsPerMinute?: number;
   groundSpeedMetersPerSecond?: number;
   horizontalAccuracyMeters?: number;
@@ -35,10 +40,12 @@ export interface NativeWatchBridge {
   isSupported?(): Promise<boolean>;
   isPaired?(): Promise<boolean>;
   isWatchAppInstalled?(): Promise<boolean>;
+  isReachable?(): Promise<boolean>;
+  getLatestHeartRate?(): Promise<unknown>;
   sendMessage?(message: Record<string, unknown>): Promise<unknown>;
   addListener?(
-    eventName: string,
-    listener: (data: unknown) => void
+    event: string,
+    callback: (data: unknown) => void,
   ): { remove(): void } | void;
   removeListeners?(count: number): void;
 }
@@ -50,6 +57,8 @@ export class AppleWatchAdapter implements IWearableAdapter {
   private nativeBridge: NativeWatchBridge | null;
   private isConnected = false;
   private messageSubscription: { remove(): void } | null = null;
+  private stateSubscription: { remove(): void } | null = null;
+  private permissionState: WearableDevice['heartRatePermissionState'];
 
   constructor(nativeBridge?: NativeWatchBridge) {
     this.nativeBridge = nativeBridge || null;
@@ -67,17 +76,54 @@ export class AppleWatchAdapter implements IWearableAdapter {
       const isPaired = this.nativeBridge.isPaired
         ? await this.nativeBridge.isPaired()
         : true;
+      const isWatchAppInstalled = this.nativeBridge.isWatchAppInstalled
+        ? await this.nativeBridge.isWatchAppInstalled()
+        : true;
+      const isReachable = this.nativeBridge.isReachable
+        ? await this.nativeBridge.isReachable()
+        : true;
 
-      this.isConnected = isSupported && isPaired;
-      if (this.isConnected && !this.messageSubscription && this.nativeBridge.addListener) {
+      const isConfigured = isSupported && isPaired && isWatchAppInstalled;
+      this.isConnected = isConfigured && isReachable;
+
+      if (isConfigured && !this.messageSubscription && this.nativeBridge.addListener) {
         this.messageSubscription =
           this.nativeBridge.addListener('onWatchMessage', data => {
             if (data && typeof data === 'object') {
               this.handleRawWatchMessage(data as RawWatchPayload);
             }
           }) || null;
+        this.stateSubscription =
+          this.nativeBridge.addListener('onWatchStateChanged', data => {
+            if (!data || typeof data !== 'object') return;
+            const state = data as {
+              isPaired?: boolean;
+              isWatchAppInstalled?: boolean;
+              isReachable?: boolean;
+              heartRatePermissionState?: WearableDevice['heartRatePermissionState'];
+            };
+            this.isConnected =
+              state.isPaired !== false &&
+              state.isWatchAppInstalled !== false &&
+              state.isReachable !== false;
+            this.permissionState = state.heartRatePermissionState;
+            const device: WearableDevice = {
+              id: 'apple-watch',
+              name: 'Apple Watch',
+              deviceFamily: 'apple_watch',
+              state: this.isConnected ? 'connected' : 'disconnected',
+              heartRatePermissionState: state.heartRatePermissionState,
+            };
+            this.deviceStateListeners.forEach(listener => listener(device));
+          }) || null;
       }
-      return this.isConnected;
+      if (this.isConnected && this.nativeBridge.getLatestHeartRate) {
+        const latest = await this.nativeBridge.getLatestHeartRate();
+        if (latest && typeof latest === 'object') {
+          this.handleRawWatchMessage(latest as RawWatchPayload);
+        }
+      }
+      return isConfigured;
     } catch {
       this.isConnected = false;
       return false;
@@ -95,30 +141,43 @@ export class AppleWatchAdapter implements IWearableAdapter {
         name: 'Apple Watch',
         deviceFamily: 'apple_watch',
         state: 'connected',
+        heartRatePermissionState: this.permissionState,
       },
     ];
   }
 
   async sendData(_deviceId: string, payload: Record<string, unknown>): Promise<boolean> {
+    console.log('[AppleWatchAdapter] sendData called. Payload:', JSON.stringify(payload));
     if (!this.nativeBridge?.sendMessage) {
+      console.warn('[AppleWatchAdapter] nativeBridge.sendMessage is undefined!');
       return false;
     }
 
     try {
-      await this.nativeBridge.sendMessage(payload);
+      const res = await this.nativeBridge.sendMessage(payload);
+      console.log('[AppleWatchAdapter] nativeBridge.sendMessage result:', JSON.stringify(res));
       return true;
-    } catch {
+    } catch (err) {
+      console.error('[AppleWatchAdapter] nativeBridge.sendMessage error:', err);
       return false;
     }
   }
 
   handleRawWatchMessage(payload: RawWatchPayload): void {
+    const heartRateBeatsPerMinute =
+      payload.heartRateBeatsPerMinute ?? payload.heartRate;
+    if (
+      typeof heartRateBeatsPerMinute !== 'number' ||
+      !Number.isFinite(heartRateBeatsPerMinute) ||
+      heartRateBeatsPerMinute <= 0
+    ) {
+      return;
+    }
     const normalized: SensorSample = {
       nativeTimestamp: payload.nativeTimestamp ?? payload.timestamp ?? Date.now(),
-      deviceId: 'apple-watch',
+      deviceId: payload.deviceId ?? 'apple-watch',
       deviceFamily: 'apple_watch',
-      heartRateBeatsPerMinute:
-        payload.heartRateBeatsPerMinute ?? payload.heartRate,
+      heartRateBeatsPerMinute,
       location:
         payload.lat !== undefined && payload.lng !== undefined
           ? {
@@ -174,9 +233,12 @@ export class AppleWatchAdapter implements IWearableAdapter {
 
   destroy(): void {
     this.messageSubscription?.remove();
+    this.stateSubscription?.remove();
     this.messageSubscription = null;
+    this.stateSubscription = null;
     this.sensorListeners.clear();
     this.deviceStateListeners.clear();
     this.isConnected = false;
+    this.permissionState = undefined;
   }
 }

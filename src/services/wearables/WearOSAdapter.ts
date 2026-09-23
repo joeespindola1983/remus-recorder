@@ -5,7 +5,12 @@ import {
 } from '../../types/wearables';
 
 export interface RawWearOSPayload {
+  type?: string;
   nodeId?: string;
+  deviceId?: string;
+  messageId?: string;
+  sequenceNumber?: string;
+  receivedAtEpochMilliseconds?: number;
   nativeTimestamp?: number;
   heartRateBeatsPerMinute?: number;
   groundSpeedMetersPerSecond?: number;
@@ -34,7 +39,11 @@ export interface NativeWearOSBridge {
   isAvailable?(): Promise<boolean>;
   getConnectedNodes?(): Promise<{ id: string; name: string }[]>;
   sendMessage?(nodeId: string, payload: Record<string, unknown>): Promise<unknown>;
-  addListener?(eventName: string, listener: (data: unknown) => void): void;
+  getLatestHeartRate?(): Promise<unknown>;
+  addListener?(
+    eventName: string,
+    listener: (data: unknown) => void
+  ): { remove(): void } | void;
   removeListeners?(count: number): void;
 }
 
@@ -44,6 +53,9 @@ export class WearOSAdapter implements IWearableAdapter {
   private deviceStateListeners: Set<(device: WearableDevice) => void> = new Set();
   private nativeBridge: NativeWearOSBridge | null;
   private isAvailable = false;
+  private messageSubscription: { remove(): void } | null = null;
+  private stateSubscription: { remove(): void } | null = null;
+  private permissionStates = new Map<string, WearableDevice['heartRatePermissionState']>();
 
   constructor(nativeBridge?: NativeWearOSBridge) {
     this.nativeBridge = nativeBridge || null;
@@ -58,6 +70,42 @@ export class WearOSAdapter implements IWearableAdapter {
       this.isAvailable = this.nativeBridge.isAvailable
         ? await this.nativeBridge.isAvailable()
         : true;
+      if (
+        this.isAvailable &&
+        !this.messageSubscription &&
+        this.nativeBridge.addListener
+      ) {
+        this.messageSubscription =
+          this.nativeBridge.addListener('onWearOSMessage', data => {
+            if (data && typeof data === 'object') {
+              this.handleRawWearOSMessage(data as RawWearOSPayload);
+            }
+          }) || null;
+        this.stateSubscription =
+          this.nativeBridge.addListener('onWearOSStateChanged', data => {
+            if (!data || typeof data !== 'object') return;
+            const state = data as {
+              nodeId?: string;
+              heartRatePermissionState?: WearableDevice['heartRatePermissionState'];
+            };
+            const deviceId = state.nodeId ?? 'wearos-device';
+            this.permissionStates.set(deviceId, state.heartRatePermissionState);
+            const device: WearableDevice = {
+              id: deviceId,
+              name: 'Wear OS',
+              deviceFamily: 'wear_os',
+              state: 'connected',
+              heartRatePermissionState: state.heartRatePermissionState,
+            };
+            this.deviceStateListeners.forEach(listener => listener(device));
+          }) || null;
+      }
+      if (this.isAvailable && this.nativeBridge.getLatestHeartRate) {
+        const latest = await this.nativeBridge.getLatestHeartRate();
+        if (latest && typeof latest === 'object') {
+          this.handleRawWearOSMessage(latest as RawWearOSPayload);
+        }
+      }
       return this.isAvailable;
     } catch {
       this.isAvailable = false;
@@ -77,6 +125,7 @@ export class WearOSAdapter implements IWearableAdapter {
         name: node.name,
         deviceFamily: 'wear_os',
         state: 'connected',
+        heartRatePermissionState: this.permissionStates.get(node.id),
       }));
     } catch {
       return [];
@@ -89,6 +138,17 @@ export class WearOSAdapter implements IWearableAdapter {
     }
 
     try {
+      if (deviceId === 'broadcast' || !deviceId) {
+        const nodes = (await this.nativeBridge.getConnectedNodes?.()) ?? [];
+        if (nodes.length === 0) {
+          await this.nativeBridge.sendMessage(deviceId || 'broadcast', payload);
+          return true;
+        }
+        await Promise.all(
+          nodes.map(node => this.nativeBridge!.sendMessage!(node.id, payload))
+        );
+        return true;
+      }
       await this.nativeBridge.sendMessage(deviceId, payload);
       return true;
     } catch {
@@ -97,13 +157,21 @@ export class WearOSAdapter implements IWearableAdapter {
   }
 
   handleRawWearOSMessage(payload: RawWearOSPayload): void {
-    const deviceId = payload.nodeId || 'wearos-device';
+    const heartRateBeatsPerMinute =
+      payload.heartRateBeatsPerMinute ?? payload.heartRate;
+    if (
+      typeof heartRateBeatsPerMinute !== 'number' ||
+      !Number.isFinite(heartRateBeatsPerMinute) ||
+      heartRateBeatsPerMinute <= 0
+    ) {
+      return;
+    }
+    const deviceId = payload.deviceId || payload.nodeId || 'wearos-device';
     const normalized: SensorSample = {
       nativeTimestamp: payload.nativeTimestamp ?? payload.timestamp ?? Date.now(),
       deviceId,
       deviceFamily: 'wear_os',
-      heartRateBeatsPerMinute:
-        payload.heartRateBeatsPerMinute ?? payload.heartRate,
+      heartRateBeatsPerMinute,
       stepCount: payload.steps,
       location:
         payload.latitude !== undefined && payload.longitude !== undefined
@@ -158,6 +226,11 @@ export class WearOSAdapter implements IWearableAdapter {
   }
 
   destroy(): void {
+    this.messageSubscription?.remove();
+    this.stateSubscription?.remove();
+    this.messageSubscription = null;
+    this.stateSubscription = null;
+    this.permissionStates.clear();
     this.sensorListeners.clear();
     this.deviceStateListeners.clear();
     this.isAvailable = false;

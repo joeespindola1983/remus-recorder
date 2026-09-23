@@ -5,6 +5,7 @@ class MockAppleWatchAdapter implements IWearableAdapter {
   readonly deviceFamily = 'apple_watch' as const;
   private sensorListeners: ((data: SensorSample) => void)[] = [];
   private stateListeners: ((device: WearableDevice) => void)[] = [];
+  public sentData: { deviceId: string; payload: Record<string, unknown> }[] = [];
 
   async initialize(): Promise<boolean> {
     return true;
@@ -22,7 +23,8 @@ class MockAppleWatchAdapter implements IWearableAdapter {
     ];
   }
 
-  async sendData(_deviceId: string, _payload: Record<string, unknown>): Promise<boolean> {
+  async sendData(deviceId: string, payload: Record<string, unknown>): Promise<boolean> {
+    this.sentData.push({ deviceId, payload });
     return true;
   }
 
@@ -115,5 +117,25 @@ describe('WearableHub & Normalized Interface (TDD)', () => {
     await hub.initialize();
     const success = await hub.sendDataToDevice('apple-watch-1', { command: 'START_RECORDING' });
     expect(success).toBe(true);
+    expect(appleAdapter.sentData).toContainEqual({
+      deviceId: 'apple-watch-1',
+      payload: { command: 'START_RECORDING' },
+    });
+  });
+
+  it('should dispatch startRecording to connected devices and broadcast to adapters', async () => {
+    await hub.initialize();
+    appleAdapter.sentData = [];
+    await hub.startRecording();
+    expect(appleAdapter.sentData.length).toBeGreaterThanOrEqual(1);
+    expect(appleAdapter.sentData.some(entry => entry.payload.command === 'START_RECORD')).toBe(true);
+  });
+
+  it('should dispatch stopRecording to connected devices and broadcast to adapters', async () => {
+    await hub.initialize();
+    appleAdapter.sentData = [];
+    await hub.stopRecording();
+    expect(appleAdapter.sentData.length).toBeGreaterThanOrEqual(1);
+    expect(appleAdapter.sentData.some(entry => entry.payload.command === 'STOP_RECORD')).toBe(true);
   });
 });
