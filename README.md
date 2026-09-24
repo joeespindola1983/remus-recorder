@@ -45,6 +45,12 @@ fragmented CRC-protected IMU batches and address start/stop commands to each
 stable device serial. Human aliases such as `Blade 01` are persisted locally;
 Bluetooth MAC addresses and platform UUIDs are transport locators only.
 
+Discovery remains active on the ready screen. Each detected `Remus Blade` or
+legacy `Remus Computer` is listed with its own connection state and connected
+automatically. Immediately before recording, the app retries every detected
+REMUS device and then sends the protocol-appropriate START command to each
+connected unit.
+
 The current beta preserves each received native frame with its transport
 device identifier, but the higher-level workout model still exposes one
 aggregate `rbp1:primary` readiness source. Separate per-Blade recording/source

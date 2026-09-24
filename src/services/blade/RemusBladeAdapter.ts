@@ -56,6 +56,7 @@ export interface NativeBladeBridge {
   connectPeripheral?(id: string): Promise<boolean>;
   disconnectPeripheral?(): Promise<void>;
   sendCommand?(command: string): Promise<boolean>;
+  sendLegacyCommand?(deviceId: string, command: string): Promise<boolean>;
   sendBinaryCommand?(deviceId: string, base64Value: string): Promise<boolean>;
   registerBlade?(deviceSerialNumber: string): Promise<string>;
   addListener?(
@@ -83,6 +84,7 @@ export class RemusBladeAdapter implements IWearableAdapter {
   private stateSubscription: { remove(): void } | null = null;
   private frameSubscription: { remove(): void } | null = null;
   private connectedDevices = new Map<string, WearableDevice>();
+  private discoveredDevices = new Map<string, WearableDevice>();
   private transportToSerial = new Map<string, string>();
   private fragmentReassembler = new BladeFragmentReassembler();
   private nextRequestId = 1;
@@ -151,20 +153,24 @@ export class RemusBladeAdapter implements IWearableAdapter {
             if (statePayload?.deviceId) this.deviceId = statePayload.deviceId;
             if (statePayload?.deviceName) this.deviceName = statePayload.deviceName;
             const state = this.normalizeConnectionState(statePayload.state);
-            this.isConnected = state === 'connected';
             const transportId = statePayload.deviceId || this.deviceId;
             const stableId = this.transportToSerial.get(transportId) || transportId;
-            if (state === 'connected') {
-              this.connectedDevices.set(stableId, {
+            if (transportId) {
+              const device: WearableDevice = {
                 id: stableId,
                 name: statePayload.deviceName || this.deviceName,
                 deviceFamily: 'remus_blade',
                 state,
-              });
-            } else if (state === 'disconnected' || state === 'error') {
+                remusProductKind: this.inferProductKind(statePayload.deviceName),
+              };
+              this.discoveredDevices.set(stableId, device);
+              if (state === 'connected') this.connectedDevices.set(stableId, device);
+            }
+            if (state === 'disconnected' || state === 'error') {
               this.connectedDevices.delete(stableId);
               this.fragmentReassembler.clearDevice(stableId);
             }
+            this.isConnected = this.connectedDevices.size > 0;
             this.notifyDeviceState(state, stableId, statePayload.deviceName);
           });
 
@@ -179,6 +185,7 @@ export class RemusBladeAdapter implements IWearableAdapter {
           });
       }
 
+      await this.startScan();
       return true;
     } catch {
       return false;
@@ -189,6 +196,22 @@ export class RemusBladeAdapter implements IWearableAdapter {
     if (this.connectedDevices.size > 0) return [...this.connectedDevices.values()];
     if (!this.isConnected) return [];
     return [{ id: this.deviceId, name: this.deviceName, deviceFamily: 'remus_blade', state: 'connected' }];
+  }
+
+  getRemusDevices(): WearableDevice[] {
+    return [...this.discoveredDevices.values()];
+  }
+
+  async connectAllDetected(): Promise<void> {
+    const candidates = this.getRemusDevices().filter(
+      device => device.state === 'detected' || device.state === 'disconnected' || device.state === 'error',
+    );
+    await Promise.allSettled(candidates.map(device => this.connect(device.id)));
+  }
+
+  private inferProductKind(name?: string): 'blade' | 'computer' {
+    const normalized = (name || '').toUpperCase();
+    return normalized.includes('BLD') || normalized.includes('BLADE') ? 'blade' : 'computer';
   }
 
   async sendData(deviceId: string, payload: Record<string, unknown>): Promise<boolean> {
@@ -214,9 +237,19 @@ export class RemusBladeAdapter implements IWearableAdapter {
   }
 
   private async sendStreamControl(command: 'start' | 'stop', deviceId?: string): Promise<boolean> {
+    const target = deviceId || this.deviceId;
+    const targetDevice = this.discoveredDevices.get(target);
+    if (targetDevice?.remusProductKind === 'computer') {
+      if (this.nativeBridge?.sendLegacyCommand) {
+        return this.nativeBridge.sendLegacyCommand(
+          target,
+          command === 'start' ? 'START' : 'STOP',
+        );
+      }
+      return this.sendCommand(command === 'start' ? 'START' : 'STOP');
+    }
     if (this.nativeBridge?.sendBinaryCommand) {
       const requestId = this.nextRequestId++;
-      const target = deviceId || this.deviceId;
       return this.nativeBridge.sendBinaryCommand(
         target,
         encodeBladeControl(command, requestId).toString('base64'),
@@ -602,6 +635,9 @@ export class RemusBladeAdapter implements IWearableAdapter {
       name: deviceName || this.deviceName,
       deviceFamily: 'remus_blade',
       state,
+      remusProductKind:
+        this.discoveredDevices.get(deviceId)?.remusProductKind ||
+        this.inferProductKind(deviceName),
     };
     this.deviceStateListeners.forEach(listener => listener(device));
   }
@@ -654,7 +690,10 @@ export class RemusBladeAdapter implements IWearableAdapter {
           name: payload.deviceName || `Remus Blade ${stableId.slice(-4)}`,
           deviceFamily: 'remus_blade' as const,
           state: 'connected' as const,
+          remusProductKind: 'blade' as const,
         };
+        this.discoveredDevices.delete(previousId);
+        this.discoveredDevices.set(stableId, device);
         this.connectedDevices.set(stableId, device);
         this.deviceId = stableId;
         this.deviceName = device.name;
@@ -664,6 +703,7 @@ export class RemusBladeAdapter implements IWearableAdapter {
           this.nativeBridge.registerBlade(stableId).then(alias => {
             const registered = { ...device, name: alias };
             this.connectedDevices.set(stableId, registered);
+            this.discoveredDevices.set(stableId, registered);
             if (this.deviceId === stableId) this.deviceName = alias;
             this.deviceStateListeners.forEach(listener => listener(registered));
           }).catch(() => undefined);

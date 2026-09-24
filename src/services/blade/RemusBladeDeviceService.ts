@@ -18,6 +18,7 @@ export class RemusBladeDeviceService {
   private latestSnapshot: RemusBladeSnapshot | null = null;
   private connectionState: WearableConnectionState = 'disconnected';
   private listeners: Set<(state: CaptureSourceState) => void> = new Set();
+  private deviceListeners: Set<(devices: WearableDevice[]) => void> = new Set();
   private unsubSnapshot: (() => void) | null = null;
   private unsubDeviceState: (() => void) | null = null;
   private watchdogTimer: ReturnType<typeof setTimeout> | null = null;
@@ -74,8 +75,11 @@ export class RemusBladeDeviceService {
     });
 
     this.unsubDeviceState = this.adapter.onDeviceStateChanged((device: WearableDevice) => {
+      this.notifyDeviceListeners();
       if (device.state === 'disconnected' || device.state === 'error') {
-        this.handleDisconnection();
+        if (!this.adapter.getRemusDevices().some(candidate => candidate.state === 'connected')) {
+          this.handleDisconnection();
+        }
       } else if (device.state === 'detected') {
         this.connectionState = 'detected';
         this.markDetected();
@@ -194,6 +198,37 @@ export class RemusBladeDeviceService {
     return this.adapter.getConnectedDevices();
   }
 
+  getRemusDevices(): WearableDevice[] {
+    return this.adapter.getRemusDevices();
+  }
+
+  onDevicesChange(listener: (devices: WearableDevice[]) => void): () => void {
+    this.deviceListeners.add(listener);
+    listener(this.getRemusDevices());
+    return () => this.deviceListeners.delete(listener);
+  }
+
+  private notifyDeviceListeners(): void {
+    const devices = this.getRemusDevices();
+    this.deviceListeners.forEach(listener => listener(devices));
+  }
+
+  async prepareAvailableDevices(discoveryWindowMs = 0, connectionTimeoutMs = 3500): Promise<WearableDevice[]> {
+    await this.adapter.startScan();
+    if (discoveryWindowMs > 0) {
+      await new Promise(resolve => setTimeout(resolve, discoveryWindowMs));
+    }
+    await this.adapter.connectAllDetected();
+
+    const deadline = Date.now() + connectionTimeoutMs;
+    while (Date.now() < deadline) {
+      const devices = this.getRemusDevices();
+      if (!devices.some(device => device.state === 'detected' || device.state === 'connecting')) break;
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    return this.adapter.getConnectedDevices();
+  }
+
   private async setStreamingForConnectedBlades(streaming: boolean): Promise<boolean> {
     const devices = await this.adapter.getConnectedDevices();
     if (devices.length === 0) {
@@ -273,6 +308,7 @@ export class RemusBladeDeviceService {
     this.unsubDeviceState?.();
     this.unsubDeviceState = null;
     this.listeners.clear();
+    this.deviceListeners.clear();
     this.adapter.destroy();
   }
 }

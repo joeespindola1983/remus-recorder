@@ -128,6 +128,11 @@ class RemusBladeModule(
     promise.resolve(write(entry.key, legacyUuid, command.toByteArray(Charsets.UTF_8)))
   }
 
+  @ReactMethod fun sendLegacyCommand(identifier: String, command: String, promise: Promise) {
+    val address = serialToAddress[identifier] ?: identifier
+    promise.resolve(write(address, legacyUuid, command.toByteArray(Charsets.UTF_8)))
+  }
+
   @ReactMethod fun sendBinaryCommand(identifier: String, base64Value: String, promise: Promise) {
     val address = serialToAddress[identifier] ?: identifier
     val bytes = try { Base64.decode(base64Value, Base64.DEFAULT) } catch (_: Exception) { null }
@@ -180,7 +185,10 @@ class RemusBladeModule(
     override fun onScanResult(callbackType: Int, result: ScanResult?) {
       val device = result?.device ?: return
       discovered[device.address] = device
-      sendStateEvent("detected", device.address, safeName(device))
+      if (!gatts.containsKey(device.address)) {
+        sendStateEvent("detected", device.address, safeName(device))
+        connect(device)
+      }
     }
     override fun onScanFailed(errorCode: Int) {
       isScanning = false

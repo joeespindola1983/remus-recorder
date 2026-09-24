@@ -244,6 +244,26 @@ describe('RemusBladeDeviceService (TDD)', () => {
     expect(res).toBe(true);
   });
 
+  it('scans and connects every detected REMUS device before capture', async () => {
+    const connectAll = jest.spyOn(adapter, 'connectAllDetected').mockResolvedValue(undefined);
+    const connected = jest.spyOn(adapter, 'getConnectedDevices').mockResolvedValue([
+      {
+        id: 'computer-1',
+        name: 'REMUS-P1-A12F',
+        deviceFamily: 'remus_blade',
+        remusProductKind: 'computer',
+        state: 'connected',
+      },
+    ]);
+
+    await expect(service.prepareAvailableDevices(0, 0)).resolves.toEqual([
+      expect.objectContaining({ id: 'computer-1', state: 'connected' }),
+    ]);
+    expect(mockBridge.startScan).toHaveBeenCalledTimes(1);
+    expect(connectAll).toHaveBeenCalledTimes(1);
+    expect(connected).toHaveBeenCalledTimes(1);
+  });
+
   it('transitions to detected when hardware emits detected state', async () => {
     await service.initialize();
     const emitter = new NativeEventEmitter();

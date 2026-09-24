@@ -15,6 +15,7 @@ export interface WearableDevice {
   state: WearableConnectionState;
   batteryLevel?: number;
   heartRatePermissionState?: HeartRatePermissionState;
+  remusProductKind?: 'blade' | 'computer';
 }
 
 export interface PositionCoordinates {

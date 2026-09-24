@@ -7,6 +7,7 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
   private var centralManager: CBCentralManager?
   private var discovered: [UUID: CBPeripheral] = [:]
   private var connected: [UUID: CBPeripheral] = [:]
+  private var connecting: Set<UUID> = []
   private var lastAdvertisementAt: [UUID: Date] = [:]
   private var characteristics: [UUID: [CBUUID: CBCharacteristic]] = [:]
   private var serialToPeripheral: [String: UUID] = [:]
@@ -83,6 +84,7 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
     let uuid = UUID(uuidString: identifier) ?? serialToPeripheral[identifier]
     guard let id = uuid, let peripheral = discovered[id] else { resolve(false); return }
     peripheral.delegate = self
+    connecting.insert(id)
     centralManager?.connect(peripheral, options: nil)
     sendStateEvent("connecting", peripheral: peripheral)
     resolve(true)
@@ -99,6 +101,18 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
                          rejecter reject: @escaping RCTPromiseRejectBlock) {
     guard let peripheral = connected.values.first,
           let characteristic = characteristics[peripheral.identifier]?[legacyUUID],
+          let data = command.data(using: .utf8) else { resolve(false); return }
+    write(data, to: characteristic, peripheral: peripheral)
+    resolve(true)
+  }
+
+  @objc func sendLegacyCommand(_ identifier: String,
+                               command: String,
+                               resolver resolve: @escaping RCTPromiseResolveBlock,
+                               rejecter reject: @escaping RCTPromiseRejectBlock) {
+    let uuid = UUID(uuidString: identifier) ?? serialToPeripheral[identifier]
+    guard let id = uuid, let peripheral = connected[id],
+          let characteristic = characteristics[id]?[legacyUUID],
           let data = command.data(using: .utf8) else { resolve(false); return }
     write(data, to: characteristic, peripheral: peripheral)
     resolve(true)
@@ -167,10 +181,16 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
     discovered[peripheral.identifier] = peripheral
     lastAdvertisementAt[peripheral.identifier] = Date()
     peripheral.delegate = self
-    if connected[peripheral.identifier] == nil { sendStateEvent("detected", peripheral: peripheral) }
+    if connected[peripheral.identifier] == nil && !connecting.contains(peripheral.identifier) {
+      sendStateEvent("detected", peripheral: peripheral)
+      connecting.insert(peripheral.identifier)
+      sendStateEvent("connecting", peripheral: peripheral)
+      central.connect(peripheral, options: nil)
+    }
   }
 
   func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+    connecting.remove(peripheral.identifier)
     connected[peripheral.identifier] = peripheral
     peripheral.delegate = self
     peripheral.discoverServices([serviceUUID])
@@ -178,6 +198,7 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
 
   func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral,
                       error: Error?) {
+    connecting.remove(peripheral.identifier)
     connected.removeValue(forKey: peripheral.identifier)
     characteristics.removeValue(forKey: peripheral.identifier)
     sendStateEvent("error", peripheral: peripheral)
@@ -185,6 +206,7 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
 
   func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral,
                       error: Error?) {
+    connecting.remove(peripheral.identifier)
     connected.removeValue(forKey: peripheral.identifier)
     characteristics.removeValue(forKey: peripheral.identifier)
     sendStateEvent("disconnected", peripheral: peripheral)

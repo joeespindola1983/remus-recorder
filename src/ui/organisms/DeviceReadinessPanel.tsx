@@ -5,6 +5,7 @@ import { t } from '../../i18n';
 import { DeviceReadinessRow } from '../molecules/DeviceReadinessRow';
 import { RemusBladeSnapshot } from '../../services/blade/RemusBladeAdapter';
 import { color, fontFamily, radius, spacing } from '../theme/tokens';
+import { WearableDevice } from '../../types/wearables';
 
 export interface DeviceReadinessPanelProps {
   sources: CaptureSourceState[];
@@ -14,6 +15,7 @@ export interface DeviceReadinessPanelProps {
   bladeSnapshot?: RemusBladeSnapshot | null;
   onDisconnectBlade?: () => void;
   onConnectBlade?: () => void;
+  remusDevices?: WearableDevice[];
 }
 
 export function DeviceReadinessPanel({
@@ -24,6 +26,7 @@ export function DeviceReadinessPanel({
   bladeSnapshot,
   onDisconnectBlade,
   onConnectBlade,
+  remusDevices = [],
 }: DeviceReadinessPanelProps): React.JSX.Element {
   const [internalExpanded, setInternalExpanded] = React.useState<string[]>([]);
 
@@ -56,6 +59,33 @@ export function DeviceReadinessPanel({
           onConnectBlade={onConnectBlade}
         />
       ))}
+      {remusDevices.length > 0 ? (
+        <View style={styles.remusFleet}>
+          <Text style={styles.fleetTitle}>Dispositivos REMUS encontrados</Text>
+          {remusDevices.map(device => (
+            <View key={device.id} style={styles.deviceRow}>
+              <View style={[
+                styles.deviceStatus,
+                device.state === 'connected' && styles.deviceStatusConnected,
+              ]} />
+              <View style={styles.deviceCopy}>
+                <Text style={styles.deviceName}>{device.name}</Text>
+                <Text style={styles.deviceDetail}>
+                  {device.remusProductKind === 'blade' ? 'Remus Blade' : 'Remus Computer'}
+                  {' · '}
+                  {device.state === 'connected'
+                    ? 'Conectado'
+                    : device.state === 'connecting'
+                      ? 'Conectando automaticamente'
+                      : device.state === 'detected'
+                        ? 'Detectado · conexão automática pendente'
+                        : 'Indisponível'}
+                </Text>
+              </View>
+            </View>
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -75,4 +105,33 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginBottom: spacing.sm,
   },
+  remusFleet: {
+    borderTopColor: color.borderDefault,
+    borderTopWidth: 1,
+    marginTop: spacing.sm,
+    paddingTop: spacing.md,
+  },
+  fleetTitle: {
+    color: color.textSecondary,
+    fontFamily,
+    fontSize: 13,
+    fontWeight: '700',
+    marginBottom: spacing.xs,
+  },
+  deviceRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.sm,
+    minHeight: 48,
+  },
+  deviceStatus: {
+    backgroundColor: color.textTertiary,
+    borderRadius: 5,
+    height: 10,
+    width: 10,
+  },
+  deviceStatusConnected: { backgroundColor: color.success },
+  deviceCopy: { flex: 1 },
+  deviceName: { color: color.textPrimary, fontFamily, fontSize: 14, fontWeight: '600' },
+  deviceDetail: { color: color.textSecondary, fontFamily, fontSize: 12 },
 });

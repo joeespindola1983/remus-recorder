@@ -23,6 +23,7 @@ import { PhoneDeviceService } from './src/services/sensors/PhoneDeviceService';
 import { RemusBladeDeviceService } from './src/services/blade/RemusBladeDeviceService';
 import { RemusBladeAdapter, RemusBladeSnapshot } from './src/services/blade/RemusBladeAdapter';
 import { useWearables } from './src/services/wearables';
+import { WearableDevice } from './src/types/wearables';
 import {
   RecordingManifest,
   RecordingService,
@@ -48,6 +49,7 @@ export default function App(): React.JSX.Element {
     return new RemusBladeDeviceService(adapter);
   });
   const [bladeSnapshot, setBladeSnapshot] = useState<RemusBladeSnapshot | null>(null);
+  const [remusDevices, setRemusDevices] = useState<WearableDevice[]>([]);
   const [bladeDownloadStatus, setBladeDownloadStatus] = useState<BladeDownloadStatus | undefined>(undefined);
   const [recordingService] = useState(() => new RecordingService());
   const [lastManifest, setLastManifest] = useState<RecordingManifest | null>(null);
@@ -90,9 +92,11 @@ export default function App(): React.JSX.Element {
         });
       }
     });
+    const unsubDevices = bladeDevice.onDevicesChange(setRemusDevices);
     bladeDevice.initialize().catch(() => {});
     return () => {
       unsub();
+      unsubDevices();
       bladeDevice.destroy();
     };
   }, [bladeDevice]);
@@ -221,6 +225,7 @@ export default function App(): React.JSX.Element {
 
   const startCapture = async (): Promise<void> => {
     try {
+      await bladeDevice.prepareAvailableDevices();
       const participatingSourceIds = Object.values(state.sources)
         .filter(source =>
           source.required ||
@@ -359,6 +364,7 @@ export default function App(): React.JSX.Element {
           ) : state.phase === 'ready' ? (
             <ReadyScreen
               bladeSnapshot={bladeSnapshot}
+              remusDevices={remusDevices}
               onRequestPermissions={handleRequestPermissions}
               onDisconnectBlade={() => {
                 bladeDevice.disconnect().catch(() => {});

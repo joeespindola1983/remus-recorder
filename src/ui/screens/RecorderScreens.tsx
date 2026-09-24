@@ -17,6 +17,7 @@ import {
 import { DeviceReadinessPanel } from '../organisms/DeviceReadinessPanel';
 import { RemusBladeSnapshot } from '../../services/blade/RemusBladeAdapter';
 import { RecordingManifest } from '../../services/recording/RecordingService';
+import { WearableDevice } from '../../types/wearables';
 import {
   describePhoneSummaryEvidence,
   overallReadinessSummary,
@@ -42,6 +43,7 @@ export function ReadyScreen({
   bladeSnapshot,
   onDisconnectBlade,
   onConnectBlade,
+  remusDevices = [],
 }: {
   state: ActivityCaptureState;
   onStart: () => void;
@@ -49,6 +51,7 @@ export function ReadyScreen({
   bladeSnapshot?: RemusBladeSnapshot | null;
   onDisconnectBlade?: () => void;
   onConnectBlade?: () => void;
+  remusDevices?: WearableDevice[];
 }): React.JSX.Element {
   const [expandedSourceId, setExpandedSourceId] = useState<string | null>(null);
   const sourcesList = Object.values(state.sources);
@@ -79,6 +82,7 @@ export function ReadyScreen({
         bladeSnapshot={bladeSnapshot}
         onDisconnectBlade={onDisconnectBlade}
         onConnectBlade={onConnectBlade}
+        remusDevices={remusDevices}
       />
       <ActionButton label={t('ready.startAction')} onPress={onStart} />
     </ScrollView>

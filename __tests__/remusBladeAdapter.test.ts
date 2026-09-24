@@ -213,8 +213,55 @@ describe('RemusBladeAdapter (TDD)', () => {
         expect.objectContaining({
           state: 'detected',
           name: 'Remus Blade P1',
+          remusProductKind: 'blade',
         }),
       );
+      expect(detectedAdapter.getRemusDevices()).toEqual([
+        expect.objectContaining({
+          name: 'Remus Blade P1',
+          state: 'detected',
+          remusProductKind: 'blade',
+        }),
+      ]);
+    });
+
+    it('classifies a legacy REMUS-P1 peripheral as Remus Computer', async () => {
+      const emitter = new NativeEventEmitter();
+      const computerAdapter = new RemusBladeAdapter({} as any);
+      await computerAdapter.initialize();
+
+      (emitter as any).emit('onRemusBladeStateChanged', {
+        state: 'connected',
+        deviceId: 'computer-1',
+        deviceName: 'REMUS-P1-A12F',
+      });
+
+      expect(computerAdapter.getRemusDevices()).toEqual([
+        expect.objectContaining({
+          id: 'computer-1',
+          remusProductKind: 'computer',
+          state: 'connected',
+        }),
+      ]);
+    });
+
+    it('addresses legacy START to a specific Remus Computer', async () => {
+      const emitter = new NativeEventEmitter();
+      const bridge = {
+        sendLegacyCommand: jest.fn().mockResolvedValue(true),
+        sendBinaryCommand: jest.fn().mockResolvedValue(true),
+      };
+      const computerAdapter = new RemusBladeAdapter(bridge as any);
+      await computerAdapter.initialize();
+      (emitter as any).emit('onRemusBladeStateChanged', {
+        state: 'connected',
+        deviceId: 'computer-1',
+        deviceName: 'REMUS-P1-A12F',
+      });
+
+      await expect(computerAdapter.sendStart('computer-1')).resolves.toBe(true);
+      expect(bridge.sendLegacyCommand).toHaveBeenCalledWith('computer-1', 'START');
+      expect(bridge.sendBinaryCommand).not.toHaveBeenCalled();
     });
 
     it('sends GET command and receives binary file chunks until FILE_END', async () => {

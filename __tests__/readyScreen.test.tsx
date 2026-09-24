@@ -74,6 +74,42 @@ describe('ReadyScreen (TDD)', () => {
     expect(textNodes).toContain('GPS pronto · Movimento disponível');
   });
 
+  it('lists detected Remus Blade and Remus Computer units independently', () => {
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    act(() => {
+      renderer = ReactTestRenderer.create(
+        <ReadyScreen
+          onStart={jest.fn()}
+          state={createCaptureState()}
+          remusDevices={[
+            {
+              id: 'blade-1',
+              name: 'Blade 01',
+              deviceFamily: 'remus_blade',
+              remusProductKind: 'blade',
+              state: 'connected',
+            },
+            {
+              id: 'computer-1',
+              name: 'REMUS-P1-A12F',
+              deviceFamily: 'remus_blade',
+              remusProductKind: 'computer',
+              state: 'connecting',
+            },
+          ]}
+        />,
+      );
+    });
+
+    const rendered = JSON.stringify(renderer.toJSON());
+    expect(rendered).toContain('Dispositivos REMUS encontrados');
+    expect(rendered).toContain('Blade 01');
+    expect(rendered).toContain('Remus Blade');
+    expect(rendered).toContain('REMUS-P1-A12F');
+    expect(rendered).toContain('Remus Computer');
+    expect(rendered).toContain('Conectando automaticamente');
+  });
+
   it('displays degraded permissions warning when GPS is denied', () => {
     const onStart = jest.fn();
     const state = createCaptureState({
