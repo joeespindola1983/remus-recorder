@@ -139,6 +139,21 @@ final class RemusEvidenceStore {
     ])
   }
 
+  func appendRemusBladeFrame(
+    rawBase64: String,
+    deviceId: String,
+    characteristicUuid: String,
+    receivedAt: Int64
+  ) {
+    append(stream: "remusBladeLive", sourceId: "rbp1:primary", payload: [
+      "protocolVersion": 1,
+      "rawBase64": rawBase64,
+      "deviceId": deviceId,
+      "characteristicUuid": characteristicUuid,
+      "receivedAtEpochMilliseconds": receivedAt,
+    ])
+  }
+
   func snapshot() -> [String: Any] {
     queue.sync {
       guard let active else { return ["isRecording": false] }

@@ -35,6 +35,21 @@ npm run verify
 ```
 
 The command runs TypeScript checking, ESLint and the complete Jest suite.
+
+## Remus Blade live protocol beta
+
+Version 1.2 adds the Remus Blade v1 binary BLE protocol alongside the legacy
+single-device protocol. The native Android and iOS bridges discover and keep
+multiple Blade connections, negotiate an MTU of 185 bytes, reassemble
+fragmented CRC-protected IMU batches and address start/stop commands to each
+stable device serial. Human aliases such as `Blade 01` are persisted locally;
+Bluetooth MAC addresses and platform UUIDs are transport locators only.
+
+The current beta preserves each received native frame with its transport
+device identifier, but the higher-level workout model still exposes one
+aggregate `rbp1:primary` readiness source. Separate per-Blade recording/source
+entities are the next data-model increment and are not claimed by this beta.
+
 See [CONTRIBUTING.md](CONTRIBUTING.md) for TDD and GitFlow conventions and
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the evidence boundaries.
 The corresponding Figma pages and implementation status are indexed in

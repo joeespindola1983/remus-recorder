@@ -34,17 +34,14 @@ export class RemusBladeDeviceService {
       sourceId,
       deviceFamily: 'remus_blade',
       deviceModel: 'rbp1',
-      deviceSerialNumber: 'ESP32C3-RBP1-DEMO',
-      hardwareRevision: 'p1_rev1',
-      firmwareVersion: '0.1.0',
       operationalState: 'unavailable',
-      sensorPlacement: 'paddle',
-      placementProvenance: 'device_metadata',
+      sensorPlacement: 'unknown',
+      placementProvenance: 'unknown',
       capabilities: {
         liveTransfer: true,
         volatileResend: true,
-        standaloneCapture: true,
-        storeAndForward: true,
+        standaloneCapture: false,
+        storeAndForward: false,
         postSyncDeletion: false,
         relayCapture: false,
       },
@@ -52,11 +49,6 @@ export class RemusBladeDeviceService {
         {
           clockDomainId: 'rbp1:monotonic',
           clockKind: 'monotonic',
-          timestampUnit: 'us',
-        },
-        {
-          clockDomainId: 'rbp1:gnss',
-          clockKind: 'utc',
           timestampUnit: 'us',
         },
       ],
@@ -168,19 +160,12 @@ export class RemusBladeDeviceService {
       sourceConnectionState: 'connected',
       batteryLevelPercent: this.sourceState.readiness?.batteryLevelPercent,
       horizontalAccuracyMeters: snapshot.horizontalAccuracyMeters,
-      availableMeasurementIdentifiers: hasGpsFix
-        ? [
-            'accelerationIncludingGravityG',
-            'rotationRateRadiansPerSecond',
-            'strokeRateSpm',
-            'positionWgs84',
-            'horizontalAccuracyMeters',
-          ]
-        : [
-            'accelerationIncludingGravityG',
-            'rotationRateRadiansPerSecond',
-            'strokeRateSpm',
-          ],
+      availableMeasurementIdentifiers: [
+        'accelerationIncludingGravityG',
+        'rotationRateRadiansPerSecond',
+        ...(snapshot.liveSpm !== undefined ? ['strokeRateSpm' as const] : []),
+        ...(hasGpsFix ? ['positionWgs84' as const, 'horizontalAccuracyMeters' as const] : []),
+      ],
       liveTelemetryState: 'qualified',
     };
 
@@ -205,12 +190,30 @@ export class RemusBladeDeviceService {
     return this.connectionState;
   }
 
+  async getConnectedBlades(): Promise<WearableDevice[]> {
+    return this.adapter.getConnectedDevices();
+  }
+
+  private async setStreamingForConnectedBlades(streaming: boolean): Promise<boolean> {
+    const devices = await this.adapter.getConnectedDevices();
+    if (devices.length === 0) {
+      return streaming ? this.adapter.sendStart() : this.adapter.sendStop();
+    }
+
+    const results = await Promise.all(
+      devices.map(device => streaming
+        ? this.adapter.sendStart(device.id)
+        : this.adapter.sendStop(device.id)),
+    );
+    return results.every(Boolean);
+  }
+
   async startWorkoutCapture(): Promise<boolean> {
     if (this.connectionState !== 'connected' || !this.latestSnapshot) {
       this.handleDisconnection();
       return false;
     }
-    const accepted = await this.adapter.sendStart();
+    const accepted = await this.setStreamingForConnectedBlades(true);
     if (!accepted) return false;
     this.sourceState = {
       ...this.sourceState,
@@ -223,7 +226,7 @@ export class RemusBladeDeviceService {
 
   async stopWorkoutCapture(): Promise<boolean> {
     if (this.connectionState !== 'connected') return false;
-    const accepted = await this.adapter.sendStop();
+    const accepted = await this.setStreamingForConnectedBlades(false);
     if (!accepted) return false;
     this.sourceState = {
       ...this.sourceState,

@@ -47,7 +47,9 @@ describe('RemusBladeDeviceService (TDD)', () => {
 
     expect(state.deviceFamily).toBe('remus_blade');
     expect(state.deviceModel).toBe('rbp1');
-    expect(state.sensorPlacement).toBe('paddle');
+    expect(state.sensorPlacement).toBe('unknown');
+    expect(state.capabilities.standaloneCapture).toBe(false);
+    expect(state.capabilities.storeAndForward).toBe(false);
     expect(state.sourceId).toContain('rbp1');
     expect(state.operationalState).toBe('unavailable');
     expect(state.readiness).toEqual({
@@ -91,6 +93,44 @@ describe('RemusBladeDeviceService (TDD)', () => {
 
     await service.stopWorkoutCapture();
     expect(mockBridge.sendCommand).toHaveBeenCalledWith('STOP');
+  });
+
+  it('starts and stops every connected Blade independently', async () => {
+    mockBridge.sendBinaryCommand = jest.fn().mockResolvedValue(true);
+    jest.spyOn(adapter, 'getConnectedDevices').mockResolvedValue([
+      { id: 'RB-D-000001', name: 'Blade 01', deviceFamily: 'remus_blade', state: 'connected' },
+      { id: 'RB-D-000002', name: 'Blade 02', deviceFamily: 'remus_blade', state: 'connected' },
+    ]);
+    await service.initialize();
+    const emitter = new NativeEventEmitter();
+    (emitter as any).emit('onRemusBladeSnapshot', {
+      rawCsv: '124456,0.012,-0.045,0.982,1.20,-0.40,0.15,-23.550520,-46.633308,8.50,6/10:32:3.2m,120,480,24.5',
+    });
+
+    await expect(service.startWorkoutCapture()).resolves.toBe(true);
+    await expect(service.stopWorkoutCapture()).resolves.toBe(true);
+
+    expect(mockBridge.sendBinaryCommand).toHaveBeenCalledTimes(4);
+    expect(mockBridge.sendBinaryCommand).toHaveBeenNthCalledWith(
+      1,
+      'RB-D-000001',
+      expect.any(String),
+    );
+    expect(mockBridge.sendBinaryCommand).toHaveBeenNthCalledWith(
+      2,
+      'RB-D-000002',
+      expect.any(String),
+    );
+    expect(mockBridge.sendBinaryCommand).toHaveBeenNthCalledWith(
+      3,
+      'RB-D-000001',
+      expect.any(String),
+    );
+    expect(mockBridge.sendBinaryCommand).toHaveBeenNthCalledWith(
+      4,
+      'RB-D-000002',
+      expect.any(String),
+    );
   });
 
   it('transitions to disconnected and marks source unavailable when hardware disconnects', async () => {

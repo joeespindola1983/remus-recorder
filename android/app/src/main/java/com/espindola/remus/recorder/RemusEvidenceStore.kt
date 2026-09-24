@@ -116,6 +116,17 @@ class RemusEvidenceStore private constructor() {
     ))
   }
 
+  fun appendRemusBladeFrame(rawBase64: String, deviceId: String,
+                            characteristicUuid: String, receivedAt: Long) {
+    append("remusBladeLive", "rbp1:primary", mapOf(
+      "protocolVersion" to 1,
+      "rawBase64" to rawBase64,
+      "deviceId" to deviceId,
+      "characteristicUuid" to characteristicUuid,
+      "receivedAtEpochMilliseconds" to receivedAt
+    ))
+  }
+
   fun appendLifecycleEvent(event: String, timestamp: Long = System.currentTimeMillis()) {
     if (!isRecording) return
     val json = JSONObject()
