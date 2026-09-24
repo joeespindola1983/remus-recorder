@@ -43,6 +43,7 @@ export function ReadyScreen({
   bladeSnapshot,
   onDisconnectBlade,
   onConnectBlade,
+  onConnectRemusDevice,
   remusDevices = [],
 }: {
   state: ActivityCaptureState;
@@ -51,10 +52,13 @@ export function ReadyScreen({
   bladeSnapshot?: RemusBladeSnapshot | null;
   onDisconnectBlade?: () => void;
   onConnectBlade?: () => void;
+  onConnectRemusDevice?: (deviceId: string) => void;
   remusDevices?: WearableDevice[];
 }): React.JSX.Element {
   const [expandedSourceId, setExpandedSourceId] = useState<string | null>(null);
-  const sourcesList = Object.values(state.sources);
+  const sourcesList = Object.values(state.sources).filter(
+    source => source.deviceFamily !== 'remus_blade',
+  );
   const overall = overallReadinessSummary(sourcesList);
   const expandedIds = expandedSourceId ? [expandedSourceId] : [];
 
@@ -83,6 +87,7 @@ export function ReadyScreen({
         onDisconnectBlade={onDisconnectBlade}
         onConnectBlade={onConnectBlade}
         remusDevices={remusDevices}
+        onConnectRemusDevice={onConnectRemusDevice}
       />
       <ActionButton label={t('ready.startAction')} onPress={onStart} />
     </ScrollView>

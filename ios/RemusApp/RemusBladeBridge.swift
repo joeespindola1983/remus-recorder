@@ -9,6 +9,7 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
   private var connected: [UUID: CBPeripheral] = [:]
   private var connecting: Set<UUID> = []
   private var lastAdvertisementAt: [UUID: Date] = [:]
+  private var advertisedNames: [UUID: String] = [:]
   private var characteristics: [UUID: [CBUUID: CBCharacteristic]] = [:]
   private var serialToPeripheral: [String: UUID] = [:]
   private var discoveryExpiryTimer: Timer?
@@ -167,7 +168,7 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
     sendEvent(withName: "onRemusBladeStateChanged", body: [
       "state": state,
       "deviceId": peripheral?.identifier.uuidString ?? "",
-      "deviceName": peripheral?.name ?? "Remus Blade",
+      "deviceName": peripheral.flatMap { advertisedNames[$0.identifier] ?? $0.name } ?? "Dispositivo REMUS",
     ])
   }
 
@@ -180,6 +181,12 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
                       advertisementData: [String: Any], rssi RSSI: NSNumber) {
     discovered[peripheral.identifier] = peripheral
     lastAdvertisementAt[peripheral.identifier] = Date()
+    if let advertisedName = advertisementData[CBAdvertisementDataLocalNameKey] as? String,
+       !advertisedName.isEmpty {
+      advertisedNames[peripheral.identifier] = advertisedName
+    } else if let peripheralName = peripheral.name, !peripheralName.isEmpty {
+      advertisedNames[peripheral.identifier] = peripheralName
+    }
     peripheral.delegate = self
     if connected[peripheral.identifier] == nil && !connecting.contains(peripheral.identifier) {
       sendStateEvent("detected", peripheral: peripheral)
@@ -221,6 +228,7 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
       for (id, seenAt) in self.lastAdvertisementAt where seenAt < cutoff && self.connected[id] == nil {
         self.discovered.removeValue(forKey: id)
         self.lastAdvertisementAt.removeValue(forKey: id)
+        self.advertisedNames.removeValue(forKey: id)
       }
     }
   }

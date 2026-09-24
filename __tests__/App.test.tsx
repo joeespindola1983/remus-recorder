@@ -74,12 +74,12 @@ test('renders a source-agnostic ready state', async () => {
     renderer.root.findAll(
       node => node.type === Text && node.props.children === 'Remus Blade P1',
     ),
-  ).toHaveLength(1);
+  ).toHaveLength(0);
   expect(
     renderer.root.findAll(
       node => node.type === Text && node.props.children === 'Buscando automaticamente...',
     ),
-  ).toHaveLength(1);
+  ).toHaveLength(0);
   expect(
     renderer.root.findAll(
       node =>
@@ -380,4 +380,3 @@ test('updates stroke rate from blade snapshot and resets when SPM is 0', async (
   onStateSpy.mockRestore();
   getSnapshotSpy.mockRestore();
 });
-

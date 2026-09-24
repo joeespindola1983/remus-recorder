@@ -277,10 +277,10 @@ export class RemusBladeDeviceService {
     this.handleDisconnection();
   }
 
-  async connect(): Promise<boolean> {
+  async connect(deviceId?: string): Promise<boolean> {
     this.connectionState = 'connecting';
     this.markDetected();
-    return this.adapter.connect();
+    return this.adapter.connect(deviceId);
   }
 
   async downloadSessionFile(

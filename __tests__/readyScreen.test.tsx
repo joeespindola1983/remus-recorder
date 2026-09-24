@@ -209,7 +209,7 @@ describe('ReadyScreen (TDD)', () => {
     expect(onRequestPermissions).toHaveBeenCalledTimes(1);
   });
 
-  it('renders Remus Blade P1 device in available devices list', () => {
+  it('does not render the aggregate Remus source without BLE detection', () => {
     const baseState = createCaptureState();
     const bladeSource: CaptureSourceState = {
       ...rbp1Source,
@@ -246,10 +246,11 @@ describe('ReadyScreen (TDD)', () => {
       .findAllByType('Text' as any)
       .map(node => (Array.isArray(node.props.children) ? node.props.children.join('') : String(node.props.children ?? '')));
 
-    expect(textNodes).toContain('Remus Blade P1');
+    expect(textNodes).not.toContain('Remus Blade P1');
+    expect(textNodes).not.toContain('Buscando automaticamente...');
   });
 
-  it('toggles only the selected device item and closes previously open item when another item is selected', () => {
+  it('keeps the aggregate Remus source hidden while phone details are expanded', () => {
     const baseState = createCaptureState();
     const bladeSource: CaptureSourceState = {
       ...rbp1Source,
@@ -297,35 +298,11 @@ describe('ReadyScreen (TDD)', () => {
     expect(textNodes).toContain('Sensores do celular');
     expect(textNodes).not.toContain('IMU (Acelerômetro + Giroscópio)');
 
-    // Tap Blade -> iPhone closes, Blade opens
-    const bladeButton = renderer!.root.findByProps({
-      accessibilityLabel: 'Remus Blade P1',
-    });
-    act(() => {
-      bladeButton.props.onPress();
-    });
-
-    textNodes = renderer!.root
-      .findAllByType('Text' as any)
-      .map(node => (Array.isArray(node.props.children) ? node.props.children.join('') : String(node.props.children ?? '')));
-
-    expect(textNodes).not.toContain('Sensores do celular');
-    expect(textNodes).toContain('IMU (Acelerômetro + Giroscópio)');
-
-    // Tap Blade again -> Blade closes
-    act(() => {
-      bladeButton.props.onPress();
-    });
-
-    textNodes = renderer!.root
-      .findAllByType('Text' as any)
-      .map(node => (Array.isArray(node.props.children) ? node.props.children.join('') : String(node.props.children ?? '')));
-
-    expect(textNodes).not.toContain('Sensores do celular');
+    expect(textNodes).not.toContain('Remus Blade P1');
     expect(textNodes).not.toContain('IMU (Acelerômetro + Giroscópio)');
   });
 
-  it('displays offline status in readiness card and device list when Remus Blade goes offline', () => {
+  it('does not display a previously modeled Blade when no BLE device is present', () => {
     const baseState = createCaptureState();
     const bladeOfflineSource: CaptureSourceState = {
       ...rbp1Source,
@@ -360,12 +337,13 @@ describe('ReadyScreen (TDD)', () => {
       .findAllByType('Text' as any)
       .map(node => (Array.isArray(node.props.children) ? node.props.children.join('') : String(node.props.children ?? '')));
 
-    expect(textNodes).toContain('GPS pronto · Movimento disponível · Remus Blade offline');
-    expect(textNodes).toContain('Buscando automaticamente...');
+    expect(textNodes).toContain('GPS pronto · Movimento disponível');
+    expect(textNodes).not.toContain('Remus Blade P1');
+    expect(textNodes).not.toContain('Buscando automaticamente...');
   });
 
-  it('triggers onDisconnectBlade from blade breakdown inside ReadyScreen', () => {
-    const onDisconnectBlade = jest.fn();
+  it('retries a detected REMUS device using its transport identifier', () => {
+    const onConnectRemusDevice = jest.fn();
     const bladeSource: CaptureSourceState = {
       ...rbp1Source,
       required: false,
@@ -393,21 +371,22 @@ describe('ReadyScreen (TDD)', () => {
           onStart={jest.fn()}
           onRequestPermissions={jest.fn()}
           state={customState}
-          onDisconnectBlade={onDisconnectBlade}
+          remusDevices={[{
+            id: 'computer-transport-id',
+            name: 'REMUS-P1-A12F',
+            deviceFamily: 'remus_blade',
+            remusProductKind: 'computer',
+            state: 'detected',
+          }]}
+          onConnectRemusDevice={onConnectRemusDevice}
         />
       );
     });
 
-    const bladeRow = renderer!.root.findByProps({ accessibilityLabel: 'Remus Blade P1' });
+    const connectButton = renderer!.root.findByProps({ accessibilityLabel: 'Conectar REMUS-P1-A12F' });
     act(() => {
-      bladeRow.props.onPress();
+      connectButton.props.onPress();
     });
-
-    const disconnectBtn = renderer!.root.findByProps({ testID: 'blade-disconnect-button' });
-    expect(disconnectBtn).toBeTruthy();
-    act(() => {
-      disconnectBtn.props.onPress();
-    });
-    expect(onDisconnectBlade).toHaveBeenCalledTimes(1);
+    expect(onConnectRemusDevice).toHaveBeenCalledWith('computer-transport-id');
   });
 });

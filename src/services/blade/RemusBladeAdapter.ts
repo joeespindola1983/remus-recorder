@@ -274,7 +274,7 @@ export class RemusBladeAdapter implements IWearableAdapter {
 
   async connect(deviceId?: string): Promise<boolean> {
     if (this.nativeBridge?.connectPeripheral) {
-      return this.nativeBridge.connectPeripheral(deviceId ?? '');
+      return this.nativeBridge.connectPeripheral(deviceId ?? this.deviceId);
     }
     return false;
   }

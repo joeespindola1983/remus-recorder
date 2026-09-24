@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { CaptureSourceState } from '../../application/capture/ActivityCapture';
 import { t } from '../../i18n';
 import { DeviceReadinessRow } from '../molecules/DeviceReadinessRow';
@@ -16,6 +16,7 @@ export interface DeviceReadinessPanelProps {
   onDisconnectBlade?: () => void;
   onConnectBlade?: () => void;
   remusDevices?: WearableDevice[];
+  onConnectRemusDevice?: (deviceId: string) => void;
 }
 
 export function DeviceReadinessPanel({
@@ -27,6 +28,7 @@ export function DeviceReadinessPanel({
   onDisconnectBlade,
   onConnectBlade,
   remusDevices = [],
+  onConnectRemusDevice,
 }: DeviceReadinessPanelProps): React.JSX.Element {
   const [internalExpanded, setInternalExpanded] = React.useState<string[]>([]);
 
@@ -82,6 +84,15 @@ export function DeviceReadinessPanel({
                         : 'Indisponível'}
                 </Text>
               </View>
+              {device.state !== 'connected' && onConnectRemusDevice ? (
+                <TouchableOpacity
+                  accessibilityLabel={`Conectar ${device.name}`}
+                  onPress={() => onConnectRemusDevice(device.id)}
+                  style={styles.connectButton}
+                >
+                  <Text style={styles.connectButtonText}>Conectar</Text>
+                </TouchableOpacity>
+              ) : null}
             </View>
           ))}
         </View>
@@ -134,4 +145,12 @@ const styles = StyleSheet.create({
   deviceCopy: { flex: 1 },
   deviceName: { color: color.textPrimary, fontFamily, fontSize: 14, fontWeight: '600' },
   deviceDetail: { color: color.textSecondary, fontFamily, fontSize: 12 },
+  connectButton: {
+    borderColor: color.borderDefault,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  connectButtonText: { color: color.textPrimary, fontFamily, fontSize: 12, fontWeight: '600' },
 });

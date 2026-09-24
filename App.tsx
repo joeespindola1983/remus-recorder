@@ -372,6 +372,9 @@ export default function App(): React.JSX.Element {
               onConnectBlade={() => {
                 bladeDevice.connect().catch(() => {});
               }}
+              onConnectRemusDevice={(deviceId: string) => {
+                bladeDevice.connect(deviceId).catch(() => {});
+              }}
               onStart={startCapture}
               state={state}
             />
