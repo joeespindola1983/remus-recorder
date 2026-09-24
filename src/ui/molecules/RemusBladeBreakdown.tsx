@@ -6,6 +6,7 @@ import {
   View,
 } from 'react-native';
 import { SourceReadinessSnapshot } from '../../application/capture/ActivityCapture';
+import { SensorPlacement } from '../../contracts/acquisition';
 import { RemusBladeSnapshot } from '../../services/blade/RemusBladeAdapter';
 import { t } from '../../i18n';
 import { color, fontFamily, radius, spacing } from '../theme/tokens';
@@ -14,6 +15,8 @@ export interface RemusBladeBreakdownProps {
   readiness?: SourceReadinessSnapshot;
   snapshot?: RemusBladeSnapshot | null;
   connectionState?: 'disconnected' | 'detected' | 'connecting' | 'connected' | 'error';
+  placement?: SensorPlacement;
+  onSelectPlacement?: (placement: SensorPlacement) => void;
   onDisconnect?: () => void;
   onConnect?: () => void;
 }
@@ -22,6 +25,8 @@ export function RemusBladeBreakdown({
   readiness,
   snapshot,
   connectionState = 'disconnected',
+  placement,
+  onSelectPlacement,
   onDisconnect,
   onConnect,
 }: RemusBladeBreakdownProps): React.JSX.Element {
@@ -175,6 +180,51 @@ export function RemusBladeBreakdown({
           </Text>
         </View>
       </View>
+
+      {/* Placement Selector Section (only for equipment/paddles, not hull-mounted computer) */}
+      {placement !== 'hull' && (
+        <View style={styles.placementContainer}>
+          <Text style={styles.placementTitle}>{t('blade.placementTitle')}</Text>
+          <View style={styles.placementButtonGroup}>
+            <TouchableOpacity
+              testID="blade-placement-left"
+              style={[
+                styles.placementButton,
+                placement === 'left_paddle' && styles.placementButtonActive,
+              ]}
+              onPress={() => onSelectPlacement?.('left_paddle')}
+              activeOpacity={0.7}
+            >
+              <Text
+                style={[
+                  styles.placementButtonText,
+                  placement === 'left_paddle' && styles.placementButtonTextActive,
+                ]}
+              >
+                {t('blade.sideLeft')}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              testID="blade-placement-right"
+              style={[
+                styles.placementButton,
+                placement === 'right_paddle' && styles.placementButtonActive,
+              ]}
+              onPress={() => onSelectPlacement?.('right_paddle')}
+              activeOpacity={0.7}
+            >
+              <Text
+                style={[
+                  styles.placementButtonText,
+                  placement === 'right_paddle' && styles.placementButtonTextActive,
+                ]}
+              >
+                {t('blade.sideRight')}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
 
       {/* Action Footer */}
       <View style={styles.actions}>
@@ -332,5 +382,44 @@ const styles = StyleSheet.create({
     fontFamily,
     fontSize: 13,
     fontWeight: '600',
+  },
+  placementContainer: {
+    marginTop: spacing.md,
+    gap: spacing.xs,
+  },
+  placementTitle: {
+    color: color.textSecondary,
+    fontFamily,
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+  },
+  placementButtonGroup: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  placementButton: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: color.borderDefault,
+    backgroundColor: color.surfaceDefault,
+  },
+  placementButtonActive: {
+    borderColor: color.actionPrimary,
+    backgroundColor: color.actionPrimary,
+  },
+  placementButtonText: {
+    color: color.textPrimary,
+    fontFamily,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  placementButtonTextActive: {
+    color: '#FFFFFF',
   },
 });

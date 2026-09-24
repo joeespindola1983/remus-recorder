@@ -54,8 +54,6 @@ export class RemusBladeAdapter implements IWearableAdapter {
   private nativeBridge: NativeBladeBridge | null;
   private eventEmitter: NativeEventEmitter | null = null;
   private isConnected = false;
-  private deviceId = 'remus-blade:p1';
-  private deviceName = 'Remus Blade P1';
   private snapshotSubscription: { remove(): void } | null = null;
   private stateSubscription: { remove(): void } | null = null;
   private readonly DOWNLOAD_INACTIVITY_TIMEOUT_MS = 15_000;
@@ -71,7 +69,11 @@ export class RemusBladeAdapter implements IWearableAdapter {
     timeout?: any;
   } | null = null;
 
-  constructor(nativeBridge?: NativeBladeBridge) {
+  constructor(
+    public readonly targetDeviceId: string,
+    public targetDeviceName: string,
+    nativeBridge?: NativeBladeBridge
+  ) {
     this.nativeBridge = nativeBridge || null;
     if (this.nativeBridge) {
       this.eventEmitter = new NativeEventEmitter(this.nativeBridge as any);
@@ -94,38 +96,10 @@ export class RemusBladeAdapter implements IWearableAdapter {
 
       if (!this.snapshotSubscription) {
         this.snapshotSubscription =
-          this.eventEmitter.addListener('onRemusBladeSnapshot', (payload: any) => {
-            const data = payload as {
-              rawCsv?: string;
-              rawBase64?: string;
-              deviceId?: string;
-              deviceName?: string;
-            };
-            if (data?.deviceId) this.deviceId = data.deviceId;
-            if (data?.deviceName) this.deviceName = data.deviceName;
-            if (data?.rawCsv) {
-              if (this.handleControlMessage(data.rawCsv)) {
-                return;
-              }
-              const snapshot = this.parseSnapshotCsv(data.rawCsv);
-              if (snapshot) {
-                this.handleParsedSnapshot(snapshot);
-              }
-            }
-            if (data?.rawBase64) {
-              this.handleBinaryChunk(data.rawBase64);
-            }
-          });
+          this.eventEmitter.addListener('onRemusBladeSnapshot', (payload: any) => this.handleSnapshotPayload(payload));
 
         this.stateSubscription =
-          this.eventEmitter.addListener('onRemusBladeStateChanged', (payload: any) => {
-            const statePayload = payload as { state: string; deviceId?: string; deviceName?: string };
-            if (statePayload?.deviceId) this.deviceId = statePayload.deviceId;
-            if (statePayload?.deviceName) this.deviceName = statePayload.deviceName;
-            const state = this.normalizeConnectionState(statePayload.state);
-            this.isConnected = state === 'connected';
-            this.notifyDeviceState(state);
-          });
+          this.eventEmitter.addListener('onRemusBladeStateChanged', (payload: any) => this.handleStatePayload(payload));
       }
 
       return true;
@@ -134,14 +108,57 @@ export class RemusBladeAdapter implements IWearableAdapter {
     }
   }
 
+  public handleSnapshotPayload(payload: any): void {
+    const data = payload as {
+      rawCsv?: string;
+      rawBase64?: string;
+      deviceId?: string;
+      deviceName?: string;
+    };
+    if (!data?.deviceId || data.deviceId !== this.targetDeviceId) {
+      return;
+    }
+    if (data?.deviceName) {
+      this.targetDeviceName = data.deviceName;
+    }
+    if (data?.rawCsv) {
+      console.log(`[RemusBladeAdapter:${this.targetDeviceId}] Received rawCsv: ${data.rawCsv}`);
+      if (this.handleControlMessage(data.rawCsv)) {
+        return;
+      }
+      const snapshot = this.parseSnapshotCsv(data.rawCsv);
+      if (snapshot) {
+        this.handleParsedSnapshot(snapshot);
+      } else {
+        console.log(`[RemusBladeAdapter:${this.targetDeviceId}] Failed to parse CSV: ${data.rawCsv}`);
+      }
+    }
+    if (data?.rawBase64) {
+      this.handleBinaryChunk(data.rawBase64);
+    }
+  }
+
+  public handleStatePayload(payload: any): void {
+    const statePayload = payload as { state: string; deviceId?: string; deviceName?: string };
+    if (!statePayload?.deviceId || statePayload.deviceId !== this.targetDeviceId) {
+      return;
+    }
+    if (statePayload?.deviceName) {
+      this.targetDeviceName = statePayload.deviceName;
+    }
+    const state = this.normalizeConnectionState(statePayload.state);
+    this.isConnected = state === 'connected';
+    this.notifyDeviceState(state);
+  }
+
   async getConnectedDevices(): Promise<WearableDevice[]> {
     if (!this.isConnected) {
       return [];
     }
     return [
       {
-        id: this.deviceId,
-        name: this.deviceName,
+        id: this.targetDeviceId,
+        name: this.targetDeviceName,
         deviceFamily: 'remus_blade',
         state: 'connected',
       },
@@ -160,7 +177,19 @@ export class RemusBladeAdapter implements IWearableAdapter {
       return false;
     }
     try {
-      const res = await this.nativeBridge.sendCommand(cmd);
+      const res = await this.nativeBridge.sendCommand(this.targetDeviceId, cmd);
+      return res ?? true;
+    } catch {
+      return false;
+    }
+  }
+
+  async sendBinaryCommand(base64Command: string): Promise<boolean> {
+    if (!this.nativeBridge?.sendBinaryCommand) {
+      return false;
+    }
+    try {
+      const res = await this.nativeBridge.sendBinaryCommand(this.targetDeviceId, base64Command);
       return res ?? true;
     } catch {
       return false;
@@ -168,22 +197,33 @@ export class RemusBladeAdapter implements IWearableAdapter {
   }
 
   async sendStart(): Promise<boolean> {
-    return this.sendCommand('START');
+    if (this.deviceFamily === 'remus_computer') {
+      return this.sendCommand('START');
+    } else {
+      // Blade uses binary StartStream command: [0x01, 0x01, 0x00, 0x00, 0x00, 0x00]
+      return this.sendBinaryCommand('AQEAAAAA');
+    }
   }
 
   async sendStop(): Promise<boolean> {
-    return this.sendCommand('STOP');
+    if (this.deviceFamily === 'remus_computer') {
+      return this.sendCommand('STOP');
+    } else {
+      // Blade uses binary StopStream command: [0x01, 0x02, 0x00, 0x00, 0x00, 0x00]
+      return this.sendBinaryCommand('AQIAAAAA');
+    }
   }
 
   async disconnect(): Promise<void> {
     if (this.nativeBridge?.disconnectPeripheral) {
+      // For now the bridge disconnects all peripherals if no ID is passed, but we should pass it if supported
       await this.nativeBridge.disconnectPeripheral();
     }
   }
 
-  async connect(deviceId?: string): Promise<boolean> {
+  async connect(): Promise<boolean> {
     if (this.nativeBridge?.connectPeripheral) {
-      return this.nativeBridge.connectPeripheral(deviceId ?? '');
+      return this.nativeBridge.connectPeripheral(this.targetDeviceId);
     }
     return false;
   }
@@ -220,33 +260,10 @@ export class RemusBladeAdapter implements IWearableAdapter {
       throw new Error('Download already in progress');
     }
 
-    return new Promise((resolve, reject) => {
-      this.activeDownload = {
-        filename: filename || '',
-        totalBytes: 0,
-        receivedBytes: 0,
-        buffer: Buffer.alloc(0),
-        receivedMask: new Uint8Array(0),
-        onProgress,
-        resolve,
-        reject,
-      };
-
-      // A transferência pode durar mais de 30 s. O timeout agora significa
-      // 15 s sem qualquer atividade BLE de arquivo, e não 30 s desde o início.
-      this.resetDownloadInactivityTimeout();
-
-      const cmd = filename && filename.trim().length > 0 ? `GET ${filename.trim()}` : 'GET';
-      this.sendCommand(cmd).then(accepted => {
-        if (!accepted) {
-          this.failActiveDownload(new Error('GET command was not accepted'));
-        }
-      }).catch((err) => {
-        this.failActiveDownload(
-          err instanceof Error ? err : new Error(String(err)),
-        );
-      });
-    });
+    // O usuário solicitou que o Remus PC também não faça o download do arquivo via BLE,
+    // pois um treino longo demora muito e ele vai pegar o arquivo bruto manualmente do SD.
+    // Assim, dependemos apenas da telemetria ao vivo.
+    return { filename: '', data: Buffer.alloc(0) };
   }
 
   private resetDownloadInactivityTimeout(): void {
@@ -501,7 +518,7 @@ export class RemusBladeAdapter implements IWearableAdapter {
     // Convert to canonical SensorSample
     const sample: SensorSample = {
       nativeTimestamp: snapshot.timestampMs,
-      deviceId: this.deviceId,
+      deviceId: this.targetDeviceId,
       deviceFamily: 'remus_blade',
       accelerationIncludingGravityG: snapshot.accelG,
       rotationRateRadiansPerSecond: {
@@ -536,8 +553,8 @@ export class RemusBladeAdapter implements IWearableAdapter {
 
   private notifyDeviceState(state: WearableConnectionState): void {
     const device: WearableDevice = {
-      id: this.deviceId,
-      name: this.deviceName,
+      id: this.targetDeviceId,
+      name: this.targetDeviceName,
       deviceFamily: 'remus_blade',
       state,
     };

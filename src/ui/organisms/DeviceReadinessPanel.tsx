@@ -1,6 +1,7 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { CaptureSourceState } from '../../application/capture/ActivityCapture';
+import { SensorPlacement } from '../../contracts/acquisition';
 import { t } from '../../i18n';
 import { DeviceReadinessRow } from '../molecules/DeviceReadinessRow';
 import { RemusBladeSnapshot } from '../../services/blade/RemusBladeAdapter';
@@ -14,6 +15,7 @@ export interface DeviceReadinessPanelProps {
   bladeSnapshot?: RemusBladeSnapshot | null;
   onDisconnectBlade?: () => void;
   onConnectBlade?: () => void;
+  onSelectPlacement?: (sourceId: string, placement: SensorPlacement) => void;
 }
 
 export function DeviceReadinessPanel({
@@ -24,6 +26,7 @@ export function DeviceReadinessPanel({
   bladeSnapshot,
   onDisconnectBlade,
   onConnectBlade,
+  onSelectPlacement,
 }: DeviceReadinessPanelProps): React.JSX.Element {
   const [internalExpanded, setInternalExpanded] = React.useState<string[]>([]);
 
@@ -54,6 +57,7 @@ export function DeviceReadinessPanel({
           bladeSnapshot={bladeSnapshot}
           onDisconnectBlade={onDisconnectBlade}
           onConnectBlade={onConnectBlade}
+          onSelectPlacement={p => onSelectPlacement?.(source.sourceId, p)}
         />
       ))}
     </View>

@@ -5,6 +5,7 @@ import {
   LiveCaptureMetrics,
   SourceReadinessSnapshot,
 } from '../capture/ActivityCapture';
+import { SensorPlacement, SourceDescriptor } from '../../contracts/acquisition';
 
 export type SimulatedTransportState =
   | 'connected'
@@ -107,6 +108,17 @@ export type CaptureScenarioStep =
       type: 'update_source_readiness';
       sourceId: string;
       readiness: SourceReadinessSnapshot;
+    }
+  | {
+      type: 'source_discovered';
+      source: SourceDescriptor;
+      required?: boolean;
+      readiness?: SourceReadinessSnapshot;
+    }
+  | {
+      type: 'update_source_placement';
+      sourceId: string;
+      sensorPlacement: SensorPlacement;
     }
   | {type: 'reset_to_ready'};
 
@@ -476,6 +488,25 @@ export const applyCaptureScenarioStep = (
         },
       };
     }
+    case 'source_discovered':
+      return {
+        ...state,
+        capture: activityCaptureReducer(state.capture, {
+          type: 'source_discovered',
+          source: step.source,
+          required: step.required,
+          readiness: step.readiness,
+        }),
+      };
+    case 'update_source_placement':
+      return {
+        ...state,
+        capture: activityCaptureReducer(state.capture, {
+          type: 'source_placement_updated',
+          sourceId: step.sourceId,
+          sensorPlacement: step.sensorPlacement,
+        }),
+      };
   }
 };
 

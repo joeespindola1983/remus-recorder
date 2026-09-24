@@ -1,6 +1,6 @@
 import { Buffer } from 'buffer';
 import React, { useEffect, useReducer, useRef, useState } from 'react';
-import { Alert, NativeModules, Platform, StatusBar, StyleSheet } from 'react-native';
+import { Alert, Platform, StatusBar, StyleSheet } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { createActivityCapture } from './src/application/capture/demoSources';
 import {
@@ -20,8 +20,8 @@ import { color } from './src/ui/theme/tokens';
 import {ProfileScreen} from './src/ui/screens/ProfileScreen';
 import { t } from './src/i18n';
 import { PhoneDeviceService } from './src/services/sensors/PhoneDeviceService';
-import { RemusBladeDeviceService } from './src/services/blade/RemusBladeDeviceService';
-import { RemusBladeAdapter, RemusBladeSnapshot } from './src/services/blade/RemusBladeAdapter';
+import { RemusBladeSnapshot } from './src/services/blade/RemusBladeAdapter';
+import { RemusBladeManager } from './src/services/blade/RemusBladeManager';
 import { useWearables } from './src/services/wearables';
 import {
   RecordingManifest,
@@ -42,11 +42,7 @@ export default function App(): React.JSX.Element {
   );
   const state = simulation.capture;
   const [phoneDevice] = useState(() => new PhoneDeviceService());
-  const [bladeDevice] = useState(() => {
-    const nativeBridge = NativeModules.RemusBladeBridge;
-    const adapter = new RemusBladeAdapter(nativeBridge);
-    return new RemusBladeDeviceService(adapter);
-  });
+  const [bladeManager] = useState(() => new RemusBladeManager());
   const [bladeSnapshot, setBladeSnapshot] = useState<RemusBladeSnapshot | null>(null);
   const [bladeDownloadStatus, setBladeDownloadStatus] = useState<BladeDownloadStatus | undefined>(undefined);
   const [recordingService] = useState(() => new RecordingService());
@@ -79,23 +75,36 @@ export default function App(): React.JSX.Element {
       .catch(() => {});
   }, [phoneDevice]);
 
+  const sourcesRef = useRef(state.sources);
+  sourcesRef.current = state.sources;
+
   useEffect(() => {
-    const unsub = bladeDevice.onStateChange(sourceState => {
-      setBladeSnapshot(bladeDevice.getLatestSnapshot());
-      if (sourceState.readiness) {
+    const unsub = bladeManager.onStateChange(sourceState => {
+      setBladeSnapshot(bladeManager.getLatestSnapshot());
+      const sourceId = sourceState.sourceId;
+      const connectionState = sourceState.readiness?.sourceConnectionState;
+      if (!sourcesRef.current[sourceId]) {
+        if (connectionState === 'detected' || connectionState === 'connected') {
+          dispatch({
+            type: 'source_discovered',
+            source: sourceState,
+            readiness: sourceState.readiness,
+          });
+        }
+      } else if (sourceState.readiness) {
         dispatch({
           type: 'update_source_readiness',
-          sourceId: 'rbp1:primary',
+          sourceId,
           readiness: sourceState.readiness,
         });
       }
     });
-    bladeDevice.initialize().catch(() => {});
+    bladeManager.initialize().catch(() => {});
     return () => {
       unsub();
-      bladeDevice.destroy();
+      bladeManager.destroy();
     };
-  }, [bladeDevice]);
+  }, [bladeManager]);
 
   useEffect(() => {
     const device = wearable.devices[0];
@@ -235,9 +244,9 @@ export default function App(): React.JSX.Element {
         activityCorrelationId: started.activityCorrelationId,
         recordingIdsBySource: started.recordingIdsBySource,
       });
-      console.log('[App] Starting bladeDevice & wearable capture...');
+      console.log('[App] Starting bladeManager & wearable capture...');
       const results = await Promise.allSettled([
-        bladeDevice.startWorkoutCapture(),
+        bladeManager.startWorkoutCapture(),
         wearable.startRecording(),
       ]);
       console.log('[App] blade & wearable start results:', JSON.stringify(results));
@@ -252,11 +261,11 @@ export default function App(): React.JSX.Element {
   const stopCapture = async (): Promise<void> => {
     dispatch({ type: 'request_stop' });
     await Promise.allSettled([
-      bladeDevice.stopWorkoutCapture(),
+      bladeManager.stopWorkoutCapture(),
       wearable.stopRecording(),
     ]);
 
-    if (bladeDevice.getConnectionState() === 'connected' && state.activityId) {
+    if (bladeManager.getConnectionState() === 'connected' && state.activityId) {
       setBladeDownloadStatus({
         isDownloading: true,
         bytesTransferred: 0,
@@ -264,8 +273,8 @@ export default function App(): React.JSX.Element {
         progress: 0,
       });
       try {
-        const fileResult = await bladeDevice.downloadSessionFile(
-          (progress, received, total) => {
+        const fileResult = await bladeManager.downloadSessionFile(
+          (progress: number, received: number, total: number) => {
             setBladeDownloadStatus({
               isDownloading: true,
               bytesTransferred: received,
@@ -361,10 +370,18 @@ export default function App(): React.JSX.Element {
               bladeSnapshot={bladeSnapshot}
               onRequestPermissions={handleRequestPermissions}
               onDisconnectBlade={() => {
-                bladeDevice.disconnect().catch(() => {});
+                bladeManager.disconnect().catch(() => {});
               }}
               onConnectBlade={() => {
-                bladeDevice.connect().catch(() => {});
+                bladeManager.connect().catch(() => {});
+              }}
+              onSelectPlacement={(sourceId, placement) => {
+                bladeManager.setPlacement(sourceId, placement);
+                dispatch({
+                  type: 'update_source_placement',
+                  sourceId,
+                  sensorPlacement: placement,
+                });
               }}
               onStart={startCapture}
               state={state}

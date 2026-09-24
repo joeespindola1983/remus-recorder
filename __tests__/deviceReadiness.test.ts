@@ -333,4 +333,47 @@ describe('device readiness presentation', () => {
     const streamsBtOff = describePhoneSensorStreams(phoneBtOff);
     expect(streamsBtOff.bluetooth).toBe('Desligado');
   });
+
+  it('formats blade display name based on placement or device serial', () => {
+    const { sourceDisplayName } = require('../src/ui/presentation/deviceReadiness');
+
+    const bladeLeft = source({
+      sourceId: 'blade:7E5A',
+      deviceFamily: 'remus_blade',
+      deviceSerialNumber: 'REMUS-BLD-7E5A',
+      sensorPlacement: 'left_paddle',
+    });
+    expect(sourceDisplayName(bladeLeft)).toBe('Remus Blade · Pá Esquerda');
+
+    const bladeRight = source({
+      sourceId: 'blade:AB12',
+      deviceFamily: 'remus_blade',
+      deviceSerialNumber: 'REMUS-BLD-AB12',
+      sensorPlacement: 'right_paddle',
+    });
+    expect(sourceDisplayName(bladeRight)).toBe('Remus Blade · Pá Direita');
+
+    const bladeIdentified = source({
+      sourceId: 'blade:7E5A',
+      deviceFamily: 'remus_blade',
+      deviceSerialNumber: 'REMUS-BLD-7E5A',
+      sensorPlacement: 'paddle',
+    });
+    expect(sourceDisplayName(bladeIdentified)).toBe('Remus Blade · REMUS-BLD-7E5A');
+
+    const computer = source({
+      sourceId: 'computer:primary',
+      deviceFamily: 'remus_computer',
+      sensorPlacement: 'hull',
+    });
+    expect(sourceDisplayName(computer)).toBe('Remus Computer');
+
+    const computerIdentified = source({
+      sourceId: 'computer:FC84',
+      deviceFamily: 'remus_computer',
+      deviceSerialNumber: 'REMUS-P1-FC84',
+      sensorPlacement: 'hull',
+    });
+    expect(sourceDisplayName(computerIdentified)).toBe('Remus Computer · REMUS-P1-FC84');
+  });
 });

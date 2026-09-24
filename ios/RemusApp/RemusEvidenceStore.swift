@@ -131,11 +131,25 @@ final class RemusEvidenceStore {
     }
   }
 
-  func appendRemusBladeLive(rawCsv: String, deviceId: String, receivedAt: Int64) {
-    append(stream: "remusBladeLive", sourceId: "rbp1:primary", payload: [
+  func appendRemusBladeLive(rawCsv: String, rawBase64: String, deviceId: String, receivedAt: Int64) {
+    let candidateId = deviceId.hasPrefix("blade:") || deviceId.hasPrefix("rbp1:")
+      ? deviceId
+      : "blade:\(deviceId)"
+    let sourceId: String
+    if let active = self.active, active.recordingIdsBySource[candidateId] != nil {
+      sourceId = candidateId
+    } else if let active = self.active, active.recordingIdsBySource["rbp1:primary"] != nil {
+      sourceId = "rbp1:primary"
+    } else {
+      sourceId = candidateId
+    }
+    append(stream: "remusBladeLive", sourceId: sourceId, payload: [
       "rawCsv": rawCsv,
+      "rawBase64": rawBase64,
       "deviceId": deviceId,
       "receivedAtEpochMilliseconds": receivedAt,
+      "schemaVersion": "1.0.0",
+      "sourceId": sourceId
     ])
   }
 

@@ -1,5 +1,6 @@
 import {
   MeasurementIdentifier,
+  SensorPlacement,
   SourceDescriptor,
 } from '../../contracts/acquisition';
 import {HeartRatePermissionState} from '../../types/wearables';
@@ -94,6 +95,11 @@ export type ActivityCaptureEvent =
       sourceId: string;
       atElapsedSeconds: number;
       reason: CaptureFinalizationReason;
+    }
+  | {
+      type: 'source_placement_updated';
+      sourceId: string;
+      sensorPlacement: SensorPlacement;
     };
 
 const toRuntimeSource = (
@@ -233,6 +239,21 @@ export const activityCaptureReducer = (
           ? 'completed'
           : 'finalizing',
         sources,
+      };
+    }
+    case 'source_placement_updated': {
+      const source = state.sources[event.sourceId];
+      if (!source) return state;
+      return {
+        ...state,
+        sources: {
+          ...state.sources,
+          [event.sourceId]: {
+            ...source,
+            sensorPlacement: event.sensorPlacement,
+            placementProvenance: 'user_declared',
+          },
+        },
       };
     }
   }

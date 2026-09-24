@@ -154,7 +154,49 @@ export const createDemoActivityCapture = (
   return state;
 };
 
-// Production currently shares the deterministic source descriptors with the
-// simulator, but the runtime path replaces all readiness and metrics with
-// native evidence before capture begins.
-export const createActivityCapture = createDemoActivityCapture;
+export const createActivityCapture = (
+  initialConnectionMode: 'connected' | 'unavailable' = 'unavailable',
+  wearableFamily: 'apple_watch' | 'wear_os' = 'apple_watch',
+): ActivityCaptureState => {
+  const wearableSource = wearableFamily === 'apple_watch' ? appleWatchSource : wearOSSource;
+  const initialState = createInitialActivityCapture(phoneSource);
+  let state: ActivityCaptureState = {
+    ...initialState,
+    sources: {
+      ...initialState.sources,
+      [phoneSource.sourceId]: {
+        ...initialState.sources[phoneSource.sourceId],
+        readiness: initialConnectionMode === 'connected' ? {
+          sourceConnectionState: 'connected',
+          batteryLevelPercent: 92,
+          availableMeasurementIdentifiers: [
+            'positionWgs84',
+            'horizontalAccuracyMeters',
+            'accelerationIncludingGravityG',
+            'rotationRateRadiansPerSecond',
+          ],
+          liveTelemetryState: 'qualified',
+        } : {
+          sourceConnectionState: 'unavailable',
+          availableMeasurementIdentifiers: [],
+          liveTelemetryState: 'evaluation_pending',
+        },
+      },
+    },
+  };
+  state = activityCaptureReducer(state, {
+    type: 'source_discovered',
+    source: wearableSource,
+    readiness: initialConnectionMode === 'connected' ? {
+      sourceConnectionState: 'connected',
+      batteryLevelPercent: 72,
+      availableMeasurementIdentifiers: ['heartRateBeatsPerMinute'],
+      liveTelemetryState: 'qualified',
+    } : {
+      sourceConnectionState: 'unavailable',
+      availableMeasurementIdentifiers: [],
+      liveTelemetryState: 'evaluation_pending',
+    },
+  });
+  return state;
+};

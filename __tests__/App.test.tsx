@@ -4,7 +4,7 @@
 
 import { Buffer } from 'buffer';
 import React from 'react';
-import { Alert, NativeModules, Text } from 'react-native';
+import { Alert, NativeEventEmitter, NativeModules, Text } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 import App from '../App';
 import { RemusBladeDeviceService } from '../src/services/blade/RemusBladeDeviceService';
@@ -46,6 +46,16 @@ beforeEach(() => {
     addListener: jest.fn(),
     removeListeners: jest.fn(),
   };
+  NativeModules.RemusBladeBridge = {
+    isSupported: jest.fn().mockResolvedValue(true),
+    startScan: jest.fn().mockResolvedValue(true),
+    stopScan: jest.fn().mockResolvedValue(undefined),
+    connectPeripheral: jest.fn().mockResolvedValue(true),
+    disconnectPeripheral: jest.fn().mockResolvedValue(undefined),
+    sendCommand: jest.fn().mockResolvedValue(true),
+    addListener: jest.fn(),
+    removeListeners: jest.fn(),
+  };
 });
 
 test('renders a source-agnostic ready state', async () => {
@@ -74,10 +84,10 @@ test('renders a source-agnostic ready state', async () => {
     renderer.root.findAll(
       node => node.type === Text && node.props.children === 'Remus Blade P1',
     ),
-  ).toHaveLength(1);
+  ).toHaveLength(0);
   expect(
     renderer.root.findAll(
-      node => node.type === Text && node.props.children === 'Buscando automaticamente...',
+      node => node.type === Text && node.props.children === 'Este iPhone',
     ),
   ).toHaveLength(1);
   expect(
@@ -88,6 +98,28 @@ test('renders a source-agnostic ready state', async () => {
         node.props.children.includes('+1 h'),
     ),
   ).toHaveLength(0);
+});
+
+test('dynamically discovers Remus Blade on BLE event', async () => {
+  let renderer!: ReactTestRenderer.ReactTestRenderer;
+  await ReactTestRenderer.act(async () => {
+    renderer = ReactTestRenderer.create(<App />);
+  });
+
+  const emitter = new NativeEventEmitter(NativeModules.RemusBladeBridge);
+  await ReactTestRenderer.act(async () => {
+    (emitter as any).emit("onRemusBladeStateChanged", {
+      state: 'detected',
+      deviceId: '7E5A',
+      deviceName: 'REMUS-BLD-7E5A',
+    });
+  });
+
+  expect(
+    renderer.root.findAll(
+      node => node.type === Text && node.props.children === 'Remus Blade · REMUS-BLD-7E5A',
+    ),
+  ).toHaveLength(1);
 });
 
 test('moves from ready through recording to a preserved summary', async () => {

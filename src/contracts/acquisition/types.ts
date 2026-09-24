@@ -10,6 +10,8 @@ export type SensorPlacement =
   | 'body'
   | 'oar'
   | 'paddle'
+  | 'left_paddle'
+  | 'right_paddle'
   | 'unknown';
 
 export type PlacementProvenance =

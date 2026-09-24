@@ -7,6 +7,7 @@ import {
   View,
 } from 'react-native';
 import { ActivityCaptureState } from '../../application/capture/ActivityCapture';
+import { SensorPlacement } from '../../contracts/acquisition';
 import { t } from '../../i18n';
 import { ActionButton } from '../atoms/ActionButton';
 import { OperationalEventBanner } from '../molecules/OperationalEventBanner';
@@ -42,6 +43,7 @@ export function ReadyScreen({
   bladeSnapshot,
   onDisconnectBlade,
   onConnectBlade,
+  onSelectPlacement,
 }: {
   state: ActivityCaptureState;
   onStart: () => void;
@@ -49,6 +51,7 @@ export function ReadyScreen({
   bladeSnapshot?: RemusBladeSnapshot | null;
   onDisconnectBlade?: () => void;
   onConnectBlade?: () => void;
+  onSelectPlacement?: (sourceId: string, placement: SensorPlacement) => void;
 }): React.JSX.Element {
   const [expandedSourceId, setExpandedSourceId] = useState<string | null>(null);
   const sourcesList = Object.values(state.sources);
@@ -79,6 +82,7 @@ export function ReadyScreen({
         bladeSnapshot={bladeSnapshot}
         onDisconnectBlade={onDisconnectBlade}
         onConnectBlade={onConnectBlade}
+        onSelectPlacement={onSelectPlacement}
       />
       <ActionButton label={t('ready.startAction')} onPress={onStart} />
     </ScrollView>

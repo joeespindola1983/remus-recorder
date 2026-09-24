@@ -34,7 +34,7 @@ describe('RemusBladeDeviceService (TDD)', () => {
       addListener: jest.fn().mockReturnValue({ remove: jest.fn() }),
       removeListeners: jest.fn(),
     };
-    adapter = new RemusBladeAdapter(mockBridge);
+    adapter = new RemusBladeAdapter("remus-blade:p1", "Remus Blade P1", mockBridge);
     service = new RemusBladeDeviceService(adapter);
   });
 
@@ -65,7 +65,7 @@ describe('RemusBladeDeviceService (TDD)', () => {
 
     // Simulate 1s notification from ESP32 with GPS lock and Edge SPM
     const emitter = new NativeEventEmitter();
-    (emitter as any).emit('onRemusBladeSnapshot', {
+    (emitter as any).emit("onRemusBladeSnapshot", { deviceId: "remus-blade:p1", 
       rawCsv: '124456,0.012,-0.045,0.982,1.20,-0.40,0.15,-23.550520,-46.633308,8.50,6/10:32:3.2m,120,480,24.5',
     });
 
@@ -83,7 +83,7 @@ describe('RemusBladeDeviceService (TDD)', () => {
   it('forwards start and stop commands to hardware via adapter', async () => {
     await service.initialize();
     const emitter = new NativeEventEmitter();
-    (emitter as any).emit('onRemusBladeSnapshot', {
+    (emitter as any).emit("onRemusBladeSnapshot", { deviceId: "remus-blade:p1", 
       rawCsv: '124456,0.012,-0.045,0.982,1.20,-0.40,0.15,-23.550520,-46.633308,8.50,6/10:32:3.2m,120,480,24.5',
     });
     await service.startWorkoutCapture();
@@ -100,7 +100,7 @@ describe('RemusBladeDeviceService (TDD)', () => {
 
     // Simulate native BLE disconnect event
     const emitter = new NativeEventEmitter();
-    (emitter as any).emit('onRemusBladeStateChanged', { state: 'disconnected' });
+    (emitter as any).emit("onRemusBladeStateChanged", { deviceId: "remus-blade:p1", state: 'disconnected' });
 
     expect(service.getConnectionState()).toBe('disconnected');
     const sourceState = service.getSourceState();
@@ -121,7 +121,7 @@ describe('RemusBladeDeviceService (TDD)', () => {
     await service.initialize();
 
     const emitter = new NativeEventEmitter();
-    (emitter as any).emit('onRemusBladeStateChanged', { state: 'connected' });
+    (emitter as any).emit("onRemusBladeStateChanged", { deviceId: "remus-blade:p1", state: 'connected' });
 
     expect(service.getConnectionState()).toBe('connecting');
     expect(service.getSourceState().operationalState).toBe('unavailable');
@@ -136,7 +136,7 @@ describe('RemusBladeDeviceService (TDD)', () => {
     await service.initialize();
 
     const emitter = new NativeEventEmitter();
-    (emitter as any).emit('onRemusBladeStateChanged', { state: 'scanning' });
+    (emitter as any).emit("onRemusBladeStateChanged", { deviceId: "remus-blade:p1", state: 'scanning' });
 
     expect(service.getConnectionState()).toBe('disconnected');
     expect(service.getSourceState().operationalState).toBe('unavailable');
@@ -160,7 +160,7 @@ describe('RemusBladeDeviceService (TDD)', () => {
 
     const emitter = new NativeEventEmitter();
     // Snapshot arrives -> connected
-    (emitter as any).emit('onRemusBladeSnapshot', {
+    (emitter as any).emit("onRemusBladeSnapshot", { deviceId: "remus-blade:p1", 
       rawCsv: '124456,0.012,-0.045,0.982,1.20,-0.40,0.15,-23.550520,-46.633308,8.50,6/10:32:3.2m,120,480,24.5',
     });
     expect(service.getConnectionState()).toBe('connected');
@@ -173,7 +173,7 @@ describe('RemusBladeDeviceService (TDD)', () => {
     expect(service.getSourceState().readiness?.sourceConnectionState).toBe('unavailable');
 
     // Hardware turned back on -> snapshot resumes -> reconnects
-    (emitter as any).emit('onRemusBladeSnapshot', {
+    (emitter as any).emit("onRemusBladeSnapshot", { deviceId: "remus-blade:p1", 
       rawCsv: '125456,0.012,-0.045,0.982,1.20,-0.40,0.15,-23.550520,-46.633308,8.50,6/10:32:3.2m,121,481,24.5',
     });
     expect(service.getConnectionState()).toBe('connected');
@@ -186,7 +186,7 @@ describe('RemusBladeDeviceService (TDD)', () => {
   it('manually disconnects peripheral and marks source unavailable', async () => {
     await service.initialize();
     const emitter = new NativeEventEmitter();
-    (emitter as any).emit('onRemusBladeSnapshot', {
+    (emitter as any).emit("onRemusBladeSnapshot", { deviceId: "remus-blade:p1", 
       rawCsv: '124456,0.012,-0.045,0.982,1.20,-0.40,0.15,-23.550520,-46.633308,8.50,6/10:32:3.2m,120,480,24.5',
     });
     expect(service.getConnectionState()).toBe('connected');
@@ -207,7 +207,7 @@ describe('RemusBladeDeviceService (TDD)', () => {
   it('transitions to detected when hardware emits detected state', async () => {
     await service.initialize();
     const emitter = new NativeEventEmitter();
-    (emitter as any).emit('onRemusBladeStateChanged', { state: 'detected', deviceName: 'Remus Blade P1' });
+    (emitter as any).emit("onRemusBladeStateChanged", { deviceId: "remus-blade:p1", state: 'detected', deviceName: 'Remus Blade P1' });
     expect(service.getConnectionState()).toBe('detected');
     expect(service.getSourceState().readiness?.sourceConnectionState).toBe('detected');
   });
@@ -226,13 +226,13 @@ describe('RemusBladeDeviceService (TDD)', () => {
     chunk.writeUInt16LE(file.length, 5);
     file.copy(chunk, 7);
 
-    (emitter as any).emit('onRemusBladeSnapshot', {
+    (emitter as any).emit("onRemusBladeSnapshot", { deviceId: "remus-blade:p1", 
       rawCsv: `FILE_START:/remus_sensor_1.bin:${file.length}:1`,
     });
-    (emitter as any).emit('onRemusBladeSnapshot', {
+    (emitter as any).emit("onRemusBladeSnapshot", { deviceId: "remus-blade:p1", 
       rawBase64: chunk.toString('base64'),
     });
-    (emitter as any).emit('onRemusBladeSnapshot', {
+    (emitter as any).emit("onRemusBladeSnapshot", { deviceId: "remus-blade:p1", 
       rawCsv: `FILE_END:/remus_sensor_1.bin:${file.length}`,
     });
 
@@ -240,5 +240,64 @@ describe('RemusBladeDeviceService (TDD)', () => {
     expect(result.filename).toBe('/remus_sensor_1.bin');
     expect(result.data).toEqual(file);
     expect(progressSpy).toHaveBeenLastCalledWith(100, file.length, file.length);
+  });
+
+  it('updates placement to left_paddle or right_paddle with user_declared provenance', () => {
+    service.setPlacement('left_paddle');
+    expect(service.getSourceState().sensorPlacement).toBe('left_paddle');
+    expect(service.getSourceState().placementProvenance).toBe('user_declared');
+
+    service.setPlacement('right_paddle');
+    expect(service.getSourceState().sensorPlacement).toBe('right_paddle');
+    expect(service.getSourceState().placementProvenance).toBe('user_declared');
+  });
+
+  it('updates identity when device state changes with real deviceId and deviceName', async () => {
+    adapter = new RemusBladeAdapter("7E5A", "REMUS-BLD-7E5A", mockBridge);
+    service = new RemusBladeDeviceService(adapter);
+    await service.initialize();
+    const emitter = new NativeEventEmitter();
+    (emitter as any).emit("onRemusBladeStateChanged", {
+      state: 'detected',
+      deviceId: '7E5A',
+      deviceName: 'REMUS-BLD-7E5A',
+    });
+
+    expect(service.getSourceState().sourceId).toBe('blade:7E5A');
+    expect(service.getSourceState().deviceSerialNumber).toBe('REMUS-BLD-7E5A');
+    expect(service.getSourceState().deviceFamily).toBe('remus_blade');
+  });
+
+  it('identifies Remus Computer device and sets placement to hull', async () => {
+    adapter = new RemusBladeAdapter("FC84", "REMUS-P1-FC84", mockBridge);
+    service = new RemusBladeDeviceService(adapter);
+    await service.initialize();
+    const emitter = new NativeEventEmitter();
+    (emitter as any).emit("onRemusBladeStateChanged", {
+      state: 'detected',
+      deviceId: 'FC84',
+      deviceName: 'REMUS-P1-FC84',
+    });
+
+    expect(service.getSourceState().sourceId).toBe('computer:FC84');
+    expect(service.getSourceState().deviceFamily).toBe('remus_computer');
+    expect(service.getSourceState().sensorPlacement).toBe('hull');
+    expect(service.getSourceState().deviceSerialNumber).toBe('REMUS-P1-FC84');
+  });
+
+  it('identifies Raspberry Pi Remus P2 as remus_computer', async () => {
+    adapter = new RemusBladeAdapter("01A2", "REMUS-P2-01A2", mockBridge);
+    service = new RemusBladeDeviceService(adapter);
+    await service.initialize();
+    const emitter = new NativeEventEmitter();
+    (emitter as any).emit("onRemusBladeStateChanged", {
+      state: 'detected',
+      deviceId: '01A2',
+      deviceName: 'REMUS-P2-01A2',
+    });
+
+    expect(service.getSourceState().sourceId).toBe('computer:01A2');
+    expect(service.getSourceState().deviceFamily).toBe('remus_computer');
+    expect(service.getSourceState().sensorPlacement).toBe('hull');
   });
 });

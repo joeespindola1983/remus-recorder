@@ -4,6 +4,8 @@ import {
   SourceReadinessSnapshot,
 } from '../../application/capture/ActivityCapture';
 import {
+  PlacementProvenance,
+  SensorPlacement,
   SourceDescriptor,
 } from '../../contracts/acquisition/types';
 import {
@@ -24,7 +26,8 @@ export class RemusBladeDeviceService {
   private readonly WATCHDOG_TIMEOUT_MS = 3500;
 
   constructor(adapter?: RemusBladeAdapter) {
-    this.adapter = adapter || new RemusBladeAdapter();
+    if (!adapter) throw new Error('RemusBladeAdapter is required');
+    this.adapter = adapter;
     this.sourceState = this.createDefaultSourceState();
   }
 
@@ -82,16 +85,22 @@ export class RemusBladeDeviceService {
     });
 
     this.unsubDeviceState = this.adapter.onDeviceStateChanged((device: WearableDevice) => {
+      this.updateIdentityFromDevice(device);
       if (device.state === 'disconnected' || device.state === 'error') {
         this.handleDisconnection();
       } else if (device.state === 'detected') {
         this.connectionState = 'detected';
         this.markDetected();
       } else if (device.state === 'connected') {
-        // BLE service discovery is not sufficient evidence of a live data source.
-        // A valid snapshot promotes the source to connected in handleSnapshot().
-        this.connectionState = 'connecting';
+        // We now promote to connected immediately because the Remus Blade
+        // might not send data until it receives the START command (100).
+        this.connectionState = 'connected';
+        this.sourceState.operationalState = 'available_idle';
         this.markDetected();
+        this.sourceState.readiness = {
+          ...this.sourceState.readiness!,
+          sourceConnectionState: 'connected',
+        };
       } else if (device.state === 'connecting') {
         this.connectionState = 'connecting';
         this.markDetected();
@@ -206,7 +215,7 @@ export class RemusBladeDeviceService {
   }
 
   async startWorkoutCapture(): Promise<boolean> {
-    if (this.connectionState !== 'connected' || !this.latestSnapshot) {
+    if (this.connectionState !== 'connected') {
       this.handleDisconnection();
       return false;
     }
@@ -261,6 +270,49 @@ export class RemusBladeDeviceService {
 
   private notifyListeners(): void {
     this.listeners.forEach(listener => listener(this.sourceState));
+  }
+
+  setPlacement(placement: SensorPlacement): void {
+    this.sourceState = {
+      ...this.sourceState,
+      sensorPlacement: placement,
+      placementProvenance: 'user_declared',
+    };
+    this.notifyListeners();
+  }
+
+  private updateIdentityFromDevice(device: WearableDevice): void {
+    if (!device.id || device.id === 'remus-blade:p1') {
+      return;
+    }
+    const name = device.name ?? '';
+    const isComputer =
+      name.includes('Computer') ||
+      name.includes('CMP') ||
+      name.includes('REMUS-P1') ||
+      name.includes('REMUS-P2') ||
+      name.includes('REMUS-PR1') ||
+      name.startsWith('REMUS-P') ||
+      name.includes('ESP32') ||
+      device.id.includes('CMP');
+    const rawId = device.id.replace(/^(blade|computer):/, '');
+    const sourceId = isComputer ? `computer:${rawId}` : `blade:${rawId}`;
+    const deviceFamily = isComputer ? 'remus_computer' : 'remus_blade';
+    const sensorPlacement = isComputer
+      ? 'hull'
+      : this.sourceState.sensorPlacement === 'left_paddle' || this.sourceState.sensorPlacement === 'right_paddle'
+        ? this.sourceState.sensorPlacement
+        : 'paddle';
+    const placementProvenance: PlacementProvenance = isComputer ? 'device_metadata' : this.sourceState.placementProvenance;
+
+    this.sourceState = {
+      ...this.sourceState,
+      sourceId,
+      deviceFamily,
+      sensorPlacement,
+      placementProvenance,
+      deviceSerialNumber: device.name ?? this.sourceState.deviceSerialNumber,
+    };
   }
 
   destroy(): void {

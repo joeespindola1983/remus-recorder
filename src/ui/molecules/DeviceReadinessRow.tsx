@@ -1,6 +1,7 @@
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { CaptureSourceState } from '../../application/capture/ActivityCapture';
+import { SensorPlacement } from '../../contracts/acquisition';
 import { BatteryStatusIcon } from '../atoms/BatteryStatusIcon';
 import {
   describeSourceReadiness,
@@ -19,6 +20,7 @@ export interface DeviceReadinessRowProps {
   bladeSnapshot?: RemusBladeSnapshot | null;
   onDisconnectBlade?: () => void;
   onConnectBlade?: () => void;
+  onSelectPlacement?: (placement: SensorPlacement) => void;
 }
 
 export function DeviceReadinessRow({
@@ -29,6 +31,7 @@ export function DeviceReadinessRow({
   bladeSnapshot,
   onDisconnectBlade,
   onConnectBlade,
+  onSelectPlacement,
 }: DeviceReadinessRowProps): React.JSX.Element {
   const batteryLevelPercent = source.readiness?.batteryLevelPercent;
   const connected =
@@ -91,6 +94,8 @@ export function DeviceReadinessRow({
                 ? 'connected'
                 : 'disconnected'
           }
+          placement={source.sensorPlacement}
+          onSelectPlacement={onSelectPlacement}
           onDisconnect={onDisconnectBlade}
           onConnect={onConnectBlade}
         />

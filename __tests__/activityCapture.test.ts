@@ -145,4 +145,49 @@ describe('activity capture reducer', () => {
     expect(state.sources['rbp1:primary'].recordingState).toBe('interrupted');
     expect(state.sources['phone:primary'].recordingState).toBe('finalized');
   });
+
+  it('updates placement and sets provenance to user_declared', () => {
+    let state = createInitialActivityCapture(phoneSource);
+    state = activityCaptureReducer(state, {type: 'source_discovered', source: rbp1Source});
+
+    state = activityCaptureReducer(state, {
+      type: 'source_placement_updated',
+      sourceId: 'rbp1:primary',
+      sensorPlacement: 'left_paddle',
+    });
+
+    expect(state.sources['rbp1:primary'].sensorPlacement).toBe('left_paddle');
+    expect(state.sources['rbp1:primary'].placementProvenance).toBe('user_declared');
+  });
+
+  it('handles multiple blades discovered and configured with different placements', () => {
+    const bladeLeft: SourceDescriptor = {
+      ...rbp1Source,
+      sourceId: 'blade:7E5A',
+      deviceSerialNumber: 'REMUS-BLD-7E5A',
+    };
+    const bladeRight: SourceDescriptor = {
+      ...rbp1Source,
+      sourceId: 'blade:AB12',
+      deviceSerialNumber: 'REMUS-BLD-AB12',
+    };
+
+    let state = createInitialActivityCapture(phoneSource);
+    state = activityCaptureReducer(state, {type: 'source_discovered', source: bladeLeft});
+    state = activityCaptureReducer(state, {type: 'source_discovered', source: bladeRight});
+
+    state = activityCaptureReducer(state, {
+      type: 'source_placement_updated',
+      sourceId: 'blade:7E5A',
+      sensorPlacement: 'left_paddle',
+    });
+    state = activityCaptureReducer(state, {
+      type: 'source_placement_updated',
+      sourceId: 'blade:AB12',
+      sensorPlacement: 'right_paddle',
+    });
+
+    expect(state.sources['blade:7E5A'].sensorPlacement).toBe('left_paddle');
+    expect(state.sources['blade:AB12'].sensorPlacement).toBe('right_paddle');
+  });
 });

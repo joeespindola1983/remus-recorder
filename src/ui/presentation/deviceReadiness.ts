@@ -19,10 +19,32 @@ const hasAny = (
 ): boolean => candidates.some(identifier => identifiers.includes(identifier));
 
 export const sourceDisplayName = (source: CaptureSourceState): string => {
+  if (source.deviceFamily === 'remus_blade') {
+    const side =
+      source.sensorPlacement === 'left_paddle'
+        ? t('blade.sideLeft')
+        : source.sensorPlacement === 'right_paddle'
+          ? t('blade.sideRight')
+          : null;
+    if (side) {
+      return `Remus Blade · ${side}`;
+    }
+    const rawId = source.deviceSerialNumber ?? source.sourceId.replace('blade:', '');
+    if (rawId && rawId !== 'rbp1:primary' && rawId !== 'primary') {
+      return `Remus Blade · ${rawId}`;
+    }
+    return 'Remus Blade P1';
+  }
+  if (source.deviceFamily === 'remus_computer') {
+    const rawId = source.deviceSerialNumber ?? source.sourceId.replace('computer:', '');
+    if (rawId && rawId !== 'primary') {
+      return `Remus Computer · ${rawId}`;
+    }
+    return 'Remus Computer';
+  }
   const names: Record<string, string> = {
     iphone: 'Este iPhone',
     android_phone: 'Este Android',
-    remus_blade: 'Remus Blade P1',
     apple_watch: 'Apple Watch',
     wear_os: 'Wear OS',
   };

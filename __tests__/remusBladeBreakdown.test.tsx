@@ -207,4 +207,53 @@ describe('RemusBladeBreakdown (TDD)', () => {
     });
     expect(onConnect).toHaveBeenCalledTimes(1);
   });
+
+  it('renders blade placement options and calls onSelectPlacement when tapped', () => {
+    const onSelectPlacement = jest.fn();
+    let renderer: ReactTestRenderer.ReactTestRenderer;
+    act(() => {
+      renderer = ReactTestRenderer.create(
+        <RemusBladeBreakdown
+          readiness={mockReadiness}
+          snapshot={mockSnapshot}
+          connectionState="connected"
+          placement="paddle"
+          onSelectPlacement={onSelectPlacement}
+        />,
+      );
+    });
+
+    const leftPaddleBtn = renderer!.root.findByProps({testID: 'blade-placement-left'});
+    const rightPaddleBtn = renderer!.root.findByProps({testID: 'blade-placement-right'});
+
+    expect(leftPaddleBtn).toBeTruthy();
+    expect(rightPaddleBtn).toBeTruthy();
+
+    act(() => {
+      leftPaddleBtn.props.onPress();
+    });
+    expect(onSelectPlacement).toHaveBeenCalledWith('left_paddle');
+
+    act(() => {
+      rightPaddleBtn.props.onPress();
+    });
+    expect(onSelectPlacement).toHaveBeenCalledWith('right_paddle');
+  });
+
+  it('does not render blade placement options when placement is hull (Remus Computer)', () => {
+    let renderer: ReactTestRenderer.ReactTestRenderer;
+    act(() => {
+      renderer = ReactTestRenderer.create(
+        <RemusBladeBreakdown
+          readiness={mockReadiness}
+          snapshot={mockSnapshot}
+          connectionState="connected"
+          placement="hull"
+        />,
+      );
+    });
+
+    expect(renderer!.root.findAllByProps({testID: 'blade-placement-left'})).toHaveLength(0);
+    expect(renderer!.root.findAllByProps({testID: 'blade-placement-right'})).toHaveLength(0);
+  });
 });

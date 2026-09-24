@@ -78,6 +78,9 @@ export const translations = {
     'blade.detected': 'Pá detectada',
     'blade.disconnectAction': 'Desconectar pá',
     'blade.connectAction': 'Conectar pá',
+    'blade.placementTitle': 'Lado da pá',
+    'blade.sideLeft': 'Pá Esquerda',
+    'blade.sideRight': 'Pá Direita',
     // Flow 03 / 04 - Active Capture & Events
     'active.recording': 'GRAVANDO',
     'active.metric.strokeRate': 'VOGA',
@@ -279,6 +282,9 @@ export const translations = {
     'blade.detected': 'Blade detected',
     'blade.disconnectAction': 'Disconnect blade',
     'blade.connectAction': 'Connect blade',
+    'blade.placementTitle': 'Paddle side',
+    'blade.sideLeft': 'Left Paddle',
+    'blade.sideRight': 'Right Paddle',
     // Flow 03 / 04 - Active Capture & Events
     'active.recording': 'RECORDING',
     'active.metric.strokeRate': 'STROKE RATE',
