@@ -23,7 +23,7 @@ final class RemusEvidenceStore {
   private struct ActiveRecording {
     let activityId: String
     let activityCorrelationId: String
-    let recordingIdsBySource: [String: String]
+    var recordingIdsBySource: [String: String]
     let directory: URL
     let startedAtEpochMilliseconds: Int64
     var handles: [String: FileHandle]
@@ -107,6 +107,32 @@ final class RemusEvidenceStore {
     append(stream: "phoneMotion", sourceId: "phone:primary", payload: payload)
   }
 
+  func appendSourceLifecycleEvent(
+    sourceId: String,
+    event: String,
+    reason: String?,
+    elapsedSeconds: Double
+  ) {
+    queue.async { [weak self] in
+      guard let self, let recording = self.active else { return }
+      var payload: [String: Any] = [
+        "type": event,
+        "sourceId": sourceId,
+        "elapsedSeconds": elapsedSeconds,
+        "timestampEpochMilliseconds": self.epochMilliseconds(),
+      ]
+      if let recordingId = recording.recordingIdsBySource[sourceId] {
+        payload["recordingId"] = recordingId
+      }
+      if let reason { payload["reason"] = reason }
+      do {
+        try self.appendOnQueue(stream: "lifecycle", payload: payload)
+      } catch {
+        self.recordFailureOnQueue(error)
+      }
+    }
+  }
+
   func appendPhoneLocation(_ payload: [String: Any]) {
     append(stream: "phoneLocation", sourceId: "phone:primary", payload: payload)
   }
@@ -114,15 +140,20 @@ final class RemusEvidenceStore {
   func appendWatchHeartRate(_ payload: [String: Any]) {
     queue.async { [weak self] in
       guard let self, var recording = self.active else { return }
+      let sourceId = "watch:apple:primary"
       if let messageId = payload["messageId"] as? String {
         guard !recording.watchMessageIds.contains(messageId) else { return }
         recording.watchMessageIds.insert(messageId)
-        self.active = recording
       }
+      if recording.recordingIdsBySource[sourceId] == nil {
+        recording.recordingIdsBySource[sourceId] = "recording:\(UUID().uuidString.lowercased())"
+      }
+      self.active = recording
       do {
+        try self.writeManifestOnQueue(status: "recording", endedAt: nil, parts: nil)
         try self.appendOnQueue(
           stream: "watchHeartRate",
-          sourceId: "watch:apple:primary",
+          sourceId: sourceId,
           payload: payload
         )
       } catch {
@@ -131,26 +162,62 @@ final class RemusEvidenceStore {
     }
   }
 
-  func appendRemusBladeLive(rawCsv: String, rawBase64: String, deviceId: String, receivedAt: Int64) {
-    let candidateId = deviceId.hasPrefix("blade:") || deviceId.hasPrefix("rbp1:")
-      ? deviceId
-      : "blade:\(deviceId)"
-    let sourceId: String
-    if let active = self.active, active.recordingIdsBySource[candidateId] != nil {
-      sourceId = candidateId
-    } else if let active = self.active, active.recordingIdsBySource["rbp1:primary"] != nil {
-      sourceId = "rbp1:primary"
-    } else {
-      sourceId = candidateId
+  func appendRemusBladeLive(
+    rawCsv: String,
+    rawBase64: String,
+    deviceId: String,
+    deviceName: String,
+    characteristicUuid: String,
+    receivedAt: Int64
+  ) {
+    queue.async { [weak self] in
+      guard let self, var recording = self.active else { return }
+      let identitySuffix = ":\(deviceId)"
+      let exactSourceIds = recording.recordingIdsBySource.keys.filter {
+        $0 == deviceId || $0.hasSuffix(identitySuffix)
+      }
+      let normalizedName = deviceName.uppercased()
+      let isComputer = normalizedName.contains("COMPUTER") ||
+        normalizedName.contains("CMP") ||
+        normalizedName.contains("REMUS-PC") ||
+        normalizedName.contains("REMUS-P1") ||
+        normalizedName.contains("REMUS-P2") ||
+        normalizedName.contains("REMUS-PR1") ||
+        normalizedName.contains("REMUS-PR2")
+      let derivedSourceId = "\(isComputer ? "computer" : "blade"):\(deviceId)"
+      let sourceId = exactSourceIds.count == 1 ? exactSourceIds[0] : derivedSourceId
+
+      // A device may connect after the phone recording has already started.
+      // Give it an explicit source recording instead of persisting orphaned
+      // packets whose recordingId is absent.
+      let addedSourceRecording = recording.recordingIdsBySource[sourceId] == nil
+      if addedSourceRecording {
+        recording.recordingIdsBySource[sourceId] = "recording:\(UUID().uuidString.lowercased())"
+        self.active = recording
+      }
+
+      do {
+        if addedSourceRecording {
+          try self.writeManifestOnQueue(status: "recording", endedAt: nil, parts: nil)
+        }
+        try self.appendOnQueue(
+          stream: "remusBladeLive",
+          sourceId: sourceId,
+          payload: [
+            "rawCsv": rawCsv,
+            "rawBase64": rawBase64,
+            "deviceId": deviceId,
+            "deviceName": deviceName,
+            "characteristicUuid": characteristicUuid,
+            "receivedAtEpochMilliseconds": receivedAt,
+            "schemaVersion": "1.0.0",
+            "sourceId": sourceId
+          ]
+        )
+      } catch {
+        self.recordFailureOnQueue(error)
+      }
     }
-    append(stream: "remusBladeLive", sourceId: sourceId, payload: [
-      "rawCsv": rawCsv,
-      "rawBase64": rawBase64,
-      "deviceId": deviceId,
-      "receivedAtEpochMilliseconds": receivedAt,
-      "schemaVersion": "1.0.0",
-      "sourceId": sourceId
-    ])
   }
 
   func snapshot() -> [String: Any] {

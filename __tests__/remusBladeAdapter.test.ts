@@ -1,4 +1,3 @@
-import { Buffer } from 'buffer';
 import { NativeEventEmitter } from 'react-native';
 
 jest.mock('react-native', () => {
@@ -18,12 +17,19 @@ jest.mock('react-native', () => {
 
 import {
   RemusBladeAdapter,
+  parseBladeIdentityHash,
   REMUS_BLADE_SERVICE_UUID,
   REMUS_BLADE_CHARACTERISTIC_UUID,
   NativeBladeBridge,
 } from '../src/services/blade/RemusBladeAdapter';
 
 describe('RemusBladeAdapter (TDD)', () => {
+  it('extracts only the full stable 32-bit identity advertised by a Blade', () => {
+    expect(parseBladeIdentityHash('REMUS-BLD-A1B2C3D4')).toBe(0xA1B2C3D4);
+    expect(parseBladeIdentityHash('REMUS-BLD-C3D4')).toBeNull();
+    expect(parseBladeIdentityHash('REMUS-P1-1234')).toBeNull();
+  });
+
   it('has canonical BLE UUIDs matching remus-sensor firmware', () => {
     expect(REMUS_BLADE_SERVICE_UUID).toBe('4fafc201-1fb5-459e-8fcc-c5c9c331914b');
     expect(REMUS_BLADE_CHARACTERISTIC_UUID).toBe('beb5483e-36e1-4688-b7f5-ea07361b26a8');
@@ -90,6 +96,24 @@ describe('RemusBladeAdapter (TDD)', () => {
       expect(parsed?.liveSpm).toBe(18.0);
     });
 
+    it('distinguishes durable records from queued records and live-stream drops', () => {
+      const raw = '3230168,-0.609,0.081,0.784,-4.52,1.73,-3.04,-15.749585,-47.869635,0.11,10/13:41:1.2m,345655,2250839,18.4,1,1,0,6,0,0,0.21,189.52657,42.69154,3,382304200,657898,1,12,1,6400,6398,2,0,0,3';
+
+      const parsed = adapter.parseSnapshotCsv(raw);
+
+      expect(parsed?.linesWritten).toBe(345655);
+      expect(parsed?.recordsQueued).toBe(657898);
+      expect(parsed?.storageWriteFailures).toBe(1);
+      expect(parsed?.liveStreamQueueDrops).toBe(12);
+      expect(parsed?.bladeRelayConnected).toBe(true);
+      expect(parsed?.bladeRelayNotificationsReceived).toBe(6400);
+      expect(parsed?.bladeRelayPacketsPersisted).toBe(6398);
+      expect(parsed?.bladeRelayQueueDrops).toBe(2);
+      expect(parsed?.bladeRelayWriteFailures).toBe(0);
+      expect(parsed?.bladeRelayStorageFault).toBe(false);
+      expect(parsed?.bladeRelayLiveDrops).toBe(3);
+    });
+
     it('returns null for corrupted or invalid CSV format', () => {
       expect(adapter.parseSnapshotCsv('')).toBeNull();
       expect(adapter.parseSnapshotCsv('corrupted,data')).toBeNull();
@@ -109,22 +133,93 @@ describe('RemusBladeAdapter (TDD)', () => {
         connectPeripheral: jest.fn().mockResolvedValue(true),
         disconnectPeripheral: jest.fn().mockResolvedValue(undefined),
         sendCommand: jest.fn().mockResolvedValue(true),
+        sendBinaryCommand: jest.fn().mockResolvedValue(true),
         addListener: jest.fn(),
         removeListeners: jest.fn(),
       };
       adapter = new RemusBladeAdapter("remus-blade:p1", "Remus Blade P1", mockBridge);
     });
 
-    it('sends START command to start 200 Hz recording on MicroSD', async () => {
+    it('sends the binary stream command to a Remus Blade', async () => {
       const result = await adapter.sendStart();
       expect(result).toBe(true);
-      expect(mockBridge.sendCommand).toHaveBeenCalledWith('START');
+      expect(mockBridge.sendBinaryCommand).toHaveBeenCalledWith(
+        'remus-blade:p1',
+        'AQEAAAAA',
+      );
+      expect(mockBridge.sendCommand).not.toHaveBeenCalled();
     });
 
-    it('sends STOP command to stop recording on MicroSD', async () => {
+    it('sends the binary stop-stream command to a Remus Blade', async () => {
       const result = await adapter.sendStop();
       expect(result).toBe(true);
-      expect(mockBridge.sendCommand).toHaveBeenCalledWith('STOP');
+      expect(mockBridge.sendBinaryCommand).toHaveBeenCalledWith(
+        'remus-blade:p1',
+        'AQIAAAAA',
+      );
+      expect(mockBridge.sendCommand).not.toHaveBeenCalled();
+    });
+
+    it('sends textual START and STOP commands only to a Remus Computer', async () => {
+      const computer = new RemusBladeAdapter(
+        'computer-123',
+        'REMUS-P1-123',
+        mockBridge,
+      );
+
+      await expect(computer.sendStart()).resolves.toBe(true);
+      await expect(computer.sendStop()).resolves.toBe(true);
+
+      expect(mockBridge.sendCommand).toHaveBeenNthCalledWith(
+        1,
+        'computer-123',
+        'START',
+      );
+      expect(mockBridge.sendCommand).toHaveBeenNthCalledWith(
+        2,
+        'computer-123',
+        'STOP',
+      );
+      expect(mockBridge.sendBinaryCommand).not.toHaveBeenCalled();
+    });
+
+    it('sends a stable identity and canonical side assignment to the Computer', async () => {
+      const computer = new RemusBladeAdapter(
+        'computer-123',
+        'REMUS-P1-123',
+        mockBridge,
+      );
+
+      await expect(computer.configureBladeSlot(0xA1B2C3D4, 'left_paddle')).resolves.toBe(true);
+      expect(mockBridge.sendCommand).toHaveBeenCalledWith(
+        'computer-123',
+        'BLADE_SLOT,L,A1B2C3D4',
+      );
+    });
+
+    it('rejects slot configuration on a Blade peripheral', async () => {
+      await expect(adapter.configureBladeSlot(0xA1B2C3D4, 'right_paddle')).resolves.toBe(false);
+      expect(mockBridge.sendCommand).not.toHaveBeenCalled();
+    });
+
+    it('publishes the two Blades reported by a Computer roster', () => {
+      const computer = new RemusBladeAdapter(
+        'computer-123',
+        'REMUS-P1-123',
+        mockBridge,
+      );
+      const rosterSpy = jest.fn();
+      computer.onBladeRoster(rosterSpy);
+
+      computer.handleSnapshotPayload({
+        deviceId: 'computer-123',
+        rawCsv: 'BLADE_ROSTER,3,A1B2C3D4:1:L,55667788:1:R',
+      });
+
+      expect(rosterSpy).toHaveBeenCalledWith([
+        { sourceIdentityHash: 0xA1B2C3D4, connected: true, assignedSide: 'left_paddle' },
+        { sourceIdentityHash: 0x55667788, connected: true, assignedSide: 'right_paddle' },
+      ]);
     });
 
     it('emits SensorSample when bridge receives onRemusBladeSnapshot', async () => {
@@ -192,8 +287,8 @@ describe('RemusBladeAdapter (TDD)', () => {
         connectPeripheral: jest.fn().mockResolvedValue(true),
       };
       const connectAdapter = new RemusBladeAdapter("remus-blade:p1", "Remus Blade P1", connectBridge as any);
-      const res = await connectAdapter.connect('blade-123');
-      expect(connectBridge.connectPeripheral).toHaveBeenCalledWith('blade-123');
+      const res = await connectAdapter.connect();
+      expect(connectBridge.connectPeripheral).toHaveBeenCalledWith('remus-blade:p1');
       expect(res).toBe(true);
     });
 
@@ -217,128 +312,12 @@ describe('RemusBladeAdapter (TDD)', () => {
       );
     });
 
-    it('sends GET command and receives binary file chunks until FILE_END', async () => {
-      const emitter = new NativeEventEmitter();
-      mockBridge = {
-        sendCommand: jest.fn().mockResolvedValue(true),
-      };
-      adapter = new RemusBladeAdapter("remus-blade:p1", "Remus Blade P1", mockBridge as any);
-      await adapter.initialize();
+    it('does not request slow BLE file transfer when live evidence is authoritative', async () => {
+      const result = await adapter.downloadSessionFile();
 
-      const progressSpy = jest.fn();
-      const downloadPromise = adapter.downloadSessionFile(progressSpy);
-      expect(mockBridge.sendCommand).toHaveBeenCalledWith('GET');
-
-      // 1. FILE_START
-      (emitter as any).emit("onRemusBladeSnapshot", { deviceId: "remus-blade:p1", 
-        rawCsv: 'FILE_START:/remus_sensor_1234.bin:34:2',
-      });
-
-      // 2. Binary chunk 1 (0x20 + offset + len + 34 bytes)
-      const chunk = Buffer.alloc(7 + 34);
-      chunk.writeUInt8(0x20, 0);
-      chunk.writeUInt32LE(0, 1);
-      chunk.writeUInt16LE(34, 5);
-      chunk.write('RBP1', 7, 4, 'ascii');
-
-      (emitter as any).emit("onRemusBladeSnapshot", { deviceId: "remus-blade:p1", 
-        rawBase64: chunk.toString('base64'),
-      });
-
-      expect(progressSpy).toHaveBeenCalledWith(100, 34, 34);
-
-      // 3. FILE_END
-      (emitter as any).emit("onRemusBladeSnapshot", { deviceId: "remus-blade:p1", 
-        rawCsv: 'FILE_END:/remus_sensor_1234.bin:34',
-      });
-
-      const result = await downloadPromise;
-      expect(result.filename).toBe('/remus_sensor_1234.bin');
-      expect(result.data.length).toBe(34);
-    });
-
-    it('handles FILE_ERR gracefully and rejects download promise', async () => {
-      const emitter = new NativeEventEmitter();
-      mockBridge = {
-        sendCommand: jest.fn().mockResolvedValue(true),
-      };
-      adapter = new RemusBladeAdapter("remus-blade:p1", "Remus Blade P1", mockBridge as any);
-      await adapter.initialize();
-
-      const downloadPromise = adapter.downloadSessionFile();
-      (emitter as any).emit("onRemusBladeSnapshot", { deviceId: "remus-blade:p1", 
-        rawCsv: 'FILE_ERR:NOT_FOUND',
-      });
-
-      await expect(downloadPromise).rejects.toThrow('NOT_FOUND');
-    });
-
-    it('does not count a repeated offset twice and verifies the final CRC32', async () => {
-      const emitter = new NativeEventEmitter();
-      mockBridge = { sendCommand: jest.fn().mockResolvedValue(true) };
-      adapter = new RemusBladeAdapter("remus-blade:p1", "Remus Blade P1", mockBridge as any);
-      await adapter.initialize();
-
-      const payload = Buffer.alloc(32);
-      payload.write('RBP2', 0, 4, 'ascii');
-      const crc = (() => {
-        /* eslint-disable no-bitwise -- mirrors the firmware CRC32 contract. */
-        let value = 0xffffffff;
-        for (const byte of payload) {
-          value ^= byte;
-          for (let bit = 0; bit < 8; bit += 1) {
-            value = (value >>> 1) ^ (0xedb88320 & -(value & 1));
-          }
-        }
-        const result = (~value) >>> 0;
-        /* eslint-enable no-bitwise */
-        return result;
-      })();
-      const progressSpy = jest.fn();
-      const downloadPromise = adapter.downloadSessionFile(progressSpy);
-      (emitter as any).emit("onRemusBladeSnapshot", { deviceId: "remus-blade:p1", 
-        rawCsv: 'FILE_START:/session.bin:32:0',
-      });
-      const chunk = Buffer.alloc(39);
-      chunk.writeUInt8(0x20, 0);
-      chunk.writeUInt32LE(0, 1);
-      chunk.writeUInt16LE(32, 5);
-      payload.copy(chunk, 7);
-      const rawBase64 = chunk.toString('base64');
-      (emitter as any).emit("onRemusBladeSnapshot", { deviceId: "remus-blade:p1",  rawBase64 });
-      (emitter as any).emit("onRemusBladeSnapshot", { deviceId: "remus-blade:p1",  rawBase64 });
-      (emitter as any).emit("onRemusBladeSnapshot", { deviceId: "remus-blade:p1", 
-        rawCsv: `FILE_END:/session.bin:32:${crc.toString(16).padStart(8, '0')}`,
-      });
-
-      const result = await downloadPromise;
-      expect(result.data.equals(payload)).toBe(true);
-      expect(progressSpy).toHaveBeenLastCalledWith(100, 32, 32);
-    });
-
-    it('rejects FILE_END when byte coverage is incomplete', async () => {
-      const emitter = new NativeEventEmitter();
-      mockBridge = { sendCommand: jest.fn().mockResolvedValue(true) };
-      adapter = new RemusBladeAdapter("remus-blade:p1", "Remus Blade P1", mockBridge as any);
-      await adapter.initialize();
-
-      const downloadPromise = adapter.downloadSessionFile();
-      (emitter as any).emit("onRemusBladeSnapshot", { deviceId: "remus-blade:p1", 
-        rawCsv: 'FILE_START:/session.bin:32:0',
-      });
-      const chunk = Buffer.alloc(7 + 4);
-      chunk.writeUInt8(0x20, 0);
-      chunk.writeUInt32LE(0, 1);
-      chunk.writeUInt16LE(4, 5);
-      chunk.write('RBP2', 7, 4, 'ascii');
-      (emitter as any).emit("onRemusBladeSnapshot", { deviceId: "remus-blade:p1", 
-        rawBase64: chunk.toString('base64'),
-      });
-      (emitter as any).emit("onRemusBladeSnapshot", { deviceId: "remus-blade:p1", 
-        rawCsv: 'FILE_END:/session.bin:32',
-      });
-
-      await expect(downloadPromise).rejects.toThrow('INCOMPLETE_TRANSFER');
+      expect(result.filename).toBe('');
+      expect(result.data).toHaveLength(0);
+      expect(mockBridge.sendCommand).not.toHaveBeenCalled();
     });
   });
 });

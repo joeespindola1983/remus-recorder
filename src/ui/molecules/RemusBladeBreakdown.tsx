@@ -19,6 +19,7 @@ export interface RemusBladeBreakdownProps {
   onSelectPlacement?: (placement: SensorPlacement) => void;
   onDisconnect?: () => void;
   onConnect?: () => void;
+  onCalibrateAlignment?: () => void;
 }
 
 export function RemusBladeBreakdown({
@@ -29,6 +30,7 @@ export function RemusBladeBreakdown({
   onSelectPlacement,
   onDisconnect,
   onConnect,
+  onCalibrateAlignment,
 }: RemusBladeBreakdownProps): React.JSX.Element {
   const isConnected = connectionState === 'connected';
   const isDetected = connectionState === 'detected';
@@ -228,6 +230,16 @@ export function RemusBladeBreakdown({
 
       {/* Action Footer */}
       <View style={styles.actions}>
+        {placement === 'hull' && isConnected && onCalibrateAlignment && (
+          <TouchableOpacity
+            testID="blade-calibrate-alignment-button"
+            style={styles.actionButton}
+            onPress={onCalibrateAlignment}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.actionButtonText}>{t('blade.calibrateAlignmentAction')}</Text>
+          </TouchableOpacity>
+        )}
         {isConnected && onDisconnect && (
           <TouchableOpacity
             testID="blade-disconnect-button"
@@ -240,7 +252,7 @@ export function RemusBladeBreakdown({
             </Text>
           </TouchableOpacity>
         )}
-        {isDetected && onConnect && (
+        {!isConnected && onConnect && (
           <TouchableOpacity
             testID="blade-connect-button"
             style={styles.actionButton}

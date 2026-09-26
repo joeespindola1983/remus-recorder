@@ -2,13 +2,19 @@
  * @format
  */
 
-import { Buffer } from 'buffer';
 import React from 'react';
 import { Alert, NativeEventEmitter, NativeModules, Text } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 import App from '../App';
-import { RemusBladeDeviceService } from '../src/services/blade/RemusBladeDeviceService';
 import { RecordingService } from '../src/services/recording/RecordingService';
+
+const mountedRenderers = new Set<ReactTestRenderer.ReactTestRenderer>();
+
+const renderApp = (): ReactTestRenderer.ReactTestRenderer => {
+  const renderer = ReactTestRenderer.create(<App />);
+  mountedRenderers.add(renderer);
+  return renderer;
+};
 
 beforeEach(() => {
   NativeModules.RemusRecordingBridge = {
@@ -53,15 +59,23 @@ beforeEach(() => {
     connectPeripheral: jest.fn().mockResolvedValue(true),
     disconnectPeripheral: jest.fn().mockResolvedValue(undefined),
     sendCommand: jest.fn().mockResolvedValue(true),
+    sendBinaryCommand: jest.fn().mockResolvedValue(true),
     addListener: jest.fn(),
     removeListeners: jest.fn(),
   };
 });
 
+afterEach(async () => {
+  await ReactTestRenderer.act(async () => {
+    mountedRenderers.forEach(renderer => renderer.unmount());
+    mountedRenderers.clear();
+  });
+});
+
 test('renders a source-agnostic ready state', async () => {
   let renderer!: ReactTestRenderer.ReactTestRenderer;
   await ReactTestRenderer.act(async () => {
-    renderer = ReactTestRenderer.create(<App />);
+    renderer = renderApp();
   });
 
   expect(
@@ -103,7 +117,7 @@ test('renders a source-agnostic ready state', async () => {
 test('dynamically discovers Remus Blade on BLE event', async () => {
   let renderer!: ReactTestRenderer.ReactTestRenderer;
   await ReactTestRenderer.act(async () => {
-    renderer = ReactTestRenderer.create(<App />);
+    renderer = renderApp();
   });
 
   const emitter = new NativeEventEmitter(NativeModules.RemusBladeBridge);
@@ -122,10 +136,49 @@ test('dynamically discovers Remus Blade on BLE event', async () => {
   ).toHaveLength(1);
 });
 
+test('creates recording identities for connected raw-stream Blades before START', async () => {
+  let renderer!: ReactTestRenderer.ReactTestRenderer;
+  await ReactTestRenderer.act(async () => {
+    renderer = renderApp();
+  });
+
+  const emitter = new NativeEventEmitter(NativeModules.RemusBladeBridge);
+  await ReactTestRenderer.act(async () => {
+    (emitter as any).emit('onRemusBladeStateChanged', {
+      state: 'detected',
+      deviceId: '7E5A',
+      deviceName: 'REMUS-BLD-7E5A',
+    });
+    (emitter as any).emit('onRemusBladeStateChanged', {
+      state: 'connected',
+      deviceId: '7E5A',
+      deviceName: 'REMUS-BLD-7E5A',
+    });
+  });
+
+  await ReactTestRenderer.act(async () => {
+    renderer.root
+      .findByProps({ accessibilityLabel: 'Iniciar atividade' })
+      .props.onPress();
+  });
+
+  expect(NativeModules.RemusRecordingBridge.startRecording).toHaveBeenCalledWith({
+    sourceIds: expect.arrayContaining(['phone:primary', 'blade:7E5A']),
+  });
+  expect(NativeModules.RemusBladeBridge.sendBinaryCommand).toHaveBeenCalledWith(
+    '7E5A',
+    'AQEAAAAA',
+  );
+
+  await ReactTestRenderer.act(async () => {
+    renderer.unmount();
+  });
+});
+
 test('moves from ready through recording to a preserved summary', async () => {
   let renderer!: ReactTestRenderer.ReactTestRenderer;
   await ReactTestRenderer.act(async () => {
-    renderer = ReactTestRenderer.create(<App />);
+    renderer = renderApp();
   });
 
   await ReactTestRenderer.act(async () => {
@@ -159,7 +212,7 @@ test('moves from ready through recording to a preserved summary', async () => {
 test('handles requesting phone permissions from ready screen without error', async () => {
   let renderer!: ReactTestRenderer.ReactTestRenderer;
   await ReactTestRenderer.act(async () => {
-    renderer = ReactTestRenderer.create(<App />);
+    renderer = renderApp();
   });
 
   const readyScreenNode = renderer.root.find(
@@ -188,7 +241,7 @@ test('automatically requests permissions on launch when undetermined', async () 
     .mockResolvedValue('granted');
 
   await ReactTestRenderer.act(async () => {
-    ReactTestRenderer.create(<App />);
+    renderApp();
   });
 
   expect(
@@ -203,7 +256,7 @@ test('alerts athlete when permissions are denied', async () => {
     .mockResolvedValue('denied');
 
   await ReactTestRenderer.act(async () => {
-    ReactTestRenderer.create(<App />);
+    renderApp();
   });
 
   expect(alertSpy).toHaveBeenCalledWith(
@@ -215,7 +268,7 @@ test('alerts athlete when permissions are denied', async () => {
 test('allows exporting recorded activity evidence zip from summary screen', async () => {
   let renderer!: ReactTestRenderer.ReactTestRenderer;
   await ReactTestRenderer.act(async () => {
-    renderer = ReactTestRenderer.create(<App />);
+    renderer = renderApp();
   });
 
   await ReactTestRenderer.act(async () => {
@@ -246,54 +299,6 @@ test('allows exporting recorded activity evidence zip from summary screen', asyn
   });
 });
 
-test('downloads and saves blade session binary when blade is connected on stop', async () => {
-  const connSpy = jest
-    .spyOn(RemusBladeDeviceService.prototype, 'getConnectionState')
-    .mockReturnValue('connected');
-  const downloadSpy = jest
-    .spyOn(RemusBladeDeviceService.prototype, 'downloadSessionFile')
-    .mockImplementation(async onProgress => {
-      if (typeof onProgress === "function") { (onProgress as any)(100, 32, 32); }
-      // Minimal valid RBP1B buffer: 32 bytes header
-      const buf = Buffer.alloc(32);
-      buf.write('RBP1B', 0, 'ascii');
-      buf.writeUInt8(1, 5);
-      return {
-        filename: 'remus_sensor_123.bin',
-        data: buf,
-      };
-    });
-
-  let renderer!: ReactTestRenderer.ReactTestRenderer;
-  await ReactTestRenderer.act(async () => {
-    renderer = ReactTestRenderer.create(<App />);
-  });
-
-  await ReactTestRenderer.act(async () => {
-    renderer.root
-      .findByProps({ accessibilityLabel: 'Iniciar atividade' })
-      .props.onPress();
-  });
-
-  await ReactTestRenderer.act(async () => {
-    renderer.root
-      .findByProps({ accessibilityLabel: 'Finalizar atividade' })
-      .props.onPress();
-  });
-
-  expect(downloadSpy).toHaveBeenCalled();
-  expect(
-    NativeModules.RemusRecordingBridge.saveBladeRawBinary,
-  ).toHaveBeenCalledWith(
-    'activity:test',
-    expect.any(String),
-    expect.any(String),
-  );
-
-  connSpy.mockRestore();
-  downloadSpy.mockRestore();
-});
-
 test('suppresses pace when speed is below 0.8 m/s and formats pace above threshold', async () => {
   let updateListener: ((projection: any) => void) | undefined;
   const onUpdateSpy = jest
@@ -305,7 +310,7 @@ test('suppresses pace when speed is below 0.8 m/s and formats pace above thresho
 
   let renderer!: ReactTestRenderer.ReactTestRenderer;
   await ReactTestRenderer.act(async () => {
-    renderer = ReactTestRenderer.create(<App />);
+    renderer = renderApp();
   });
 
   await ReactTestRenderer.act(async () => {
@@ -353,24 +358,20 @@ test('suppresses pace when speed is below 0.8 m/s and formats pace above thresho
   onUpdateSpy.mockRestore();
 });
 
-test('updates stroke rate from blade snapshot and resets when SPM is 0', async () => {
-  let stateChangeListener: ((state: any) => void) | undefined;
-  let currentSnapshot: any = null;
-
-  const onStateSpy = jest
-    .spyOn(RemusBladeDeviceService.prototype, 'onStateChange')
-    .mockImplementation(listener => {
-      stateChangeListener = listener;
-      return () => undefined;
-    });
-
-  const getSnapshotSpy = jest
-    .spyOn(RemusBladeDeviceService.prototype, 'getLatestSnapshot')
-    .mockImplementation(() => currentSnapshot);
-
+test('updates stroke rate only from Remus Computer snapshots', async () => {
   let renderer!: ReactTestRenderer.ReactTestRenderer;
   await ReactTestRenderer.act(async () => {
-    renderer = ReactTestRenderer.create(<App />);
+    renderer = renderApp();
+  });
+
+  await ReactTestRenderer.act(async () => {
+    const emitter = new NativeEventEmitter(NativeModules.RemusBladeBridge);
+    (emitter as any).emit('onRemusBladeStateChanged', {
+      state: 'connected',
+      deviceId: 'PC01',
+      deviceName: 'REMUS-P1-PC01',
+    });
+    await Promise.resolve();
   });
 
   await ReactTestRenderer.act(async () => {
@@ -379,12 +380,13 @@ test('updates stroke rate from blade snapshot and resets when SPM is 0', async (
       .props.onPress();
   });
 
-  // Emitting positive SPM (e.g. 28 SPM)
-  currentSnapshot = { liveSpm: 28 };
   await ReactTestRenderer.act(async () => {
-    if (stateChangeListener) {
-      stateChangeListener({});
-    }
+    const emitter = new NativeEventEmitter(NativeModules.RemusBladeBridge);
+    (emitter as any).emit('onRemusBladeSnapshot', {
+      deviceId: 'PC01',
+      deviceName: 'REMUS-P1-PC01',
+      rawCsv: '124456,0.012,-0.045,0.982,1.20,-0.40,0.15,,,,0/4:18:0.0m,120,480,28.0,1,1',
+    });
   });
 
   expect(
@@ -392,12 +394,13 @@ test('updates stroke rate from blade snapshot and resets when SPM is 0', async (
       .props.children,
   ).toBe('28');
 
-  // Emitting zero SPM (stopped)
-  currentSnapshot = { liveSpm: 0 };
   await ReactTestRenderer.act(async () => {
-    if (stateChangeListener) {
-      stateChangeListener({});
-    }
+    const emitter = new NativeEventEmitter(NativeModules.RemusBladeBridge);
+    (emitter as any).emit('onRemusBladeSnapshot', {
+      deviceId: 'PC01',
+      deviceName: 'REMUS-P1-PC01',
+      rawCsv: '125456,0.012,-0.045,0.982,1.20,-0.40,0.15,,,,0/4:18:0.0m,121,481,0.0,1,1',
+    });
   });
 
   expect(
@@ -408,8 +411,63 @@ test('updates stroke rate from blade snapshot and resets when SPM is 0', async (
   await ReactTestRenderer.act(async () => {
     renderer.unmount();
   });
-
-  onStateSpy.mockRestore();
-  getSnapshotSpy.mockRestore();
 });
 
+test('marks an active Remus source interrupted when telemetry becomes unavailable and recovers it on the next snapshot', async () => {
+  NativeModules.RemusRecordingBridge.startRecording.mockResolvedValueOnce({
+    activityId: 'activity:test',
+    activityCorrelationId: 'correlation:test',
+    recordingIdsBySource: {
+      'phone:primary': 'recording:phone:test',
+      'computer:PC01': 'recording:computer:test',
+    },
+    artifactDirectory: '/tmp/remus-test',
+  });
+  let renderer!: ReactTestRenderer.ReactTestRenderer;
+  await ReactTestRenderer.act(async () => {
+    renderer = renderApp();
+  });
+
+  const emitter = new NativeEventEmitter(NativeModules.RemusBladeBridge);
+  await ReactTestRenderer.act(async () => {
+    (emitter as any).emit('onRemusBladeStateChanged', {
+      state: 'connected',
+      deviceId: 'PC01',
+      deviceName: 'REMUS-P1-PC01',
+    });
+    await Promise.resolve();
+    (emitter as any).emit('onRemusBladeSnapshot', {
+      deviceId: 'PC01',
+      deviceName: 'REMUS-P1-PC01',
+      rawCsv: '124456,0.012,-0.045,0.982,1.20,-0.40,0.15,,,,0/4:18:0.0m,120,480,28.0,1,1',
+    });
+  });
+
+  await ReactTestRenderer.act(async () => {
+    await renderer.root.findByProps({accessibilityLabel: 'Iniciar atividade'}).props.onPress();
+  });
+  await ReactTestRenderer.act(async () => {
+    (emitter as any).emit('onRemusBladeStateChanged', {
+      state: 'disconnected',
+      deviceId: 'PC01',
+      deviceName: 'REMUS-P1-PC01',
+    });
+  });
+  expect(
+    renderer.root.findByProps({accessibilityRole: 'alert'}),
+  ).toBeTruthy();
+
+  await ReactTestRenderer.act(async () => {
+    (emitter as any).emit('onRemusBladeStateChanged', {
+      state: 'connected',
+      deviceId: 'PC01',
+      deviceName: 'REMUS-P1-PC01',
+    });
+    (emitter as any).emit('onRemusBladeSnapshot', {
+      deviceId: 'PC01',
+      deviceName: 'REMUS-P1-PC01',
+      rawCsv: '128456,0.012,-0.045,0.982,1.20,-0.40,0.15,,,,0/4:18:0.0m,121,481,29.0,1,1',
+    });
+  });
+  expect(renderer.root.findAllByProps({accessibilityRole: 'alert'})).toHaveLength(0);
+});

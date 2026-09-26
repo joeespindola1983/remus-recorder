@@ -164,7 +164,7 @@ describe('RemusBladeBreakdown (TDD)', () => {
     expect(onDisconnect).toHaveBeenCalledTimes(1);
   });
 
-  it('does not offer connection while no Blade is detected', () => {
+  it('keeps the connection action available after a Blade becomes unavailable', () => {
     const onConnect = jest.fn();
     let renderer: ReactTestRenderer.ReactTestRenderer;
     act(() => {
@@ -182,7 +182,11 @@ describe('RemusBladeBreakdown (TDD)', () => {
       );
     });
 
-    expect(renderer!.root.findAllByProps({testID: 'blade-connect-button'})).toHaveLength(0);
+    const connectBtn = renderer!.root.findByProps({testID: 'blade-connect-button'});
+    act(() => {
+      connectBtn.props.onPress();
+    });
+    expect(onConnect).toHaveBeenCalledTimes(1);
   });
 
   it('renders detected state and connects only after an explicit tap', () => {

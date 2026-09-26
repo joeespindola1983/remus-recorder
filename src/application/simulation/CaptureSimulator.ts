@@ -84,8 +84,9 @@ export type CaptureScenarioStep =
   | {
       type: 'interrupt_source';
       sourceId: string;
-      reason: Extract<CaptureFinalizationReason, 'power_depleted' | 'power_loss' | 'storage_exhausted'>;
+      reason: Extract<CaptureFinalizationReason, 'power_depleted' | 'power_loss' | 'telemetry_timeout' | 'storage_exhausted'>;
     }
+  | {type: 'recover_source'; sourceId: string}
   | {type: 'request_stop'}
   | {type: 'finalize_source'; sourceId: string; reason: CaptureFinalizationReason}
   | {
@@ -303,6 +304,18 @@ export const applyCaptureScenarioStep = (
           reason: step.reason,
         }),
         events: event(state, 'source_interrupted', {sourceId: step.sourceId}),
+      };
+    case 'recover_source':
+      requireSource(state, step.sourceId);
+      return {
+        ...state,
+        capture: activityCaptureReducer(state.capture, {
+          type: 'source_recovered',
+          sourceId: step.sourceId,
+          atElapsedSeconds: state.nowElapsedSeconds,
+        }),
+        sourceTransport: {...state.sourceTransport, [step.sourceId]: 'connected'},
+        events: event(state, 'source_reconnected', {sourceId: step.sourceId}),
       };
     case 'request_stop':
       return {

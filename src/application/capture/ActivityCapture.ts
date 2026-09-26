@@ -24,6 +24,7 @@ export type CaptureFinalizationReason =
   | 'control_lease_expired'
   | 'power_depleted'
   | 'power_loss'
+  | 'telemetry_timeout'
   | 'storage_exhausted';
 
 export interface SourceCoverageSegment {
@@ -86,8 +87,13 @@ export type ActivityCaptureEvent =
       atElapsedSeconds: number;
       reason: Extract<
         CaptureFinalizationReason,
-        'power_depleted' | 'power_loss' | 'storage_exhausted'
+        'power_depleted' | 'power_loss' | 'telemetry_timeout' | 'storage_exhausted'
       >;
+    }
+  | {
+      type: 'source_recovered';
+      sourceId: string;
+      atElapsedSeconds: number;
     }
   | { type: 'stop_requested' }
   | {
@@ -196,6 +202,31 @@ export const activityCaptureReducer = (
               source.coverageSegments,
               event.atElapsedSeconds,
             ),
+          },
+        },
+      };
+    }
+    case 'source_recovered': {
+      const source = state.sources[event.sourceId];
+      if (
+        !source ||
+        state.phase !== 'recording' ||
+        source.recordingState !== 'interrupted' ||
+        source.finalizationReason !== 'telemetry_timeout'
+      ) return state;
+      return {
+        ...state,
+        sources: {
+          ...state.sources,
+          [event.sourceId]: {
+            ...source,
+            operationalState: 'capturing',
+            recordingState: 'recording',
+            finalizationReason: undefined,
+            coverageSegments: [
+              ...source.coverageSegments,
+              {startedAtElapsedSeconds: event.atElapsedSeconds},
+            ],
           },
         },
       };

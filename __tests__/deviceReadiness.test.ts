@@ -1,5 +1,6 @@
 import {
   batteryConditionFor,
+  deduplicateRemusBladeSources,
   describeSourceReadiness,
 } from '../src/ui/presentation/deviceReadiness';
 import { CaptureSourceState } from '../src/application/capture/ActivityCapture';
@@ -27,6 +28,33 @@ const source = (
 });
 
 describe('device readiness presentation', () => {
+  it('shows one Blade when direct discovery and Computer roster describe the same unit', () => {
+    const direct = source({
+      sourceId: 'blade:native-uuid',
+      deviceFamily: 'remus_blade',
+      deviceSerialNumber: 'REMUS-BLD-C3D4',
+      sensorPlacement: 'paddle',
+      readiness: {
+        sourceConnectionState: 'detected',
+        availableMeasurementIdentifiers: [],
+        liveTelemetryState: 'evaluation_pending',
+      },
+    });
+    const relayed = source({
+      sourceId: 'blade:a1b2c3d4',
+      deviceFamily: 'remus_blade',
+      deviceSerialNumber: 'REMUS-BLD-A1B2C3D4',
+      sensorPlacement: 'left_paddle',
+      readiness: {
+        sourceConnectionState: 'connected',
+        availableMeasurementIdentifiers: ['accelerationIncludingGravityG'],
+        liveTelemetryState: 'evaluation_pending',
+      },
+    });
+
+    expect(deduplicateRemusBladeSources([direct, relayed])).toEqual([relayed]);
+  });
+
   it('guides a wearable user to settings after heart-rate permission denial', () => {
     const wearable = source({
       deviceFamily: 'wear_os',

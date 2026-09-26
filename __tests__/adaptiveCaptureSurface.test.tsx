@@ -226,4 +226,30 @@ describe('adaptive active capture surface', () => {
     expect(paceStyle.lineHeight).toBeUndefined();
     expect(spmStyle.lineHeight).toBeUndefined();
   });
+
+  it('renders LiveBladeParityCell with parity metric and waveform container', async () => {
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <AdaptiveCaptureSurface
+          metrics={metrics}
+          onFinish={jest.fn()}
+          onPause={jest.fn()}
+          orientation="portrait"
+        />,
+      );
+    });
+
+    expect(
+      renderer.root.findByProps({
+        testID: 'metric-value-parityPercentage',
+      }),
+    ).toBeTruthy();
+    expect(
+      renderer.root.findByProps({
+        testID: 'blade-parity-graph',
+      }),
+    ).toBeTruthy();
+  });
 });
+

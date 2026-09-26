@@ -21,6 +21,7 @@ export interface DeviceReadinessRowProps {
   onDisconnectBlade?: () => void;
   onConnectBlade?: () => void;
   onSelectPlacement?: (placement: SensorPlacement) => void;
+  onCalibrateBladeAlignment?: () => void;
 }
 
 export function DeviceReadinessRow({
@@ -32,6 +33,7 @@ export function DeviceReadinessRow({
   onDisconnectBlade,
   onConnectBlade,
   onSelectPlacement,
+  onCalibrateBladeAlignment,
 }: DeviceReadinessRowProps): React.JSX.Element {
   const batteryLevelPercent = source.readiness?.batteryLevelPercent;
   const connected =
@@ -40,7 +42,9 @@ export function DeviceReadinessRow({
   const isPhone =
     source.deviceFamily === 'iphone' || source.deviceFamily === 'android_phone';
   const isBlade = source.deviceFamily === 'remus_blade';
-  const isExpandable = isPhone || isBlade;
+  const isComputer = source.deviceFamily === 'remus_computer';
+  const isRemus = isBlade || isComputer;
+  const isExpandable = isPhone || isRemus;
 
   const rowContent = (
     <View style={styles.row}>
@@ -83,7 +87,7 @@ export function DeviceReadinessRow({
           source={source}
         />
       ) : null}
-      {isBlade && isExpanded ? (
+      {isRemus && isExpanded ? (
         <RemusBladeBreakdown
           readiness={source.readiness}
           snapshot={bladeSnapshot}
@@ -98,6 +102,7 @@ export function DeviceReadinessRow({
           onSelectPlacement={onSelectPlacement}
           onDisconnect={onDisconnectBlade}
           onConnect={onConnectBlade}
+          onCalibrateAlignment={isComputer ? onCalibrateBladeAlignment : undefined}
         />
       ) : null}
     </View>

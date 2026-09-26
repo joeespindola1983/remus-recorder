@@ -31,6 +31,7 @@ describe('RemusBladeDeviceService (TDD)', () => {
       connectPeripheral: jest.fn().mockResolvedValue(true),
       disconnectPeripheral: jest.fn().mockResolvedValue(undefined),
       sendCommand: jest.fn().mockResolvedValue(true),
+      sendBinaryCommand: jest.fn().mockResolvedValue(true),
       addListener: jest.fn().mockReturnValue({ remove: jest.fn() }),
       removeListeners: jest.fn(),
     };
@@ -48,7 +49,7 @@ describe('RemusBladeDeviceService (TDD)', () => {
     expect(state.deviceFamily).toBe('remus_blade');
     expect(state.deviceModel).toBe('rbp1');
     expect(state.sensorPlacement).toBe('paddle');
-    expect(state.sourceId).toContain('rbp1');
+    expect(state.sourceId).toBe('blade:remus-blade:p1');
     expect(state.operationalState).toBe('unavailable');
     expect(state.readiness).toEqual({
       sourceConnectionState: 'unavailable',
@@ -87,10 +88,16 @@ describe('RemusBladeDeviceService (TDD)', () => {
       rawCsv: '124456,0.012,-0.045,0.982,1.20,-0.40,0.15,-23.550520,-46.633308,8.50,6/10:32:3.2m,120,480,24.5',
     });
     await service.startWorkoutCapture();
-    expect(mockBridge.sendCommand).toHaveBeenCalledWith('START');
+    expect(mockBridge.sendBinaryCommand).toHaveBeenCalledWith(
+      'remus-blade:p1',
+      'AQEAAAAA',
+    );
 
     await service.stopWorkoutCapture();
-    expect(mockBridge.sendCommand).toHaveBeenCalledWith('STOP');
+    expect(mockBridge.sendBinaryCommand).toHaveBeenCalledWith(
+      'remus-blade:p1',
+      'AQIAAAAA',
+    );
   });
 
   it('transitions to disconnected and marks source unavailable when hardware disconnects', async () => {
@@ -117,16 +124,16 @@ describe('RemusBladeDeviceService (TDD)', () => {
     );
   });
 
-  it('does not claim a connection before the first valid hardware snapshot', async () => {
+  it('keeps telemetry pending until the first valid hardware payload', async () => {
     await service.initialize();
 
     const emitter = new NativeEventEmitter();
     (emitter as any).emit("onRemusBladeStateChanged", { deviceId: "remus-blade:p1", state: 'connected' });
 
-    expect(service.getConnectionState()).toBe('connecting');
-    expect(service.getSourceState().operationalState).toBe('unavailable');
+    expect(service.getConnectionState()).toBe('connected');
+    expect(service.getSourceState().operationalState).toBe('available_idle');
     expect(service.getSourceState().readiness).toEqual({
-      sourceConnectionState: 'detected',
+      sourceConnectionState: 'connected',
       availableMeasurementIdentifiers: [],
       liveTelemetryState: 'evaluation_pending',
     });
@@ -148,6 +155,7 @@ describe('RemusBladeDeviceService (TDD)', () => {
 
     await expect(service.startWorkoutCapture()).resolves.toBe(false);
     expect(mockBridge.sendCommand).not.toHaveBeenCalled();
+    expect(mockBridge.sendBinaryCommand).not.toHaveBeenCalled();
     expect(service.getSourceState().operationalState).toBe('unavailable');
     expect(service.getSourceState().recordingState).toBeUndefined();
   });
@@ -212,34 +220,10 @@ describe('RemusBladeDeviceService (TDD)', () => {
     expect(service.getSourceState().readiness?.sourceConnectionState).toBe('detected');
   });
 
-  it('forwards downloadSessionFile to adapter', async () => {
-    await service.initialize();
-    const emitter = new NativeEventEmitter();
-    const progressSpy = jest.fn();
-
-    const downloadPromise = service.downloadSessionFile(progressSpy);
-
-    const file = Buffer.from('RBP2abcdef');
-    const chunk = Buffer.alloc(7 + file.length);
-    chunk[0] = 0x20;
-    chunk.writeUInt32LE(0, 1);
-    chunk.writeUInt16LE(file.length, 5);
-    file.copy(chunk, 7);
-
-    (emitter as any).emit("onRemusBladeSnapshot", { deviceId: "remus-blade:p1", 
-      rawCsv: `FILE_START:/remus_sensor_1.bin:${file.length}:1`,
-    });
-    (emitter as any).emit("onRemusBladeSnapshot", { deviceId: "remus-blade:p1", 
-      rawBase64: chunk.toString('base64'),
-    });
-    (emitter as any).emit("onRemusBladeSnapshot", { deviceId: "remus-blade:p1", 
-      rawCsv: `FILE_END:/remus_sensor_1.bin:${file.length}`,
-    });
-
-    const result = await downloadPromise;
-    expect(result.filename).toBe('/remus_sensor_1.bin');
-    expect(result.data).toEqual(file);
-    expect(progressSpy).toHaveBeenLastCalledWith(100, file.length, file.length);
+  it('keeps BLE file transfer disabled for long workouts', async () => {
+    const result = await service.downloadSessionFile();
+    expect(result.filename).toBe('');
+    expect(result.data).toHaveLength(0);
   });
 
   it('updates placement to left_paddle or right_paddle with user_declared provenance', () => {
@@ -285,6 +269,32 @@ describe('RemusBladeDeviceService (TDD)', () => {
     expect(service.getSourceState().deviceSerialNumber).toBe('REMUS-P1-FC84');
   });
 
+  it('uses textual workout commands for a Remus Computer', async () => {
+    adapter = new RemusBladeAdapter('FC84', 'REMUS-P1-FC84', mockBridge);
+    service = new RemusBladeDeviceService(adapter);
+    await service.initialize();
+    adapter.handleStatePayload({
+      state: 'connected',
+      deviceId: 'FC84',
+      deviceName: 'REMUS-P1-FC84',
+    });
+
+    await expect(service.startWorkoutCapture()).resolves.toBe(true);
+    await expect(service.stopWorkoutCapture()).resolves.toBe(true);
+
+    expect(mockBridge.sendCommand).toHaveBeenNthCalledWith(
+      1,
+      'FC84',
+      'START',
+    );
+    expect(mockBridge.sendCommand).toHaveBeenNthCalledWith(
+      2,
+      'FC84',
+      'STOP',
+    );
+    expect(mockBridge.sendBinaryCommand).not.toHaveBeenCalled();
+  });
+
   it('identifies Raspberry Pi Remus P2 as remus_computer', async () => {
     adapter = new RemusBladeAdapter("01A2", "REMUS-P2-01A2", mockBridge);
     service = new RemusBladeDeviceService(adapter);
@@ -300,4 +310,32 @@ describe('RemusBladeDeviceService (TDD)', () => {
     expect(service.getSourceState().deviceFamily).toBe('remus_computer');
     expect(service.getSourceState().sensorPlacement).toBe('hull');
   });
+
+  it('forwards sensor data samples from adapter', async () => {
+    adapter = new RemusBladeAdapter('FC84', 'REMUS-P1-FC84', mockBridge);
+    service = new RemusBladeDeviceService(adapter);
+    await service.initialize();
+
+    const received: any[] = [];
+    const unsub = service.onSensorData(sample => {
+      received.push(sample);
+    });
+
+    const mockSample: any = {
+      deviceId: 'FC84',
+      deviceFamily: 'remus_blade',
+      rotationRateRadiansPerSecond: { x: 0, y: 0, z: 1.5 },
+      nativeTimestamp: 1000,
+    };
+
+    // Emit sample on adapter
+    (adapter as any).sensorListeners.forEach((l: any) => l(mockSample));
+
+    expect(received).toEqual([mockSample]);
+
+    unsub();
+    (adapter as any).sensorListeners.forEach((l: any) => l(mockSample));
+    expect(received).toHaveLength(1);
+  });
 });
+

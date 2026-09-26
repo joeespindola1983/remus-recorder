@@ -29,6 +29,7 @@ import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.modules.core.DeviceEventManagerModule
+import java.util.ArrayDeque
 import java.util.UUID
 
 class RemusBladeModule(
@@ -47,6 +48,7 @@ class RemusBladeModule(
 
   private var bluetoothGatt: BluetoothGatt? = null
   private var targetCharacteristic: BluetoothGattCharacteristic? = null
+  private val pendingNotificationCharacteristics = ArrayDeque<BluetoothGattCharacteristic>()
   private var discoveredDevice: BluetoothDevice? = null
   private var lastAdvertisementAtMillis = 0L
   private val discoveryHandler = Handler(Looper.getMainLooper())
@@ -65,6 +67,7 @@ class RemusBladeModule(
 
   private val remusServiceUuid = UUID.fromString("4fafc201-1fb5-459e-8fcc-c5c9c331914b")
   private val remusCharUuid = UUID.fromString("beb5483e-36e1-4688-b7f5-ea07361b26a8")
+  private val remusControlUuid = UUID.fromString("beb54840-36e1-4688-b7f5-ea07361b26a8")
   private val clientCharConfigUuid = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
   override fun getName(): String = "RemusBladeBridge"
@@ -202,19 +205,35 @@ class RemusBladeModule(
     } catch (_: Exception) {}
     bluetoothGatt = null
     targetCharacteristic = null
+    pendingNotificationCharacteristics.clear()
   }
 
   @ReactMethod
-  fun sendCommand(command: String, promise: Promise) {
+  fun sendCommand(identifier: String, command: String, promise: Promise) {
+    writeCommand(identifier, command.toByteArray(Charsets.UTF_8), promise)
+  }
+
+  @ReactMethod
+  fun sendBinaryCommand(identifier: String, base64Command: String, promise: Promise) {
+    val data = try {
+      Base64.decode(base64Command, Base64.DEFAULT)
+    } catch (e: IllegalArgumentException) {
+      promise.reject("SEND_ERROR", "Invalid base64 command", e)
+      return
+    }
+    writeCommand(identifier, data, promise)
+  }
+
+  private fun writeCommand(identifier: String, data: ByteArray, promise: Promise) {
     val gatt = bluetoothGatt
     val char = targetCharacteristic
-    if (gatt == null || char == null || !canConnect()) {
+    if (gatt == null || char == null || !canConnect() ||
+      (identifier.isNotBlank() && gatt.device.address != identifier)) {
       promise.resolve(false)
       return
     }
 
     try {
-      val data = command.toByteArray(Charsets.UTF_8)
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         val res = gatt.writeCharacteristic(char, data, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
         promise.resolve(res == BluetoothStatusCodes.SUCCESS)
@@ -349,34 +368,20 @@ class RemusBladeModule(
         Log.e(TAG, "Service $remusServiceUuid not found! Available services: ${gatt.services.map { it.uuid }}")
         return
       }
-      val characteristic = service.getCharacteristic(remusCharUuid)
+      val characteristic = service.getCharacteristic(remusControlUuid)
+        ?: service.getCharacteristic(remusCharUuid)
       if (characteristic == null) {
-        Log.e(TAG, "Characteristic $remusCharUuid not found! Available chars: ${service.characteristics.map { it.uuid }}")
+        Log.e(TAG, "Writable Remus characteristic not found! Available chars: ${service.characteristics.map { it.uuid }}")
         return
       }
       targetCharacteristic = characteristic
 
       try {
-        val notifySet = gatt.setCharacteristicNotification(characteristic, true)
-        Log.i(TAG, "setCharacteristicNotification returned $notifySet")
-        val descriptor = characteristic.getDescriptor(clientCharConfigUuid)
-          ?: characteristic.descriptors.firstOrNull()
-        Log.i(TAG, "Found descriptor: ${descriptor?.uuid}, total descriptors: ${characteristic.descriptors.size}")
-
-        if (descriptor != null) {
-          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val res = gatt.writeDescriptor(descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
-            Log.i(TAG, "writeDescriptor (Tiramisu) result code: $res")
-          } else {
-            @Suppress("DEPRECATION")
-            descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-            @Suppress("DEPRECATION")
-            val res = gatt.writeDescriptor(descriptor)
-            Log.i(TAG, "writeDescriptor result: $res")
-          }
-        }
-        val deviceName = try { gatt.device.name ?: "Remus Blade P1" } catch (_: SecurityException) { "Remus Blade P1" }
-        sendStateEvent("connected", gatt.device.address, deviceName)
+        pendingNotificationCharacteristics.clear()
+        service.characteristics
+          .filter { it.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0 }
+          .forEach { pendingNotificationCharacteristics.addLast(it) }
+        subscribeNextCharacteristic(gatt)
       } catch (e: Exception) {
         Log.e(TAG, "Exception in onServicesDiscovered setup", e)
       }
@@ -388,6 +393,7 @@ class RemusBladeModule(
       status: Int
     ) {
       Log.i(TAG, "onDescriptorWrite: ${descriptor.uuid}, status: $status")
+      subscribeNextCharacteristic(gatt)
     }
 
     @Deprecated("Deprecated in Java")
@@ -397,7 +403,7 @@ class RemusBladeModule(
     ) {
       @Suppress("DEPRECATION")
       val bytes = characteristic.value ?: return
-      handleSnapshotBytes(bytes)
+      handleSnapshotBytes(bytes, characteristic.uuid.toString())
     }
 
     override fun onCharacteristicChanged(
@@ -405,10 +411,10 @@ class RemusBladeModule(
       characteristic: BluetoothGattCharacteristic,
       value: ByteArray,
     ) {
-      handleSnapshotBytes(value)
+      handleSnapshotBytes(value, characteristic.uuid.toString())
     }
 
-    private fun handleSnapshotBytes(bytes: ByteArray) {
+    private fun handleSnapshotBytes(bytes: ByteArray, characteristicUuid: String) {
       if (bytes.isEmpty()) return
       val rawBase64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
       val rawCsv = try {
@@ -417,15 +423,50 @@ class RemusBladeModule(
         ""
       }
       Log.d(TAG, "handleSnapshotBytes (${bytes.size} bytes): $rawCsv")
-      emitSnapshot(rawCsv, rawBase64)
-      if (rawCsv.isNotEmpty() && RemusEvidenceStore.instance.isRecording) {
+      emitSnapshot(rawCsv, rawBase64, characteristicUuid)
+      if (RemusEvidenceStore.instance.isRecording) {
         RemusEvidenceStore.instance.appendRemusBladeLive(
           rawCsv,
+          rawBase64,
           bluetoothGatt?.device?.address ?: "remus-blade:p1",
+          detectedName() ?: "Remus Blade P1",
+          characteristicUuid.lowercase(),
           System.currentTimeMillis()
         )
       }
     }
+  }
+
+  private fun subscribeNextCharacteristic(gatt: BluetoothGatt) {
+    if (!canConnect()) return
+    while (pendingNotificationCharacteristics.isNotEmpty()) {
+      val characteristic = pendingNotificationCharacteristics.removeFirst()
+      try {
+        val notifySet = gatt.setCharacteristicNotification(characteristic, true)
+        if (!notifySet) continue
+        val descriptor = characteristic.getDescriptor(clientCharConfigUuid)
+          ?: characteristic.descriptors.firstOrNull()
+          ?: continue
+        val started = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+          gatt.writeDescriptor(descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE) ==
+            BluetoothStatusCodes.SUCCESS
+        } else {
+          @Suppress("DEPRECATION")
+          descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+          @Suppress("DEPRECATION")
+          gatt.writeDescriptor(descriptor)
+        }
+        if (started) return
+      } catch (e: Exception) {
+        Log.w(TAG, "Could not subscribe to ${characteristic.uuid}", e)
+      }
+    }
+    val deviceName = try {
+      gatt.device.name ?: "Remus Blade P1"
+    } catch (_: SecurityException) {
+      "Remus Blade P1"
+    }
+    sendStateEvent("connected", gatt.device.address, deviceName)
   }
 
   private fun detectedName(): String? = try {
@@ -456,13 +497,14 @@ class RemusBladeModule(
       .emit("onRemusBladeStateChanged", body)
   }
 
-  private fun emitSnapshot(rawCsv: String, rawBase64: String) {
+  private fun emitSnapshot(rawCsv: String, rawBase64: String, characteristicUuid: String) {
     if (listenerCount == 0 || !reactContext.hasActiveReactInstance()) return
     val body = Arguments.createMap().apply {
       putString("rawCsv", rawCsv)
       putString("rawBase64", rawBase64)
       putString("deviceId", bluetoothGatt?.device?.address ?: "remus-blade:p1")
       putString("deviceName", try { bluetoothGatt?.device?.name } catch (e: SecurityException) { null } ?: "Remus Blade P1")
+      putString("characteristicUuid", characteristicUuid.lowercase())
       putDouble("receivedAtEpochMilliseconds", System.currentTimeMillis().toDouble())
     }
     reactContext

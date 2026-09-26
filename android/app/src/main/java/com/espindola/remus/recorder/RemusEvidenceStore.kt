@@ -108,10 +108,41 @@ class RemusEvidenceStore private constructor() {
     append("watchHeartRate", "watch:wear-os:primary", payload)
   }
 
-  fun appendRemusBladeLive(rawCsv: String, deviceId: String, receivedAt: Long) {
-    append("remusBladeLive", "rbp1:primary", mapOf(
+  fun appendRemusBladeLive(
+    rawCsv: String,
+    rawBase64: String,
+    deviceId: String,
+    deviceName: String,
+    characteristicUuid: String,
+    receivedAt: Long
+  ) {
+    val sourceId = synchronized(this) {
+      currentRecordingIdsBySource.keys.firstOrNull { it.endsWith(":$deviceId") }
+        ?: run {
+          val normalizedName = deviceName.uppercase()
+          val isComputer = normalizedName.contains("COMPUTER") ||
+            normalizedName.contains("CMP") ||
+            normalizedName.contains("REMUS-PC") ||
+            normalizedName.contains("REMUS-P1") ||
+            normalizedName.contains("REMUS-P2") ||
+            normalizedName.contains("REMUS-PR1") ||
+            normalizedName.contains("REMUS-PR2")
+          "${if (isComputer) "computer" else "blade"}:$deviceId"
+        }
+        .also { resolved ->
+          if (currentRecordingIdsBySource[resolved] == null) {
+            currentRecordingIdsBySource[resolved] =
+              "recording:" + UUID.randomUUID().toString().lowercase()
+            writeManifest("recording", null, null)
+          }
+        }
+    }
+    append("remusBladeLive", sourceId, mapOf(
       "rawCsv" to rawCsv,
+      "rawBase64" to rawBase64,
       "deviceId" to deviceId,
+      "deviceName" to deviceName,
+      "characteristicUuid" to characteristicUuid,
       "receivedAtEpochMilliseconds" to receivedAt
     ))
   }
@@ -126,6 +157,29 @@ class RemusEvidenceStore private constructor() {
     if (event == "recording_started") {
       json.put("activityCorrelationId", currentCorrelationId)
     }
+    val writer = writers["lifecycle"] ?: return
+    writer.write(json.toString())
+    writer.newLine()
+    sampleCounts["lifecycle"] = (sampleCounts["lifecycle"] ?: 0L) + 1L
+  }
+
+  fun appendSourceLifecycleEvent(
+    sourceId: String,
+    event: String,
+    reason: String?,
+    elapsedSeconds: Double,
+    timestamp: Long = System.currentTimeMillis()
+  ) {
+    if (!isRecording) return
+    val json = JSONObject()
+      .put("schemaVersion", "1.0.0")
+      .put("activityId", currentActivityId)
+      .put("type", event)
+      .put("sourceId", sourceId)
+      .put("elapsedSeconds", elapsedSeconds)
+      .put("timestampEpochMilliseconds", timestamp)
+    currentRecordingIdsBySource[sourceId]?.let { json.put("recordingId", it) }
+    reason?.let { json.put("reason", it) }
     val writer = writers["lifecycle"] ?: return
     writer.write(json.toString())
     writer.newLine()

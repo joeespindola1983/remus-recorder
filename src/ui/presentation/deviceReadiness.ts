@@ -4,6 +4,46 @@ import { t } from '../../i18n';
 
 export type BatteryCondition = 'good' | 'low' | 'critical' | 'unknown';
 
+const bladeIdentitySuffix = (source: CaptureSourceState): string | null => {
+  if (source.deviceFamily !== 'remus_blade') return null;
+  const value = source.deviceSerialNumber ?? source.sourceId;
+  const match = value.toUpperCase().match(/(?:REMUS-BLD-|BLADE:)([0-9A-F]{4,8})$/);
+  return match?.[1] ?? null;
+};
+
+const bladeDisplayPriority = (source: CaptureSourceState): number => {
+  const connection = source.readiness?.sourceConnectionState;
+  const identity = bladeIdentitySuffix(source);
+  return (connection === 'connected' ? 4 : connection === 'detected' ? 2 : 0) +
+    (identity?.length === 8 ? 1 : 0);
+};
+
+export const deduplicateRemusBladeSources = (
+  sources: CaptureSourceState[],
+): CaptureSourceState[] => {
+  const result: CaptureSourceState[] = [];
+  for (const source of sources) {
+    const identity = bladeIdentitySuffix(source);
+    if (!identity) {
+      result.push(source);
+      continue;
+    }
+    const duplicateIndex = result.findIndex(candidate => {
+      const candidateIdentity = bladeIdentitySuffix(candidate);
+      if (!candidateIdentity) return false;
+      if (candidateIdentity === identity) return true;
+      return candidateIdentity.length !== identity.length &&
+        candidateIdentity.slice(-4) === identity.slice(-4);
+    });
+    if (duplicateIndex < 0) {
+      result.push(source);
+    } else if (bladeDisplayPriority(source) >= bladeDisplayPriority(result[duplicateIndex])) {
+      result[duplicateIndex] = source;
+    }
+  }
+  return result;
+};
+
 export const batteryConditionFor = (
   batteryLevelPercent?: number,
 ): BatteryCondition => {

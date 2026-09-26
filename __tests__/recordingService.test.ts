@@ -112,4 +112,20 @@ describe('RecordingService', () => {
     expect(bridge.saveBladeRawBinary).toHaveBeenCalledWith('activity:1', 'UkJQMQ==', 'header,data');
     expect(ok).toBe(true);
   });
+
+  it('persists source telemetry interruptions without classifying them as battery failures', async () => {
+    const bridge = {
+      recordSourceLifecycleEvent: jest.fn().mockResolvedValue(true),
+    };
+    const service = new RecordingService(bridge as any);
+    const event = {
+      sourceId: 'computer:PC01',
+      event: 'source_interrupted' as const,
+      reason: 'telemetry_timeout' as const,
+      elapsedSeconds: 42,
+    };
+
+    await expect(service.recordSourceLifecycleEvent(event)).resolves.toBe(true);
+    expect(bridge.recordSourceLifecycleEvent).toHaveBeenCalledWith(event);
+  });
 });

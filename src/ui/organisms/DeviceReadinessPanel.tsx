@@ -13,9 +13,10 @@ export interface DeviceReadinessPanelProps {
   onToggleExpand?: (sourceId: string) => void;
   onRequestPermissions?: () => void;
   bladeSnapshot?: RemusBladeSnapshot | null;
-  onDisconnectBlade?: () => void;
-  onConnectBlade?: () => void;
+  onDisconnectBlade?: (sourceId: string) => void;
+  onConnectBlade?: (sourceId: string) => void;
   onSelectPlacement?: (sourceId: string, placement: SensorPlacement) => void;
+  onCalibrateBladeAlignment?: () => void;
 }
 
 export function DeviceReadinessPanel({
@@ -27,6 +28,7 @@ export function DeviceReadinessPanel({
   onDisconnectBlade,
   onConnectBlade,
   onSelectPlacement,
+  onCalibrateBladeAlignment,
 }: DeviceReadinessPanelProps): React.JSX.Element {
   const [internalExpanded, setInternalExpanded] = React.useState<string[]>([]);
 
@@ -55,9 +57,10 @@ export function DeviceReadinessPanel({
           onToggleExpand={() => handleToggle(source.sourceId)}
           source={source}
           bladeSnapshot={bladeSnapshot}
-          onDisconnectBlade={onDisconnectBlade}
-          onConnectBlade={onConnectBlade}
+          onDisconnectBlade={() => onDisconnectBlade?.(source.sourceId)}
+          onConnectBlade={() => onConnectBlade?.(source.sourceId)}
           onSelectPlacement={p => onSelectPlacement?.(source.sourceId, p)}
+          onCalibrateBladeAlignment={onCalibrateBladeAlignment}
         />
       ))}
     </View>

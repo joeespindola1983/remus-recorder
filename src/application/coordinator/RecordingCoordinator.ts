@@ -120,7 +120,7 @@ export type RecordingCoordinatorEvent =
   | {
       type: 'source_interrupted';
       sourceId: string;
-      reason: Extract<CaptureFinalizationReason, 'power_depleted' | 'power_loss' | 'storage_exhausted'>;
+      reason: Extract<CaptureFinalizationReason, 'power_depleted' | 'power_loss' | 'telemetry_timeout' | 'storage_exhausted'>;
       atElapsedSeconds: number;
     }
   | {

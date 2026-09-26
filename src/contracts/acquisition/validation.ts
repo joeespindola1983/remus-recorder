@@ -496,6 +496,7 @@ function validateRecordingLifecycleEvent(
       'control_lease_expired',
       'power_depleted',
       'power_loss',
+      'telemetry_timeout',
       'storage_exhausted',
     ];
     if (reason && !reasons.includes(reason)) {

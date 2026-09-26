@@ -3,7 +3,8 @@ import {StyleSheet, Text, View} from 'react-native';
 import {t} from '../../i18n';
 import {color, fontFamily, radius, spacing} from '../theme/tokens';
 
-export function OperationalEventBanner(): React.JSX.Element {
+export function OperationalEventBanner({sourceNames}: {sourceNames: string[]}): React.JSX.Element {
+  const sourceLabel = sourceNames.join(', ');
   return (
     <View
       accessibilityLiveRegion="polite"
@@ -11,7 +12,9 @@ export function OperationalEventBanner(): React.JSX.Element {
       style={styles.banner}>
       <View style={styles.bar} />
       <View style={styles.copy}>
-        <Text style={styles.title}>{t('active.banner.connectionLostTitle')}</Text>
+        <Text style={styles.title}>
+          {t('active.banner.connectionLostTitle', {source: sourceLabel})}
+        </Text>
         <Text style={styles.detail}>
           {t('active.banner.connectionLostDetail')}
         </Text>

@@ -4,6 +4,8 @@ import { LiveCaptureMetrics } from '../../application/capture/ActivityCapture';
 import { getLocale, t } from '../../i18n';
 import { CaptureFab } from '../atoms/CaptureFab';
 import { LiveMetricCell } from '../molecules/LiveMetricCell';
+import { LiveBladeParityCell } from '../molecules/LiveBladeParityCell';
+import { RemusBladeManager } from '../../services/blade/RemusBladeManager';
 import { color, fontFamily, spacing } from '../theme/tokens';
 
 export type CaptureOrientation = 'portrait' | 'landscape';
@@ -82,6 +84,7 @@ export function AdaptiveCaptureSurface({
   orientation,
   viewportWidth = orientation === 'portrait' ? 393 : 852,
   bladeGpsStatus,
+  bladeManager,
 }: {
   metrics: LiveCaptureMetrics;
   onFinish: () => void;
@@ -89,6 +92,7 @@ export function AdaptiveCaptureSurface({
   orientation: CaptureOrientation;
   viewportWidth?: number;
   bladeGpsStatus?: BladeGpsStatus | null;
+  bladeManager?: RemusBladeManager | null;
 }): React.JSX.Element {
   const isLandscape = orientation === 'landscape';
   const valueFontSize = isLandscape
@@ -119,15 +123,6 @@ export function AdaptiveCaptureSurface({
           : formatDecimal(metrics.distanceMeters / 1000),
       unit: t('active.metric.distanceUnit'),
     },
-    {
-      identifier: 'heartRateBeatsPerMinute',
-      label: t('active.metric.heartRate'),
-      value:
-        metrics.heartRateBeatsPerMinute === undefined
-          ? '—'
-          : String(Math.round(metrics.heartRateBeatsPerMinute)),
-      unit: t('active.metric.heartRateUnit'),
-    },
   ];
 
   return (
@@ -155,9 +150,15 @@ export function AdaptiveCaptureSurface({
               valueFontSize={valueFontSize}
             />
           ))}
+          <LiveBladeParityCell
+            bladeManager={bladeManager}
+            style={styles.cell}
+            valueFontSize={valueFontSize}
+          />
         </View>
         <Text style={styles.provenance}>{t('active.provenance')}</Text>
       </View>
+
       <View
         style={[
           styles.controls,

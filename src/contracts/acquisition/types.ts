@@ -268,6 +268,7 @@ export interface RecordingLifecycleEvent {
     | 'control_lease_expired'
     | 'power_depleted'
     | 'power_loss'
+    | 'telemetry_timeout'
     | 'storage_exhausted';
   activityCorrelationId?: string;
   disconnectGracePeriodMilliseconds?: number;

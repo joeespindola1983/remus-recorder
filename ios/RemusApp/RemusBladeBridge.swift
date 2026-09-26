@@ -10,10 +10,28 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
   private var lastAdvertisementAt: [UUID: Date] = [:]
   private var discoveryExpiryTimer: Timer?
   private var targetCharacteristics: [UUID: CBCharacteristic] = [:]
+  private var effectiveNames: [UUID: String] = [:]
+  private var pendingBladeConnections: [UUID: DispatchWorkItem] = [:]
   private var hasListeners = false
 
   private let remusServiceUUID = CBUUID(string: "4fafc201-1fb5-459e-8fcc-c5c9c331914b")
   private let remusCharacteristicUUID = CBUUID(string: "beb5483e-36e1-4688-b7f5-ea07361b26a8")
+
+  private func isBladeName(_ name: String?) -> Bool {
+    return name?.uppercased().contains("REMUS-BLD-") == true
+  }
+
+  private func hasDiscoveredComputer() -> Bool {
+    return effectiveNames.values.contains { !isBladeName($0) }
+  }
+
+  private func preferComputerAsBladeRelay(_ central: CBCentralManager) {
+    pendingBladeConnections.values.forEach { $0.cancel() }
+    pendingBladeConnections.removeAll()
+    for peripheral in connectedPeripherals.values where isBladeName(effectiveNames[peripheral.identifier] ?? peripheral.name) {
+      central.cancelPeripheralConnection(peripheral)
+    }
+  }
 
   override init() {
     super.init()
@@ -168,7 +186,14 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
     guard hasListeners else { return }
     let target = peripheral ?? connectedPeripherals.values.first ?? discoveredPeripherals.values.first
     let name = customName ?? target?.name
-    let isComputer = name?.contains("REMUS-P") == true || name?.contains("CMP") == true || name?.contains("Computer") == true || name?.contains("PR1") == true
+    let normalizedName = name?.uppercased() ?? ""
+    let isComputer = normalizedName.contains("COMPUTER") ||
+      normalizedName.contains("CMP") ||
+      normalizedName.contains("REMUS-PC") ||
+      normalizedName.contains("REMUS-P1") ||
+      normalizedName.contains("REMUS-P2") ||
+      normalizedName.contains("REMUS-PR1") ||
+      normalizedName.contains("REMUS-PR2")
     let fallback = isComputer ? "Remus Computer" : "Remus Blade"
     
     let deviceId = target?.identifier.uuidString ?? "remus-blade:p1"
@@ -207,22 +232,41 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
 
     let advertisedName = advertisementData[CBAdvertisementDataLocalNameKey] as? String
     let effectiveName = advertisedName ?? peripheral.name
+    if let effectiveName { effectiveNames[peripheral.identifier] = effectiveName }
 
     if isFirstDiscovery {
       print("[BLE] Discovered new peripheral: \(effectiveName ?? "Unknown") (\(peripheral.identifier.uuidString)) at RSSI \(RSSI)")
       sendStateEvent("detected", peripheral: peripheral, customName: effectiveName)
     }
 
-    // Auto-connect ONLY if peripheral is disconnected (prevents repeated connect spam on duplicate advertisement packets)
-    if connectedPeripherals[peripheral.identifier] == nil && peripheral.state == .disconnected {
-      print("[BLE] Auto-connecting to peripheral: \(peripheral.identifier.uuidString)")
-      central.connect(peripheral, options: nil)
+    // The Computer is the primary Blade central/relay. A direct Blade link is
+    // delayed as fallback, preventing the phone from taking the Blade before
+    // the Computer can establish its durable RBR1 backup.
+    if !isBladeName(effectiveName) {
+      preferComputerAsBladeRelay(central)
+      if connectedPeripherals[peripheral.identifier] == nil && peripheral.state == .disconnected {
+        print("[BLE] Auto-connecting to Remus Computer relay: \(peripheral.identifier.uuidString)")
+        central.connect(peripheral, options: nil)
+      }
+    } else if pendingBladeConnections[peripheral.identifier] == nil &&
+                connectedPeripherals[peripheral.identifier] == nil &&
+                peripheral.state == .disconnected {
+      let work = DispatchWorkItem { [weak self, weak peripheral] in
+        guard let self, let peripheral, !self.hasDiscoveredComputer(),
+              peripheral.state == .disconnected else { return }
+        print("[BLE] No Computer found; connecting directly to Blade fallback: \(peripheral.identifier.uuidString)")
+        central.connect(peripheral, options: nil)
+        self.pendingBladeConnections.removeValue(forKey: peripheral.identifier)
+      }
+      pendingBladeConnections[peripheral.identifier] = work
+      DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
     }
   }
 
   func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
     print("[BLE] Successfully connected to peripheral: \(peripheral.name ?? peripheral.identifier.uuidString)")
     connectedPeripherals[peripheral.identifier] = peripheral
+    pendingBladeConnections.removeValue(forKey: peripheral.identifier)?.cancel()
     peripheral.discoverServices([remusServiceUUID])
     sendStateEvent("connecting", peripheral: peripheral)
   }
@@ -232,6 +276,7 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
       print("[BLE] Failed to connect to \(peripheral.name ?? peripheral.identifier.uuidString): \(error.localizedDescription)")
     }
     connectedPeripherals.removeValue(forKey: peripheral.identifier)
+    pendingBladeConnections.removeValue(forKey: peripheral.identifier)?.cancel()
     targetCharacteristics.removeValue(forKey: peripheral.identifier)
     sendStateEvent("error", peripheral: peripheral)
   }
@@ -301,6 +346,7 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
     guard let data = characteristic.value else { return }
     let rawCsv = String(data: data, encoding: .utf8) ?? ""
     let rawBase64 = data.base64EncodedString()
+    let characteristicUuid = characteristic.uuid.uuidString.lowercased()
 
     let receivedAt = Int64(Date().timeIntervalSince1970 * 1_000)
     let deviceId = peripheral.identifier.uuidString
@@ -310,6 +356,8 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
       rawCsv: rawCsv,
       rawBase64: rawBase64,
       deviceId: deviceId,
+      deviceName: deviceName,
+      characteristicUuid: characteristicUuid,
       receivedAt: receivedAt
     )
 
@@ -319,6 +367,7 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
         "rawBase64": rawBase64,
         "deviceId": deviceId,
         "deviceName": deviceName,
+        "characteristicUuid": characteristicUuid,
         "receivedAtEpochMilliseconds": receivedAt,
       ])
     }

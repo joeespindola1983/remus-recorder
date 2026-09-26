@@ -51,6 +51,12 @@ export interface NativeRecordingBridge {
   listRecordings?(): Promise<RecordedWorkoutSummary[]>;
   deleteRecording?(activityId: string): Promise<boolean>;
   saveBladeRawBinary?(activityId: string, base64Data: string, rawCsv?: string): Promise<boolean>;
+  recordSourceLifecycleEvent?(options: {
+    sourceId: string;
+    event: 'source_interrupted' | 'source_recovered';
+    reason?: 'telemetry_timeout';
+    elapsedSeconds: number;
+  }): Promise<boolean>;
   getPhoneHardwareProfile?(): Promise<{
     hasGps?: boolean;
     hasAccelerometer?: boolean;
@@ -115,6 +121,16 @@ export class RecordingService {
       return Promise.resolve(false);
     }
     return this.bridge.saveBladeRawBinary(activityId, base64Data, rawCsv);
+  }
+
+  recordSourceLifecycleEvent(options: {
+    sourceId: string;
+    event: 'source_interrupted' | 'source_recovered';
+    reason?: 'telemetry_timeout';
+    elapsedSeconds: number;
+  }): Promise<boolean> {
+    if (!this.bridge?.recordSourceLifecycleEvent) return Promise.resolve(false);
+    return this.bridge.recordSourceLifecycleEvent(options);
   }
 
   getState(): Promise<{isRecording: boolean; activityId?: string; artifactDirectory?: string}> {

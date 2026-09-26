@@ -1,4 +1,3 @@
-import { Buffer } from 'buffer';
 import React, { useEffect, useReducer, useRef, useState } from 'react';
 import { Alert, Platform, StatusBar, StyleSheet } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -10,12 +9,10 @@ import {
 import { AppShell, NavigationTab } from './src/ui/organisms/AppShell';
 import {
   ActiveScreen,
-  BladeDownloadStatus,
   FinalizingScreen,
   ReadyScreen,
   SummaryScreen,
 } from './src/ui/screens/RecorderScreens';
-import { convertRemusBladeBinaryToCsv } from './src/services/blade/RemusBladeBinaryDecoder';
 import { color } from './src/ui/theme/tokens';
 import {ProfileScreen} from './src/ui/screens/ProfileScreen';
 import { t } from './src/i18n';
@@ -44,7 +41,6 @@ export default function App(): React.JSX.Element {
   const [phoneDevice] = useState(() => new PhoneDeviceService());
   const [bladeManager] = useState(() => new RemusBladeManager());
   const [bladeSnapshot, setBladeSnapshot] = useState<RemusBladeSnapshot | null>(null);
-  const [bladeDownloadStatus, setBladeDownloadStatus] = useState<BladeDownloadStatus | undefined>(undefined);
   const [recordingService] = useState(() => new RecordingService());
   const [lastManifest, setLastManifest] = useState<RecordingManifest | null>(null);
   const wearable = useWearables();
@@ -77,6 +73,10 @@ export default function App(): React.JSX.Element {
 
   const sourcesRef = useRef(state.sources);
   sourcesRef.current = state.sources;
+  const phaseRef = useRef(state.phase);
+  phaseRef.current = state.phase;
+  const elapsedSecondsRef = useRef(state.metrics.elapsedSeconds);
+  elapsedSecondsRef.current = state.metrics.elapsedSeconds;
 
   useEffect(() => {
     const unsub = bladeManager.onStateChange(sourceState => {
@@ -92,6 +92,36 @@ export default function App(): React.JSX.Element {
           });
         }
       } else if (sourceState.readiness) {
+        const currentSource = sourcesRef.current[sourceId];
+        if (
+          phaseRef.current === 'recording' &&
+          currentSource.recordingState === 'recording' &&
+          connectionState === 'unavailable'
+        ) {
+          dispatch({
+            type: 'interrupt_source',
+            sourceId,
+            reason: 'telemetry_timeout',
+          });
+          recordingService.recordSourceLifecycleEvent({
+            sourceId,
+            event: 'source_interrupted',
+            reason: 'telemetry_timeout',
+            elapsedSeconds: elapsedSecondsRef.current,
+          }).catch(() => {});
+        } else if (
+          phaseRef.current === 'recording' &&
+          currentSource.recordingState === 'interrupted' &&
+          currentSource.finalizationReason === 'telemetry_timeout' &&
+          connectionState === 'connected'
+        ) {
+          dispatch({type: 'recover_source', sourceId});
+          recordingService.recordSourceLifecycleEvent({
+            sourceId,
+            event: 'source_recovered',
+            elapsedSeconds: elapsedSecondsRef.current,
+          }).catch(() => {});
+        }
         dispatch({
           type: 'update_source_readiness',
           sourceId,
@@ -104,7 +134,7 @@ export default function App(): React.JSX.Element {
       unsub();
       bladeManager.destroy();
     };
-  }, [bladeManager]);
+  }, [bladeManager, recordingService]);
 
   useEffect(() => {
     const device = wearable.devices[0];
@@ -234,7 +264,9 @@ export default function App(): React.JSX.Element {
         .filter(source =>
           source.required ||
           (source.readiness?.sourceConnectionState === 'connected' &&
-            source.readiness.availableMeasurementIdentifiers.length > 0),
+            (source.deviceFamily === 'remus_blade' ||
+              source.deviceFamily === 'remus_computer' ||
+              source.readiness.availableMeasurementIdentifiers.length > 0)),
         )
         .map(source => source.sourceId);
       const started = await recordingService.start(participatingSourceIds);
@@ -264,44 +296,6 @@ export default function App(): React.JSX.Element {
       bladeManager.stopWorkoutCapture(),
       wearable.stopRecording(),
     ]);
-
-    if (bladeManager.getConnectionState() === 'connected' && state.activityId) {
-      setBladeDownloadStatus({
-        isDownloading: true,
-        bytesTransferred: 0,
-        totalBytes: 0,
-        progress: 0,
-      });
-      try {
-        const fileResult = await bladeManager.downloadSessionFile(
-          (progress: number, received: number, total: number) => {
-            setBladeDownloadStatus({
-              isDownloading: true,
-              bytesTransferred: received,
-              totalBytes: total,
-              progress,
-            });
-          },
-        );
-
-        if (fileResult && fileResult.data && fileResult.data.length > 0) {
-          const csv = convertRemusBladeBinaryToCsv(fileResult.data);
-          const base64Data = Buffer.from(fileResult.data as any).toString('base64');
-          await recordingService.saveBladeRaw(state.activityId, base64Data, csv);
-          setBladeDownloadStatus({
-            isDownloading: false,
-            bytesTransferred: fileResult.data.length,
-            totalBytes: fileResult.data.length,
-            progress: 100,
-          });
-        } else {
-          setBladeDownloadStatus(undefined);
-        }
-      } catch (dlError) {
-        console.warn('[App] Failed to download blade session binary:', dlError);
-        setBladeDownloadStatus(undefined);
-      }
-    }
 
     try {
       const manifest = await recordingService.stop();
@@ -355,6 +349,7 @@ export default function App(): React.JSX.Element {
       {isFullScreen ? (
         <SafeAreaView style={styles.safeArea}>
           <ActiveScreen
+            bladeManager={bladeManager}
             bladeSnapshot={bladeSnapshot}
             onPause={() => undefined}
             onStop={stopCapture}
@@ -372,8 +367,8 @@ export default function App(): React.JSX.Element {
               onDisconnectBlade={() => {
                 bladeManager.disconnect().catch(() => {});
               }}
-              onConnectBlade={() => {
-                bladeManager.connect().catch(() => {});
+              onConnectBlade={sourceId => {
+                bladeManager.connect(sourceId).catch(() => {});
               }}
               onSelectPlacement={(sourceId, placement) => {
                 bladeManager.setPlacement(sourceId, placement);
@@ -383,15 +378,15 @@ export default function App(): React.JSX.Element {
                   sensorPlacement: placement,
                 });
               }}
+              onCalibrateBladeAlignment={() => {
+                bladeManager.calibrateBladeAlignment().catch(() => {});
+              }}
               onStart={startCapture}
               state={state}
             />
           ) : null}
           {state.phase === 'finalizing' ? (
-            <FinalizingScreen
-              state={state}
-              bladeDownloadStatus={bladeDownloadStatus}
-            />
+            <FinalizingScreen state={state} />
           ) : null}
           {state.phase === 'completed' ? (
             <SummaryScreen
@@ -399,7 +394,6 @@ export default function App(): React.JSX.Element {
               onExport={handleExport}
               onDone={() => {
                 setLastManifest(null);
-                setBladeDownloadStatus(undefined);
                 dispatch({type: 'reset_to_ready'});
                 setActiveTab('activities');
               }}

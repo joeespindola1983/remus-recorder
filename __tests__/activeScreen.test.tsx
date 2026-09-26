@@ -43,4 +43,11 @@ test('keeps the adaptive capture surface active behind a non-blocking source-los
       node => node.type === Text && node.props.children === 'Continuar treino',
     ),
   ).toHaveLength(0);
+  expect(
+    renderer.root.findAll(
+      node => node.type === Text &&
+        typeof node.props.children === 'string' &&
+        node.props.children.includes('Apple Watch'),
+    ).length,
+  ).toBeGreaterThan(0);
 });

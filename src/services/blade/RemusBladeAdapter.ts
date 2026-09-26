@@ -8,9 +8,22 @@ import {
   PositionCoordinates,
   WearableConnectionState,
 } from '../../types/wearables';
+import {
+  RemusRelayedStreamPacketDecoder,
+  RemusStreamPacketDecoder,
+} from './RemusStreamPacketDecoder';
 
 export const REMUS_BLADE_SERVICE_UUID = '4fafc201-1fb5-459e-8fcc-c5c9c331914b';
 export const REMUS_BLADE_CHARACTERISTIC_UUID = 'beb5483e-36e1-4688-b7f5-ea07361b26a8';
+export const REMUS_IMU_STREAM_CHARACTERISTIC_UUID = 'beb54841-36e1-4688-b7f5-ea07361b26a8';
+export const REMUS_BLADE_RELAY_CHARACTERISTIC_UUID = 'beb54844-36e1-4688-b7f5-ea07361b26a8';
+
+export const parseBladeIdentityHash = (deviceName: string): number | null => {
+  const match = deviceName.trim().toUpperCase().match(/^REMUS-BLD-([0-9A-F]{8})$/);
+  if (!match) return null;
+  const value = Number.parseInt(match[1], 16);
+  return Number.isSafeInteger(value) && value > 0 && value <= 0xFFFFFFFF ? value : null;
+};
 
 export interface RemusBladeSnapshot {
   timestampMs: number;
@@ -26,6 +39,22 @@ export interface RemusBladeSnapshot {
   liveSpm?: number;
   sdOk?: boolean;
   imuOk?: boolean;
+  recordsQueued?: number;
+  storageWriteFailures?: number;
+  liveStreamQueueDrops?: number;
+  bladeRelayConnected?: boolean;
+  bladeRelayNotificationsReceived?: number;
+  bladeRelayPacketsPersisted?: number;
+  bladeRelayQueueDrops?: number;
+  bladeRelayWriteFailures?: number;
+  bladeRelayStorageFault?: boolean;
+  bladeRelayLiveDrops?: number;
+}
+
+export interface BladeRosterEntry {
+  sourceIdentityHash: number;
+  connected: boolean;
+  assignedSide: 'left_paddle' | 'right_paddle' | null;
 }
 
 export interface NativeBladeBridge {
@@ -35,7 +64,8 @@ export interface NativeBladeBridge {
   stopScan?(): Promise<void>;
   connectPeripheral?(id: string): Promise<boolean>;
   disconnectPeripheral?(): Promise<void>;
-  sendCommand?(command: string): Promise<boolean>;
+  sendCommand?(identifier: string, command: string): Promise<boolean>;
+  sendBinaryCommand?(identifier: string, base64Command: string): Promise<boolean>;
   addListener?(
     eventName: string,
     listener: (data: any) => void
@@ -46,14 +76,34 @@ export interface NativeBladeBridge {
 
 const DEG_TO_RAD = Math.PI / 180;
 
+export type RemusDeviceFamily = 'remus_blade' | 'remus_computer';
+
+export const classifyRemusDeviceName = (deviceName: string): RemusDeviceFamily => {
+  const normalized = deviceName.trim().toUpperCase();
+  return normalized.includes('COMPUTER') ||
+    normalized.includes('CMP') ||
+    normalized.includes('REMUS-PC') ||
+    normalized.includes('REMUS-P1') ||
+    normalized.includes('REMUS-P2') ||
+    normalized.includes('REMUS-PR1') ||
+    normalized.includes('REMUS-PR2')
+    ? 'remus_computer'
+    : 'remus_blade';
+};
+
 export class RemusBladeAdapter implements IWearableAdapter {
-  readonly deviceFamily = 'remus_blade' as const;
+  readonly deviceFamily: RemusDeviceFamily;
   private sensorListeners: Set<(data: SensorSample) => void> = new Set();
   private snapshotListeners: Set<(data: RemusBladeSnapshot) => void> = new Set();
   private deviceStateListeners: Set<(device: WearableDevice) => void> = new Set();
+  private bladeRosterListeners: Set<(entries: BladeRosterEntry[]) => void> = new Set();
   private nativeBridge: NativeBladeBridge | null;
+  private readonly relayedStreamPacketDecoder = new RemusRelayedStreamPacketDecoder();
+  private readonly expectedRelayedSampleSequence = new Map<number, number>();
   private eventEmitter: NativeEventEmitter | null = null;
   private isConnected = false;
+  private readonly streamPacketDecoder = new RemusStreamPacketDecoder();
+  private expectedLiveSampleSequence: number | null = null;
   private snapshotSubscription: { remove(): void } | null = null;
   private stateSubscription: { remove(): void } | null = null;
   private readonly DOWNLOAD_INACTIVITY_TIMEOUT_MS = 15_000;
@@ -72,8 +122,10 @@ export class RemusBladeAdapter implements IWearableAdapter {
   constructor(
     public readonly targetDeviceId: string,
     public targetDeviceName: string,
-    nativeBridge?: NativeBladeBridge
+    nativeBridge?: NativeBladeBridge,
+    deviceFamily: RemusDeviceFamily = classifyRemusDeviceName(targetDeviceName),
   ) {
+    this.deviceFamily = deviceFamily;
     this.nativeBridge = nativeBridge || null;
     if (this.nativeBridge) {
       this.eventEmitter = new NativeEventEmitter(this.nativeBridge as any);
@@ -114,6 +166,7 @@ export class RemusBladeAdapter implements IWearableAdapter {
       rawBase64?: string;
       deviceId?: string;
       deviceName?: string;
+      characteristicUuid?: string;
     };
     if (!data?.deviceId || data.deviceId !== this.targetDeviceId) {
       return;
@@ -134,7 +187,89 @@ export class RemusBladeAdapter implements IWearableAdapter {
       }
     }
     if (data?.rawBase64) {
-      this.handleBinaryChunk(data.rawBase64);
+      if (data.characteristicUuid?.toLowerCase() === REMUS_IMU_STREAM_CHARACTERISTIC_UUID) {
+        this.handleLiveImuPacket(data.rawBase64);
+      } else if (data.characteristicUuid?.toLowerCase() === REMUS_BLADE_RELAY_CHARACTERISTIC_UUID) {
+        this.handleRelayedImuPacket(data.rawBase64);
+      } else {
+        this.handleBinaryChunk(data.rawBase64);
+      }
+    }
+  }
+
+  private handleRelayedImuPacket(rawBase64: string): void {
+    const relayed = this.relayedStreamPacketDecoder.ingestBase64(rawBase64);
+    if (!relayed) return;
+    const sourceId = `blade:${relayed.sourceIdentityHash.toString(16).padStart(8, '0')}`;
+    let expected = this.expectedRelayedSampleSequence.get(relayed.sourceIdentityHash) ?? null;
+    for (const raw of relayed.batch.samples) {
+      const missingSamplesBefore = expected === null
+        ? 0
+        : Math.max(0, raw.sampleSequence - expected);
+      expected = raw.sampleSequence + 1;
+      const sample: SensorSample = {
+        nativeTimestamp: raw.nativeTimestampUs / 1000,
+        deviceId: sourceId,
+        deviceFamily: 'remus_blade',
+        accelerationIncludingGravityG: {
+          x: raw.rawAccel.x / 4096,
+          y: raw.rawAccel.y / 4096,
+          z: raw.rawAccel.z / 4096,
+        },
+        rotationRateRadiansPerSecond: {
+          x: raw.rawGyro.x / 65.5 * DEG_TO_RAD,
+          y: raw.rawGyro.y / 65.5 * DEG_TO_RAD,
+          z: raw.rawGyro.z / 65.5 * DEG_TO_RAD,
+        },
+        sourcePayload: {
+          transportDeviceId: this.targetDeviceId,
+          sourceIdentityHash: relayed.sourceIdentityHash,
+          computerReceivedAtMs: relayed.computerReceivedAtMs,
+          batchSequence: relayed.batch.batchSequence,
+          sampleSequence: raw.sampleSequence,
+          nativeTimestampUs: raw.nativeTimestampUs,
+          sampleStatus: raw.status,
+          missingSamplesBefore,
+        },
+      };
+      this.sensorListeners.forEach(listener => listener(sample));
+    }
+    if (expected !== null) {
+      this.expectedRelayedSampleSequence.set(relayed.sourceIdentityHash, expected);
+    }
+  }
+
+  private handleLiveImuPacket(rawBase64: string): void {
+    const batch = this.streamPacketDecoder.ingestBase64(rawBase64);
+    if (!batch) return;
+    for (const raw of batch.samples) {
+      const missingSamplesBefore = this.expectedLiveSampleSequence === null
+        ? 0
+        : Math.max(0, raw.sampleSequence - this.expectedLiveSampleSequence);
+      this.expectedLiveSampleSequence = raw.sampleSequence + 1;
+      const sample: SensorSample = {
+        nativeTimestamp: raw.nativeTimestampUs / 1000,
+        deviceId: this.targetDeviceId,
+        deviceFamily: this.deviceFamily,
+        accelerationIncludingGravityG: {
+          x: raw.rawAccel.x / 4096,
+          y: raw.rawAccel.y / 4096,
+          z: raw.rawAccel.z / 4096,
+        },
+        rotationRateRadiansPerSecond: {
+          x: raw.rawGyro.x / 65.5 * DEG_TO_RAD,
+          y: raw.rawGyro.y / 65.5 * DEG_TO_RAD,
+          z: raw.rawGyro.z / 65.5 * DEG_TO_RAD,
+        },
+        sourcePayload: {
+          batchSequence: batch.batchSequence,
+          sampleSequence: raw.sampleSequence,
+          nativeTimestampUs: raw.nativeTimestampUs,
+          sampleStatus: raw.status,
+          missingSamplesBefore,
+        },
+      };
+      this.sensorListeners.forEach(listener => listener(sample));
     }
   }
 
@@ -159,7 +294,7 @@ export class RemusBladeAdapter implements IWearableAdapter {
       {
         id: this.targetDeviceId,
         name: this.targetDeviceName,
-        deviceFamily: 'remus_blade',
+        deviceFamily: this.deviceFamily,
         state: 'connected',
       },
     ];
@@ -197,6 +332,7 @@ export class RemusBladeAdapter implements IWearableAdapter {
   }
 
   async sendStart(): Promise<boolean> {
+    this.expectedLiveSampleSequence = null;
     if (this.deviceFamily === 'remus_computer') {
       return this.sendCommand('START');
     } else {
@@ -212,6 +348,24 @@ export class RemusBladeAdapter implements IWearableAdapter {
       // Blade uses binary StopStream command: [0x01, 0x02, 0x00, 0x00, 0x00, 0x00]
       return this.sendBinaryCommand('AQIAAAAA');
     }
+  }
+
+  async configureBladeSlot(
+    sourceIdentityHash: number,
+    placement: 'left_paddle' | 'right_paddle',
+  ): Promise<boolean> {
+    if (this.deviceFamily !== 'remus_computer' || !Number.isSafeInteger(sourceIdentityHash) || sourceIdentityHash <= 0) {
+      return false;
+    }
+    const side = placement === 'left_paddle' ? 'L' : 'R';
+    const identity = sourceIdentityHash.toString(16).toUpperCase().padStart(8, '0');
+    return this.sendCommand(`BLADE_SLOT,${side},${identity}`);
+  }
+
+  async calibrateBladeAlignment(): Promise<boolean> {
+    return this.deviceFamily === 'remus_computer'
+      ? this.sendCommand('BLADE_CALIBRATE')
+      : false;
   }
 
   async disconnect(): Promise<void> {
@@ -236,26 +390,9 @@ export class RemusBladeAdapter implements IWearableAdapter {
   }
 
   async downloadSessionFile(
-    arg1?: string | ((progress: number, received: number, total: number) => void),
-    arg2?: string | ((progress: number, received: number, total: number) => void)
+    _arg1?: string | ((progress: number, received: number, total: number) => void),
+    _arg2?: string | ((progress: number, received: number, total: number) => void)
   ): Promise<{ filename: string; data: Buffer }> {
-    let filename: string | undefined;
-    let onProgress: ((progress: number, received: number, total: number) => void) | undefined;
-
-    if (typeof arg1 === 'function') {
-      onProgress = arg1;
-      if (typeof arg2 === 'string') {
-        filename = arg2;
-      }
-    } else if (typeof arg1 === 'string') {
-      filename = arg1;
-      if (typeof arg2 === 'function') {
-        onProgress = arg2;
-      }
-    } else if (typeof arg2 === 'function') {
-      onProgress = arg2;
-    }
-
     if (this.activeDownload) {
       throw new Error('Download already in progress');
     }
@@ -293,8 +430,31 @@ export class RemusBladeAdapter implements IWearableAdapter {
   }
 
   private handleControlMessage(msg: string): boolean {
-    if (!this.activeDownload) return false;
     const trimmed = msg.trim();
+    if (trimmed.startsWith('BLADE_SLOTS,')) {
+      return true;
+    }
+    if (trimmed.startsWith('BLADE_ROSTER,')) {
+      const entries = trimmed.split(',').slice(2).flatMap(part => {
+        const [hashText, connectedText, sideText] = part.split(':');
+        if (!/^[0-9A-Fa-f]{8}$/.test(hashText)) return [];
+        const sourceIdentityHash = Number.parseInt(hashText, 16);
+        if (sourceIdentityHash === 0) return [];
+        const assignedSide = sideText === 'L'
+          ? 'left_paddle' as const
+          : sideText === 'R'
+            ? 'right_paddle' as const
+            : null;
+        return [{
+          sourceIdentityHash,
+          connected: connectedText === '1',
+          assignedSide,
+        }];
+      });
+      this.bladeRosterListeners.forEach(listener => listener(entries));
+      return true;
+    }
+    if (!this.activeDownload) return false;
     if (trimmed.startsWith('FILE_START:')) {
       const parts = trimmed.split(':');
       this.activeDownload.filename = parts[1] || 'remus_session.bin';
@@ -491,6 +651,16 @@ export class RemusBladeAdapter implements IWearableAdapter {
     const liveSpm = (!isNaN(rawSpm) && rawSpm > 0) ? rawSpm : undefined;
     const imuOk = parts[14] !== undefined ? parts[14].trim() === '1' : true;
     const sdOk = parts[15] !== undefined ? parts[15].trim() === '1' : (linesWritten > 0);
+    const recordsQueued = parts[25] !== undefined ? parseInt(parts[25], 10) : undefined;
+    const storageWriteFailures = parts[26] !== undefined ? parseInt(parts[26], 10) : undefined;
+    const liveStreamQueueDrops = parts[27] !== undefined ? parseInt(parts[27], 10) : undefined;
+    const bladeRelayConnected = parts[28] !== undefined ? parts[28].trim() === '1' : undefined;
+    const bladeRelayNotificationsReceived = parts[29] !== undefined ? parseInt(parts[29], 10) : undefined;
+    const bladeRelayPacketsPersisted = parts[30] !== undefined ? parseInt(parts[30], 10) : undefined;
+    const bladeRelayQueueDrops = parts[31] !== undefined ? parseInt(parts[31], 10) : undefined;
+    const bladeRelayWriteFailures = parts[32] !== undefined ? parseInt(parts[32], 10) : undefined;
+    const bladeRelayStorageFault = parts[33] !== undefined ? parts[33].trim() === '1' : undefined;
+    const bladeRelayLiveDrops = parts[34] !== undefined ? parseInt(parts[34], 10) : undefined;
 
     return {
       timestampMs,
@@ -506,6 +676,16 @@ export class RemusBladeAdapter implements IWearableAdapter {
       liveSpm,
       sdOk,
       imuOk,
+      recordsQueued: Number.isFinite(recordsQueued) ? recordsQueued : undefined,
+      storageWriteFailures: Number.isFinite(storageWriteFailures) ? storageWriteFailures : undefined,
+      liveStreamQueueDrops: Number.isFinite(liveStreamQueueDrops) ? liveStreamQueueDrops : undefined,
+      bladeRelayConnected,
+      bladeRelayNotificationsReceived: Number.isFinite(bladeRelayNotificationsReceived) ? bladeRelayNotificationsReceived : undefined,
+      bladeRelayPacketsPersisted: Number.isFinite(bladeRelayPacketsPersisted) ? bladeRelayPacketsPersisted : undefined,
+      bladeRelayQueueDrops: Number.isFinite(bladeRelayQueueDrops) ? bladeRelayQueueDrops : undefined,
+      bladeRelayWriteFailures: Number.isFinite(bladeRelayWriteFailures) ? bladeRelayWriteFailures : undefined,
+      bladeRelayStorageFault,
+      bladeRelayLiveDrops: Number.isFinite(bladeRelayLiveDrops) ? bladeRelayLiveDrops : undefined,
     };
   }
 
@@ -519,7 +699,7 @@ export class RemusBladeAdapter implements IWearableAdapter {
     const sample: SensorSample = {
       nativeTimestamp: snapshot.timestampMs,
       deviceId: this.targetDeviceId,
-      deviceFamily: 'remus_blade',
+      deviceFamily: this.deviceFamily,
       accelerationIncludingGravityG: snapshot.accelG,
       rotationRateRadiansPerSecond: {
         x: snapshot.gyroDps.x * DEG_TO_RAD,
@@ -535,6 +715,16 @@ export class RemusBladeAdapter implements IWearableAdapter {
         linesWritten: snapshot.linesWritten,
         charsRx: snapshot.charsRx,
         liveSpm: snapshot.liveSpm,
+        recordsQueued: snapshot.recordsQueued,
+        storageWriteFailures: snapshot.storageWriteFailures,
+        liveStreamQueueDrops: snapshot.liveStreamQueueDrops,
+        bladeRelayConnected: snapshot.bladeRelayConnected,
+        bladeRelayNotificationsReceived: snapshot.bladeRelayNotificationsReceived,
+        bladeRelayPacketsPersisted: snapshot.bladeRelayPacketsPersisted,
+        bladeRelayQueueDrops: snapshot.bladeRelayQueueDrops,
+        bladeRelayWriteFailures: snapshot.bladeRelayWriteFailures,
+        bladeRelayStorageFault: snapshot.bladeRelayStorageFault,
+        bladeRelayLiveDrops: snapshot.bladeRelayLiveDrops,
       },
     };
 
@@ -555,7 +745,7 @@ export class RemusBladeAdapter implements IWearableAdapter {
     const device: WearableDevice = {
       id: this.targetDeviceId,
       name: this.targetDeviceName,
-      deviceFamily: 'remus_blade',
+      deviceFamily: this.deviceFamily,
       state,
     };
     this.deviceStateListeners.forEach(listener => listener(device));
@@ -582,6 +772,13 @@ export class RemusBladeAdapter implements IWearableAdapter {
     };
   }
 
+  onBladeRoster(listener: (entries: BladeRosterEntry[]) => void): () => void {
+    this.bladeRosterListeners.add(listener);
+    return () => {
+      this.bladeRosterListeners.delete(listener);
+    };
+  }
+
   async getBluetoothState(): Promise<string> {
     if (this.nativeBridge?.getBluetoothState) {
       return this.nativeBridge.getBluetoothState();
@@ -601,6 +798,7 @@ export class RemusBladeAdapter implements IWearableAdapter {
     this.sensorListeners.clear();
     this.snapshotListeners.clear();
     this.deviceStateListeners.clear();
+    this.bladeRosterListeners.clear();
     this.isConnected = false;
   }
 }

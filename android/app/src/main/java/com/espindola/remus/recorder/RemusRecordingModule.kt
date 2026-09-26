@@ -148,6 +148,22 @@ class RemusRecordingModule(private val reactContext: ReactApplicationContext) :
   }
 
   @ReactMethod
+  fun recordSourceLifecycleEvent(options: ReadableMap, promise: Promise) {
+    try {
+      val sourceId = options.getString("sourceId")
+        ?: throw IllegalArgumentException("sourceId is required")
+      val event = options.getString("event")
+        ?: throw IllegalArgumentException("event is required")
+      val reason = if (options.hasKey("reason")) options.getString("reason") else null
+      val elapsedSeconds = options.getDouble("elapsedSeconds")
+      evidenceStore.appendSourceLifecycleEvent(sourceId, event, reason, elapsedSeconds)
+      promise.resolve(true)
+    } catch (error: Exception) {
+      promise.reject("INVALID_SOURCE_EVENT", error.message, error)
+    }
+  }
+
+  @ReactMethod
   fun getRecordingState(promise: Promise) {
     val map = Arguments.createMap()
     map.putBoolean("isRecording", evidenceStore.isRecording)

@@ -13,6 +13,10 @@ RCT_EXTERN_METHOD(stopRecording:(RCTPromiseResolveBlock)resolve
 RCT_EXTERN_METHOD(getRecordingState:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(recordSourceLifecycleEvent:(NSDictionary *)options
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(requestLocationPermission:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 

@@ -96,6 +96,29 @@ final class RemusRecordingBridge: RCTEventEmitter, CLLocationManagerDelegate {
   }
 
   @objc
+  func recordSourceLifecycleEvent(
+    _ options: NSDictionary,
+    resolver resolve: @escaping RCTPromiseResolveBlock,
+    rejecter reject: @escaping RCTPromiseRejectBlock
+  ) {
+    guard
+      let sourceId = options["sourceId"] as? String,
+      let event = options["event"] as? String,
+      let elapsedSeconds = options["elapsedSeconds"] as? Double
+    else {
+      reject("INVALID_SOURCE_EVENT", "Missing sourceId, event, or elapsedSeconds", nil)
+      return
+    }
+    evidenceStore.appendSourceLifecycleEvent(
+      sourceId: sourceId,
+      event: event,
+      reason: options["reason"] as? String,
+      elapsedSeconds: elapsedSeconds
+    )
+    resolve(true)
+  }
+
+  @objc
   func exportRecording(
     _ options: NSDictionary,
     resolver resolve: @escaping RCTPromiseResolveBlock,

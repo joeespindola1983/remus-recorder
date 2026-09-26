@@ -17,10 +17,13 @@ import {
 } from '../organisms/AdaptiveCaptureSurface';
 import { DeviceReadinessPanel } from '../organisms/DeviceReadinessPanel';
 import { RemusBladeSnapshot } from '../../services/blade/RemusBladeAdapter';
+import { RemusBladeManager } from '../../services/blade/RemusBladeManager';
 import { RecordingManifest } from '../../services/recording/RecordingService';
 import {
   describePhoneSummaryEvidence,
+  deduplicateRemusBladeSources,
   overallReadinessSummary,
+  sourceDisplayName,
 } from '../presentation/deviceReadiness';
 import {
   SourceCoverageLane,
@@ -44,17 +47,19 @@ export function ReadyScreen({
   onDisconnectBlade,
   onConnectBlade,
   onSelectPlacement,
+  onCalibrateBladeAlignment,
 }: {
   state: ActivityCaptureState;
   onStart: () => void;
   onRequestPermissions?: () => void;
   bladeSnapshot?: RemusBladeSnapshot | null;
-  onDisconnectBlade?: () => void;
-  onConnectBlade?: () => void;
+  onDisconnectBlade?: (sourceId: string) => void;
+  onConnectBlade?: (sourceId: string) => void;
   onSelectPlacement?: (sourceId: string, placement: SensorPlacement) => void;
+  onCalibrateBladeAlignment?: () => void;
 }): React.JSX.Element {
   const [expandedSourceId, setExpandedSourceId] = useState<string | null>(null);
-  const sourcesList = Object.values(state.sources);
+  const sourcesList = deduplicateRemusBladeSources(Object.values(state.sources));
   const overall = overallReadinessSummary(sourcesList);
   const expandedIds = expandedSourceId ? [expandedSourceId] : [];
 
@@ -83,6 +88,7 @@ export function ReadyScreen({
         onDisconnectBlade={onDisconnectBlade}
         onConnectBlade={onConnectBlade}
         onSelectPlacement={onSelectPlacement}
+        onCalibrateBladeAlignment={onCalibrateBladeAlignment}
       />
       <ActionButton label={t('ready.startAction')} onPress={onStart} />
     </ScrollView>
@@ -94,15 +100,17 @@ export function ActiveScreen({
   onStop,
   onPause,
   bladeSnapshot,
+  bladeManager,
 }: {
   state: ActivityCaptureState;
   onStop: () => void;
   onPause: () => void;
   bladeSnapshot?: RemusBladeSnapshot | null;
+  bladeManager?: RemusBladeManager | null;
 }): React.JSX.Element {
   const { width, height } = useWindowDimensions();
   const orientation = captureOrientationFor(width, height);
-  const interrupted = Object.values(state.sources).some(
+  const interruptedSources = Object.values(state.sources).filter(
     source => source.recordingState === 'interrupted',
   );
 
@@ -127,15 +135,18 @@ export function ActiveScreen({
         orientation={orientation}
         viewportWidth={width}
         bladeGpsStatus={bladeGpsStatus}
+        bladeManager={bladeManager}
       />
-      {interrupted ? (
+      {interruptedSources.length > 0 ? (
         <View
           style={[
             styles.connectionNotice,
             orientation === 'landscape' && styles.connectionNoticeLandscape,
           ]}
         >
-          <OperationalEventBanner />
+          <OperationalEventBanner
+            sourceNames={interruptedSources.map(sourceDisplayName)}
+          />
         </View>
       ) : null}
     </View>
@@ -216,6 +227,7 @@ export function SummaryScreen({
 
   const sourceNameMap: Record<string, string> = {
     remus_blade: 'RBP1',
+    remus_computer: 'Remus Computer',
     iphone: 'iPhone',
     android_phone: 'Android',
     apple_watch: 'Watch',
@@ -230,12 +242,17 @@ export function SummaryScreen({
 
   const lanes: SourceCoverageLane[] = activeSources.map(source => {
     const isInterrupted = source.recordingState === 'interrupted';
+    const duration = Math.max(1, state.metrics.elapsedSeconds);
+    const coverageSegments = source.coverageSegments.length > 0
+      ? source.coverageSegments.map(segment => ({
+          startRatio: segment.startedAtElapsedSeconds / duration,
+          endRatio: (segment.endedAtElapsedSeconds ?? state.metrics.elapsedSeconds) / duration,
+        }))
+      : [{startRatio: 0, endRatio: 1}];
     return {
       sourceId: source.sourceId,
       sourceName: sourceNameMap[source.deviceFamily] ?? source.deviceFamily,
-      coverageSegments: isInterrupted
-        ? [{ startRatio: 0, endRatio: 0.65 }]
-        : [{ startRatio: 0, endRatio: 1 }],
+      coverageSegments,
       isInterrupted,
     };
   });

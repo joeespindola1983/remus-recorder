@@ -146,6 +146,49 @@ describe('activity capture reducer', () => {
     expect(state.sources['phone:primary'].recordingState).toBe('finalized');
   });
 
+  it('records a telemetry timeout without guessing battery failure and opens a new segment on recovery', () => {
+    let state = createInitialActivityCapture(phoneSource);
+    state = activityCaptureReducer(state, {type: 'source_discovered', source: rbp1Source});
+    state = activityCaptureReducer(state, {
+      type: 'capture_committed',
+      activityId: 'activity:1',
+      activityCorrelationId: 'correlation:1',
+      recordingIdsBySource: {
+        'phone:primary': 'recording:phone:1',
+        'rbp1:primary': 'recording:rbp1:1',
+      },
+    });
+
+    state = activityCaptureReducer(state, {
+      type: 'source_interrupted',
+      sourceId: 'rbp1:primary',
+      atElapsedSeconds: 42,
+      reason: 'telemetry_timeout',
+    });
+    expect(state.sources['rbp1:primary']).toMatchObject({
+      recordingState: 'interrupted',
+      finalizationReason: 'telemetry_timeout',
+    });
+    expect(state.sources['rbp1:primary'].coverageSegments).toEqual([
+      {startedAtElapsedSeconds: 0, endedAtElapsedSeconds: 42},
+    ]);
+
+    state = activityCaptureReducer(state, {
+      type: 'source_recovered',
+      sourceId: 'rbp1:primary',
+      atElapsedSeconds: 51,
+    });
+    expect(state.sources['rbp1:primary']).toMatchObject({
+      operationalState: 'capturing',
+      recordingState: 'recording',
+      finalizationReason: undefined,
+    });
+    expect(state.sources['rbp1:primary'].coverageSegments).toEqual([
+      {startedAtElapsedSeconds: 0, endedAtElapsedSeconds: 42},
+      {startedAtElapsedSeconds: 51},
+    ]);
+  });
+
   it('updates placement and sets provenance to user_declared', () => {
     let state = createInitialActivityCapture(phoneSource);
     state = activityCaptureReducer(state, {type: 'source_discovered', source: rbp1Source});

@@ -143,6 +143,29 @@ describe('SummaryScreen Phone Evidence Declaration (TDD)', () => {
     expect(timeline.props.lanes.map((l: any) => l.sourceId)).toEqual(['phone:primary']);
   });
 
+  it('uses recorded coverage boundaries instead of a fixed interrupted percentage', () => {
+    const state = createFinishedState();
+    state.metrics.elapsedSeconds = 100;
+    state.sources['phone:primary'].recordingId = 'rec:phone:1';
+    state.sources['phone:primary'].recordingState = 'interrupted';
+    state.sources['phone:primary'].finalizationReason = 'telemetry_timeout';
+    state.sources['phone:primary'].coverageSegments = [
+      {startedAtElapsedSeconds: 0, endedAtElapsedSeconds: 25},
+      {startedAtElapsedSeconds: 50, endedAtElapsedSeconds: 75},
+    ];
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    act(() => {
+      renderer = ReactTestRenderer.create(<SummaryScreen state={state} />);
+    });
+
+    const timeline = renderer.root.findByProps({testID: 'source-coverage-timeline'});
+    expect(timeline.props.lanes[0].coverageSegments).toEqual([
+      {startRatio: 0, endRatio: 0.25},
+      {startRatio: 0.5, endRatio: 0.75},
+    ]);
+  });
+
   it('displays real recorded sample counts and export button when provided', () => {
     const state = createFinishedState();
     const onExport = jest.fn();
