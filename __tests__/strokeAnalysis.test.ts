@@ -5,6 +5,7 @@ import {
   inferRememberedBladeSides,
   normalizeStrokeFingerprint,
   StrokeEventDetector,
+  createAnalysisResult,
 } from '../src/analysis/rowing/StrokeAnalysis';
 
 const stroke = (index: number, catchTimeUs: number, finishTimeUs: number): StrokeEvent => ({
@@ -103,5 +104,72 @@ describe('rowing stroke analysis', () => {
     expect(strokes[0].driveDurationMs).toBeGreaterThan(500);
     expect(strokes[0].catchConfidence).toBeGreaterThan(0.7);
     expect(strokes[0].qualityFlags).toEqual([]);
+  });
+
+  it('detects strokes with low_confidence clock and preserves motion profile validity', () => {
+    const detector = new StrokeEventDetector();
+    const samples = [];
+    for (let index = 0; index < 650; index += 1) {
+      const phase = index % 200;
+      samples.push({
+        timestampUs: index * 10_000,
+        oarSweepAngularVelocity: phase >= 40 && phase < 105 ? 1.8 : -0.45,
+        featherSquareAngularVelocity: phase >= 25 && phase < 45 ? 1.2 : phase >= 105 && phase < 125 ? -1.1 : 0,
+        oarVerticalAngularVelocity: phase >= 35 && phase < 45 ? -0.8 : 0,
+        accelerationMagnitudeG: phase >= 40 && phase < 48 ? 1.6 : 1,
+        saturated: false,
+        clockQualified: false,
+      });
+    }
+
+    const strokes = detector.detect(samples);
+    expect(strokes.length).toBeGreaterThanOrEqual(2);
+    expect(strokes[0].isValidForTiming).toBe(false);
+    expect(strokes[0].isValidForMotionProfile).toBe(true);
+    expect(strokes[0].qualityFlags).toContain('CLOCK_SYNC_LOW_CONFIDENCE');
+  });
+
+  it('reports pipeline diagnostics for stroke detection and pairing', () => {
+    const left = [stroke(0, 1_020_000, 1_720_000)];
+    const right: StrokeEvent[] = [];
+    const analysis = createAnalysisResult(left, right, {
+      algorithmVersion: '1.0.0',
+      calibrationVersion: '1.0.0',
+      clockSyncVersion: '1.0.0',
+      clockSyncQuality: 'low_confidence',
+      clockUncertaintyMs: 25,
+    });
+
+    expect(analysis.pairedStrokesAll).toEqual([]);
+    expect(analysis.pairedStrokesReliable).toEqual([]);
+    expect(analysis.pipelineDiagnostics).toMatchObject({
+      leftDetectedStrokes: 1,
+      rightDetectedStrokes: 0,
+      pairedStrokes: 0,
+      unpairedLeft: 1,
+      unpairedRight: 0,
+    });
+    expect(analysis.pipelineDiagnostics.rejectionReasons).toContain('CLOCK_SYNC_LOW_CONFIDENCE');
+  });
+
+  it('separates all paired strokes from reliable paired strokes', () => {
+    const leftTimingInvalid = stroke(0, 1_020_000, 1_720_000);
+    leftTimingInvalid.isValidForTiming = false;
+    leftTimingInvalid.qualityFlags = ['CLOCK_SYNC_LOW_CONFIDENCE'];
+
+    const rightTimingValid = stroke(0, 1_000_000, 1_690_000);
+
+    const analysis = createAnalysisResult([leftTimingInvalid], [rightTimingValid], {
+      algorithmVersion: '1.0.0',
+      calibrationVersion: '1.0.0',
+      clockSyncVersion: '1.0.0',
+      clockUncertaintyMs: 25,
+    });
+
+    expect(analysis.pairedStrokesAll).toHaveLength(1);
+    expect(analysis.pairedStrokesReliable).toHaveLength(0);
+    expect(analysis.pairedStrokesAll[0].timingUncertaintyMs).toBe(25);
+    expect(analysis.pairedStrokesAll[0].isTimingQualified).toBe(false);
+    expect(analysis.pipelineDiagnostics.rejectedClockSync).toBe(1);
   });
 });

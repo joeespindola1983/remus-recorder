@@ -44,6 +44,8 @@ export interface PairedStroke {
   squareTimingDeltaMs?: number;
   featherTimingDeltaMs?: number;
   confidence: number;
+  timingUncertaintyMs?: number;
+  isTimingQualified?: boolean;
 }
 
 const percentile = (values: number[], p: number): number | null => {
@@ -76,9 +78,13 @@ export const pairStrokes = (
   left: StrokeEvent[],
   right: StrokeEvent[],
   maximumCatchSeparationMs = 250,
+  options?: {
+    clockUncertaintyMs?: number;
+  },
 ): PairedStroke[] => {
   const result: PairedStroke[] = [];
   const usedRight = new Set<number>();
+  const timingUncertaintyMs = options?.clockUncertaintyMs;
   for (const leftStroke of left) {
     let bestIndex = -1;
     let bestSeparationUs = Number.POSITIVE_INFINITY;
@@ -97,6 +103,8 @@ export const pairStrokes = (
       ? (leftStroke.squareStartTimeUs - rightStroke.squareStartTimeUs) / 1000 : undefined;
     const featherDelta = leftStroke.featherStartTimeUs !== undefined && rightStroke.featherStartTimeUs !== undefined
       ? (leftStroke.featherStartTimeUs - rightStroke.featherStartTimeUs) / 1000 : undefined;
+    const isTimingQualified = leftStroke.isValidForTiming && rightStroke.isValidForTiming &&
+      (timingUncertaintyMs === undefined || timingUncertaintyMs <= 10);
     result.push({
       leftStroke,
       rightStroke,
@@ -113,6 +121,8 @@ export const pairStrokes = (
         rightStroke.catchConfidence,
         rightStroke.finishConfidence,
       ),
+      timingUncertaintyMs,
+      isTimingQualified,
     });
   }
   return result;
@@ -319,8 +329,8 @@ export class StrokeEventDetector {
       const cycleDurationMs = (next.catchTimeUs - current.catchTimeUs) / 1000;
       const driveDurationMs = (current.finishTimeUs - current.catchTimeUs) / 1000;
       const flags = [...current.qualityFlags];
-      const timingValid = !flags.includes('BAD_PERIOD') &&
-        !flags.includes('CLOCK_SYNC_LOW_CONFIDENCE') && cycleDurationMs > 0;
+      const cycleValid = !flags.includes('BAD_PERIOD') && cycleDurationMs > 0;
+      const timingValid = cycleValid && !flags.includes('CLOCK_SYNC_LOW_CONFIDENCE');
       strokes.push({
         strokeIndex: strokes.length,
         previousCatchTimeUs: current.previousCatchTimeUs,
@@ -339,7 +349,7 @@ export class StrokeEventDetector {
         finishConfidence: current.finishConfidence,
         qualityFlags: flags,
         isValidForTiming: timingValid,
-        isValidForMotionProfile: timingValid && !flags.includes('IMU_SATURATION'),
+        isValidForMotionProfile: cycleValid && !flags.includes('IMU_SATURATION'),
         isValidForBoatResponse: timingValid,
       });
     }
@@ -424,6 +434,103 @@ export const extractBoatResponse = (
   };
 };
 
+export interface PipelineDiagnostics {
+  leftDetectedStrokes: number;
+  rightDetectedStrokes: number;
+  pairedStrokes: number;
+  rejectedClockSync: number;
+  rejectedConfidence: number;
+  rejectedOrientation: number;
+  rejectedPeriod: number;
+  unpairedLeft: number;
+  unpairedRight: number;
+  rejectionReasons: string[];
+}
+
+export interface PipelineDiagnosticsInput {
+  leftStrokes: StrokeEvent[];
+  rightStrokes: StrokeEvent[];
+  pairedStrokes: PairedStroke[];
+  leftSampleCount?: number;
+  rightSampleCount?: number;
+  clockSyncQuality?: 'qualified' | 'approximate' | 'low_confidence';
+  clockUncertaintyMs?: number;
+  mountingQualified?: boolean;
+}
+
+export const createPipelineDiagnostics = (input: PipelineDiagnosticsInput): PipelineDiagnostics => {
+  const leftCount = input.leftStrokes.length;
+  const rightCount = input.rightStrokes.length;
+  const pairedCount = input.pairedStrokes.length;
+
+  let rejectedClockSync = 0;
+  let rejectedConfidence = 0;
+  let rejectedPeriod = 0;
+  let rejectedOrientation = 0;
+  const rejectionReasons: string[] = [];
+
+  const allStrokes = [...input.leftStrokes, ...input.rightStrokes];
+  for (const s of allStrokes) {
+    if (s.qualityFlags.includes('CLOCK_SYNC_LOW_CONFIDENCE') || !s.isValidForTiming) {
+      rejectedClockSync += 1;
+    }
+    if (s.qualityFlags.includes('BAD_PERIOD')) {
+      rejectedPeriod += 1;
+    }
+    if (s.catchConfidence < 0.5 || s.finishConfidence < 0.5) {
+      rejectedConfidence += 1;
+    }
+    if (s.qualityFlags.includes('BOAT_AXIS_UNCALIBRATED')) {
+      rejectedOrientation += 1;
+    }
+  }
+
+  if (input.clockSyncQuality === 'low_confidence' || (input.clockUncertaintyMs !== undefined && input.clockUncertaintyMs > 10)) {
+    if (!rejectionReasons.includes('CLOCK_SYNC_LOW_CONFIDENCE')) {
+      rejectionReasons.push('CLOCK_SYNC_LOW_CONFIDENCE');
+    }
+  }
+  if (allStrokes.some(s => s.qualityFlags.includes('CLOCK_SYNC_LOW_CONFIDENCE')) && !rejectionReasons.includes('CLOCK_SYNC_LOW_CONFIDENCE')) {
+    rejectionReasons.push('CLOCK_SYNC_LOW_CONFIDENCE');
+  }
+  if (allStrokes.some(s => s.qualityFlags.includes('BAD_PERIOD')) && !rejectionReasons.includes('BAD_PERIOD')) {
+    rejectionReasons.push('BAD_PERIOD');
+  }
+  if (input.mountingQualified === false && !rejectionReasons.includes('MOUNTING_UNCALIBRATED')) {
+    rejectionReasons.push('MOUNTING_UNCALIBRATED');
+  }
+  if (leftCount === 0 && (input.leftSampleCount ?? 0) > 0) {
+    rejectionReasons.push('NO_LEFT_STROKES_DETECTED');
+  }
+  if (rightCount === 0 && (input.rightSampleCount ?? 0) > 0) {
+    rejectionReasons.push('NO_RIGHT_STROKES_DETECTED');
+  }
+
+  return {
+    leftDetectedStrokes: leftCount,
+    rightDetectedStrokes: rightCount,
+    pairedStrokes: pairedCount,
+    rejectedClockSync,
+    rejectedConfidence,
+    rejectedOrientation,
+    rejectedPeriod,
+    unpairedLeft: Math.max(0, leftCount - pairedCount),
+    unpairedRight: Math.max(0, rightCount - pairedCount),
+    rejectionReasons,
+  };
+};
+
+export interface AnalysisVersionsAndOptions {
+  algorithmVersion?: string;
+  calibrationVersion?: string;
+  clockSyncVersion?: string;
+  clockSyncQuality?: 'qualified' | 'approximate' | 'low_confidence';
+  clockUncertaintyMs?: number;
+  mountingQualified?: boolean;
+  leftSampleCount?: number;
+  rightSampleCount?: number;
+}
+
 export interface AnalysisResult {
   algorithmVersion: string;
   calibrationVersion: string;
@@ -431,20 +538,46 @@ export interface AnalysisResult {
   sessionMetrics: ReturnType<typeof summarizePairedStrokes>;
   strokes: StrokeEvent[];
   pairedStrokes: PairedStroke[];
+  pairedStrokesAll: PairedStroke[];
+  pairedStrokesReliable: PairedStroke[];
+  pipelineDiagnostics: PipelineDiagnostics;
   segments: Array<{segmentId: string; firstStrokeIndex: number; lastStrokeIndex: number}>;
 }
 
 export const createAnalysisResult = (
   leftStrokes: StrokeEvent[],
   rightStrokes: StrokeEvent[],
-  versions = {algorithmVersion: '1.0.0', calibrationVersion: '1.0.0', clockSyncVersion: '1.0.0'},
+  options: AnalysisVersionsAndOptions = {},
 ): AnalysisResult => {
-  const pairedStrokes = pairStrokes(leftStrokes, rightStrokes);
+  const algorithmVersion = options.algorithmVersion ?? '1.0.0';
+  const calibrationVersion = options.calibrationVersion ?? '1.0.0';
+  const clockSyncVersion = options.clockSyncVersion ?? '1.0.0';
+
+  const pairedStrokesAll = pairStrokes(leftStrokes, rightStrokes, 250, {
+    clockUncertaintyMs: options.clockUncertaintyMs,
+  });
+  const pairedStrokesReliable = pairedStrokesAll.filter(p => p.isTimingQualified);
+  const pipelineDiagnostics = createPipelineDiagnostics({
+    leftStrokes,
+    rightStrokes,
+    pairedStrokes: pairedStrokesAll,
+    leftSampleCount: options.leftSampleCount,
+    rightSampleCount: options.rightSampleCount,
+    clockSyncQuality: options.clockSyncQuality,
+    clockUncertaintyMs: options.clockUncertaintyMs,
+    mountingQualified: options.mountingQualified,
+  });
+
   return {
-    ...versions,
-    sessionMetrics: summarizePairedStrokes(pairedStrokes),
+    algorithmVersion,
+    calibrationVersion,
+    clockSyncVersion,
+    sessionMetrics: summarizePairedStrokes(pairedStrokesAll),
     strokes: [...leftStrokes, ...rightStrokes],
-    pairedStrokes,
+    pairedStrokes: pairedStrokesAll,
+    pairedStrokesAll,
+    pairedStrokesReliable,
+    pipelineDiagnostics,
     segments: [],
   };
 };
