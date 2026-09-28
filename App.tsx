@@ -298,6 +298,7 @@ export default function App(): React.JSX.Element {
     ]);
 
     try {
+      await recordingService.setTelemetryDiagnostics(bladeManager.getTelemetryDiagnostics());
       const manifest = await recordingService.stop();
       setLastManifest(manifest);
       if (manifest.status !== 'finalized') {
