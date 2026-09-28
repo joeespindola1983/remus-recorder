@@ -88,6 +88,17 @@ final class RemusRecordingBridge: RCTEventEmitter, CLLocationManagerDelegate {
   }
 
   @objc
+  func setTelemetryDiagnostics(
+    _ options: NSDictionary,
+    resolver resolve: @escaping RCTPromiseResolveBlock,
+    rejecter reject: @escaping RCTPromiseRejectBlock
+  ) {
+    let bySource = options["bySource"] as? [String: Any] ?? [:]
+    evidenceStore.setTelemetryDiagnostics(bySource: bySource)
+    resolve(true)
+  }
+
+  @objc
   func getRecordingState(
     _ resolve: @escaping RCTPromiseResolveBlock,
     rejecter reject: @escaping RCTPromiseRejectBlock
