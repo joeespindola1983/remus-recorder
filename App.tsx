@@ -113,7 +113,8 @@ export default function App(): React.JSX.Element {
           phaseRef.current === 'recording' &&
           currentSource.recordingState === 'interrupted' &&
           currentSource.finalizationReason === 'telemetry_timeout' &&
-          connectionState === 'connected'
+          connectionState === 'connected' &&
+          sourceState.readiness?.liveTelemetryState === 'qualified'
         ) {
           dispatch({type: 'recover_source', sourceId});
           recordingService.recordSourceLifecycleEvent({
@@ -129,6 +130,7 @@ export default function App(): React.JSX.Element {
         });
       }
     });
+
     bladeManager.initialize().catch(() => {});
     return () => {
       unsub();

@@ -97,6 +97,21 @@ export class RemusBladeDeviceService {
       this.unsubSensorSample = this.adapter.onSensorData(() => {
         if (this.connectionState === 'connected') {
           this.resetWatchdog();
+          if (this.sourceState.readiness?.liveTelemetryState !== 'qualified') {
+            this.sourceState = {
+              ...this.sourceState,
+              readiness: {
+                ...this.sourceState.readiness,
+                sourceConnectionState: 'connected',
+                liveTelemetryState: 'qualified',
+                availableMeasurementIdentifiers: [
+                  'accelerationIncludingGravityG',
+                  'rotationRateRadiansPerSecond',
+                ],
+              },
+            };
+            this.notifyListeners();
+          }
         }
       });
     }
