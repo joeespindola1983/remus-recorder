@@ -36,6 +36,9 @@ export function LiveBladeParityCell({
   const rightRateRef = useRef<number>(0);
   const hasLeftRef = useRef<boolean>(false);
   const hasRightRef = useRef<boolean>(false);
+  const primaryDeviceIdRef = useRef<string | null>(null);
+  const secondaryDeviceIdRef = useRef<string | null>(null);
+  const lastHistoryUpdateRef = useRef<number>(0);
 
   useEffect(() => {
     if (!bladeManager || typeof bladeManager.onSensorData !== 'function') {
@@ -43,7 +46,8 @@ export function LiveBladeParityCell({
     }
 
     const unsub = bladeManager.onSensorData((sample, placement) => {
-      const rot = normalizeBladeRotation(sample, placement);
+      const calibration = bladeManager.getBladeMountCalibration?.(sample.deviceId);
+      const rot = normalizeBladeRotation(sample, placement, calibration);
       if (rot === null) return;
 
       if (placement === 'left_paddle') {
@@ -52,6 +56,24 @@ export function LiveBladeParityCell({
       } else if (placement === 'right_paddle') {
         rightRateRef.current = rot;
         hasRightRef.current = true;
+      } else if (sample.deviceId) {
+        if (!primaryDeviceIdRef.current) {
+          primaryDeviceIdRef.current = sample.deviceId;
+        }
+        if (sample.deviceId === primaryDeviceIdRef.current) {
+          leftRateRef.current = rot;
+          hasLeftRef.current = true;
+        } else {
+          if (!secondaryDeviceIdRef.current) {
+            secondaryDeviceIdRef.current = sample.deviceId;
+          }
+          if (sample.deviceId === secondaryDeviceIdRef.current) {
+            rightRateRef.current = rot;
+            hasRightRef.current = true;
+          } else {
+            return;
+          }
+        }
       } else {
         return;
       }
@@ -64,18 +86,24 @@ export function LiveBladeParityCell({
           setParityPercent(score);
         }
 
-        setHistory(prev =>
-          addParityHistoryPoint(
-            prev,
-            {
-              left,
-              right,
-              parityPercent: score,
-              timestamp: Date.now(),
-            },
-            MAX_HISTORY_POINTS,
-          ),
-        );
+        const now = Date.now();
+        // Throttle rolling history to ~60ms (~16 Hz, spanning ~1.5s across 24 bars)
+        // to show a full readable stroke wave instead of 60ms sub-fraction.
+        if (now - lastHistoryUpdateRef.current >= 60) {
+          lastHistoryUpdateRef.current = now;
+          setHistory(prev =>
+            addParityHistoryPoint(
+              prev,
+              {
+                left,
+                right,
+                parityPercent: score,
+                timestamp: now,
+              },
+              MAX_HISTORY_POINTS,
+            ),
+          );
+        }
       }
     });
 

@@ -8,6 +8,11 @@ import {
 import { CaptureSourceState } from '../../application/capture/ActivityCapture';
 import { SensorPlacement } from '../../contracts/acquisition/types';
 import { SensorSample } from '../../types/wearables';
+import {
+  BladeMountCalibration,
+  calibrateBladeMount,
+  getDefaultMountingProfile,
+} from '../../analysis/rowing/BladeMountCalibration';
 
 export class RemusBladeManager {
   private nativeBridge: any;
@@ -20,6 +25,7 @@ export class RemusBladeManager {
   private deviceSensorSubscriptions: Map<string, () => void> = new Map();
   private stateSubscription: { remove(): void } | null = null;
   private bladeAssignments: Map<number, 'left_paddle' | 'right_paddle'> = new Map();
+  private bladeCalibrations: Map<string, BladeMountCalibration> = new Map();
   private relaySources: Map<number, CaptureSourceState> = new Map();
   private syncInFlight: boolean = false;
   private lastKnownConnectionState: Map<string, string> = new Map();
@@ -187,6 +193,22 @@ export class RemusBladeManager {
       placement = service.getSourceState().sensorPlacement;
     }
 
+    const sourceId = sample.deviceId;
+    if (sourceId && !this.bladeCalibrations.has(sourceId) && sample.accelerationIncludingGravityG) {
+      const accel = sample.accelerationIncludingGravityG;
+      const mag = Math.sqrt(accel.x * accel.x + accel.y * accel.y + accel.z * accel.z);
+      if (mag >= 0.7 && mag <= 1.3) {
+        try {
+          const calib = calibrateBladeMount(getDefaultMountingProfile(placement), accel);
+          if (calib.qualified) {
+            this.bladeCalibrations.set(sourceId, calib);
+          }
+        } catch {
+          // ignore non-orthogonal/invalid orientation
+        }
+      }
+    }
+
     this.sensorDataListeners.forEach(l => l(sample, placement));
   }
 
@@ -265,6 +287,46 @@ export class RemusBladeManager {
       this.scheduleSyncBladeAssignments();
     }
     return results.some(r => r);
+  }
+
+  getBladeMountCalibration(sourceId: string): BladeMountCalibration | undefined {
+    return this.bladeCalibrations.get(sourceId);
+  }
+
+  setBladeMountCalibration(sourceId: string, calibration: BladeMountCalibration): void {
+    this.bladeCalibrations.set(sourceId, calibration);
+  }
+
+  getTelemetryDiagnostics(): Record<string, {
+    telemetry: ReturnType<RemusBladeDeviceService['getTelemetryAccounting']>;
+    deviceConfiguration: ReturnType<RemusBladeDeviceService['getDeviceConfiguration']>;
+    clockSync: ReturnType<RemusBladeDeviceService['getClockSync']>;
+    sensorPlacement?: SensorPlacement;
+    boatSide?: 'port' | 'starboard';
+    sourceRole?: string;
+    calibration?: BladeMountCalibration;
+  }> {
+    return Object.fromEntries(Array.from(this.devices.values()).map(device => {
+      const sourceState = device.getSourceState();
+      const sourceId = sourceState.sourceId;
+      const identityHash = parseBladeIdentityHash(sourceId);
+      const placement = (identityHash !== null ? this.bladeAssignments.get(identityHash) : undefined) ?? sourceState.sensorPlacement;
+      const boatSide = placement === 'left_paddle' ? 'port' : placement === 'right_paddle' ? 'starboard' : undefined;
+      const sourceRole = boatSide ? (boatSide === 'port' ? 'BLADE_PORT' : 'BLADE_STARBOARD') : undefined;
+      const calibration = this.bladeCalibrations.get(sourceId);
+      return [
+        sourceId,
+        {
+          telemetry: device.getTelemetryAccounting(),
+          deviceConfiguration: device.getDeviceConfiguration(),
+          clockSync: device.getClockSync(),
+          sensorPlacement: placement,
+          boatSide,
+          sourceRole,
+          calibration,
+        },
+      ];
+    }));
   }
 
   async connect(sourceId?: string): Promise<boolean> {

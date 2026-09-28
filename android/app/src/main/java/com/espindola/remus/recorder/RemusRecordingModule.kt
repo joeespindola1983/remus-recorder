@@ -148,6 +148,17 @@ class RemusRecordingModule(private val reactContext: ReactApplicationContext) :
   }
 
   @ReactMethod
+  fun setTelemetryDiagnostics(options: ReadableMap, promise: Promise) {
+    try {
+      val bySource = options.getMap("bySource")?.toHashMap() ?: emptyMap()
+      evidenceStore.setTelemetryDiagnostics(bySource)
+      promise.resolve(true)
+    } catch (error: Exception) {
+      promise.reject("TELEMETRY_DIAGNOSTICS_ERROR", error.message, error)
+    }
+  }
+
+  @ReactMethod
   fun recordSourceLifecycleEvent(options: ReadableMap, promise: Promise) {
     try {
       val sourceId = options.getString("sourceId")

@@ -40,6 +40,7 @@ export interface RecordedWorkoutSummary {
 export interface NativeRecordingBridge {
   startRecording(options: {sourceIds: string[]}): Promise<RecordingStartResult>;
   stopRecording(): Promise<RecordingManifest>;
+  setTelemetryDiagnostics?(options: {bySource: Record<string, unknown>}): Promise<boolean>;
   getRecordingState(): Promise<{
     isRecording: boolean;
     activityId?: string;
@@ -91,6 +92,10 @@ export class RecordingService {
       return Promise.reject(new Error('Native recording is unavailable'));
     }
     return this.bridge.stopRecording();
+  }
+
+  setTelemetryDiagnostics(bySource: Record<string, unknown>): Promise<boolean> {
+    return this.bridge?.setTelemetryDiagnostics?.({bySource}) ?? Promise.resolve(false);
   }
 
   exportRecording(activityId?: string): Promise<{zipPath: string; shared: boolean}> {

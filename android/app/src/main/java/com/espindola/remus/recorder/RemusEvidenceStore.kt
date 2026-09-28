@@ -43,6 +43,7 @@ class RemusEvidenceStore private constructor() {
   private var startedAtEpochMs: Long = 0
   private val writers = mutableMapOf<String, BufferedWriter>()
   private val sampleCounts = mutableMapOf<String, Long>()
+  private var telemetryDiagnosticsBySource: Map<String, Any?> = emptyMap()
 
   fun start(context: Context, sourceIds: List<String>): Map<String, Any> {
     synchronized(this) {
@@ -73,6 +74,7 @@ class RemusEvidenceStore private constructor() {
       currentRecordingIdsBySource = recordingIds
       startedAtEpochMs = now
       sampleCounts.clear()
+      telemetryDiagnosticsBySource = emptyMap()
       writers.clear()
 
       for ((stream, filename) in streamFiles) {
@@ -100,6 +102,13 @@ class RemusEvidenceStore private constructor() {
     append("phoneMotion", "phone:primary", payload)
   }
 
+  fun setTelemetryDiagnostics(bySource: Map<String, Any?>) {
+    synchronized(this) {
+      telemetryDiagnosticsBySource = bySource
+      writeManifest("recording", null, null)
+    }
+  }
+
   fun appendPhoneLocation(payload: Map<String, Any?>) {
     append("phoneLocation", "phone:primary", payload)
   }
@@ -114,12 +123,17 @@ class RemusEvidenceStore private constructor() {
     deviceId: String,
     deviceName: String,
     characteristicUuid: String,
-    receivedAt: Long
+    receivedAt: Long,
+    receivedAtMonotonicUs: Long
   ) {
     val sourceId = synchronized(this) {
-      currentRecordingIdsBySource.keys.firstOrNull { it.endsWith(":$deviceId") }
+      val normalizedName = deviceName.uppercase()
+      val bladeIdentity = Regex("^REMUS-BLD-([0-9A-F]{8})$")
+        .matchEntire(normalizedName)?.groupValues?.get(1)?.lowercase()
+      val canonicalSourceId = bladeIdentity?.let { "blade:$it" }
+      currentRecordingIdsBySource.keys.firstOrNull { it == canonicalSourceId }
+        ?: currentRecordingIdsBySource.keys.firstOrNull { it.endsWith(":$deviceId") }
         ?: run {
-          val normalizedName = deviceName.uppercase()
           val isComputer = normalizedName.contains("COMPUTER") ||
             normalizedName.contains("CMP") ||
             normalizedName.contains("REMUS-PC") ||
@@ -127,7 +141,7 @@ class RemusEvidenceStore private constructor() {
             normalizedName.contains("REMUS-P2") ||
             normalizedName.contains("REMUS-PR1") ||
             normalizedName.contains("REMUS-PR2")
-          "${if (isComputer) "computer" else "blade"}:$deviceId"
+          canonicalSourceId ?: "${if (isComputer) "computer" else "blade"}:$deviceId"
         }
         .also { resolved ->
           if (currentRecordingIdsBySource[resolved] == null) {
@@ -143,7 +157,8 @@ class RemusEvidenceStore private constructor() {
       "deviceId" to deviceId,
       "deviceName" to deviceName,
       "characteristicUuid" to characteristicUuid,
-      "receivedAtEpochMilliseconds" to receivedAt
+      "receivedAtEpochMilliseconds" to receivedAt,
+      "receivedAtMonotonicUs" to receivedAtMonotonicUs
     ))
   }
 
@@ -307,6 +322,7 @@ class RemusEvidenceStore private constructor() {
         "endedAtEpochMilliseconds" to endedAt,
         "status" to "finalized",
         "sampleCounts" to sampleCounts.toMap(),
+        "telemetryDiagnosticsBySource" to telemetryDiagnosticsBySource,
         "parts" to parts
       )
 
@@ -336,6 +352,7 @@ class RemusEvidenceStore private constructor() {
         countsObj.put(k, v)
       }
       manifest.put("sampleCounts", countsObj)
+      manifest.put("telemetryDiagnosticsBySource", JSONObject(telemetryDiagnosticsBySource))
 
       if (endedAt != null) {
         manifest.put("endedAtEpochMilliseconds", endedAt)

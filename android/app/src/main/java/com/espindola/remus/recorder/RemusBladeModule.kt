@@ -31,6 +31,8 @@ import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import java.util.ArrayDeque
 import java.util.UUID
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 class RemusBladeModule(
   private val reactContext: ReactApplicationContext,
@@ -68,6 +70,9 @@ class RemusBladeModule(
   private val remusServiceUuid = UUID.fromString("4fafc201-1fb5-459e-8fcc-c5c9c331914b")
   private val remusCharUuid = UUID.fromString("beb5483e-36e1-4688-b7f5-ea07361b26a8")
   private val remusControlUuid = UUID.fromString("beb54840-36e1-4688-b7f5-ea07361b26a8")
+  private val remusDeviceInfoUuid = UUID.fromString("beb5483f-36e1-4688-b7f5-ea07361b26a8")
+  private val remusClockSyncUuid = UUID.fromString("beb54843-36e1-4688-b7f5-ea07361b26a8")
+  private var clockSyncRequestId = 0
   private val clientCharConfigUuid = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
   override fun getName(): String = "RemusBladeBridge"
@@ -222,6 +227,33 @@ class RemusBladeModule(
       return
     }
     writeCommand(identifier, data, promise)
+  }
+
+  @ReactMethod
+  fun requestClockSync(identifier: String, promise: Promise) {
+    val gatt = bluetoothGatt
+    val characteristic = gatt?.getService(remusServiceUuid)?.getCharacteristic(remusClockSyncUuid)
+    if (gatt == null || characteristic == null || !canConnect() || gatt.device.address != identifier) {
+      promise.resolve(false)
+      return
+    }
+    val sentAtUs = android.os.SystemClock.elapsedRealtimeNanos() / 1_000L
+    val request = ByteBuffer.allocate(14).order(ByteOrder.LITTLE_ENDIAN)
+      .put(1.toByte()).put(0x04.toByte()).putInt(++clockSyncRequestId).putLong(sentAtUs).array()
+    try {
+      val started = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        gatt.writeCharacteristic(characteristic, request, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT) ==
+          BluetoothStatusCodes.SUCCESS
+      } else {
+        @Suppress("DEPRECATION")
+        characteristic.value = request
+        @Suppress("DEPRECATION")
+        gatt.writeCharacteristic(characteristic)
+      }
+      promise.resolve(started)
+    } catch (error: SecurityException) {
+      promise.reject("CLOCK_SYNC_ERROR", error.message, error)
+    }
   }
 
   private fun writeCommand(identifier: String, data: ByteArray, promise: Promise) {
@@ -414,6 +446,28 @@ class RemusBladeModule(
       handleSnapshotBytes(value, characteristic.uuid.toString())
     }
 
+    @Deprecated("Deprecated in Java")
+    override fun onCharacteristicRead(
+      gatt: BluetoothGatt,
+      characteristic: BluetoothGattCharacteristic,
+      status: Int,
+    ) {
+      if (status != BluetoothGatt.GATT_SUCCESS) return
+      @Suppress("DEPRECATION")
+      handleSnapshotBytes(characteristic.value ?: return, characteristic.uuid.toString())
+    }
+
+    override fun onCharacteristicRead(
+      gatt: BluetoothGatt,
+      characteristic: BluetoothGattCharacteristic,
+      value: ByteArray,
+      status: Int,
+    ) {
+      if (status == BluetoothGatt.GATT_SUCCESS) {
+        handleSnapshotBytes(value, characteristic.uuid.toString())
+      }
+    }
+
     private fun handleSnapshotBytes(bytes: ByteArray, characteristicUuid: String) {
       if (bytes.isEmpty()) return
       val rawBase64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
@@ -431,7 +485,8 @@ class RemusBladeModule(
           bluetoothGatt?.device?.address ?: "remus-blade:p1",
           detectedName() ?: "Remus Blade P1",
           characteristicUuid.lowercase(),
-          System.currentTimeMillis()
+          System.currentTimeMillis(),
+          android.os.SystemClock.elapsedRealtimeNanos() / 1_000L
         )
       }
     }
@@ -459,6 +514,14 @@ class RemusBladeModule(
         if (started) return
       } catch (e: Exception) {
         Log.w(TAG, "Could not subscribe to ${characteristic.uuid}", e)
+      }
+    }
+    val deviceInfo = gatt.getService(remusServiceUuid)?.getCharacteristic(remusDeviceInfoUuid)
+    if (deviceInfo != null && deviceInfo.properties and BluetoothGattCharacteristic.PROPERTY_READ != 0) {
+      try {
+        gatt.readCharacteristic(deviceInfo)
+      } catch (error: SecurityException) {
+        Log.w(TAG, "Could not read Device Info", error)
       }
     }
     val deviceName = try {
@@ -506,6 +569,7 @@ class RemusBladeModule(
       putString("deviceName", try { bluetoothGatt?.device?.name } catch (e: SecurityException) { null } ?: "Remus Blade P1")
       putString("characteristicUuid", characteristicUuid.lowercase())
       putDouble("receivedAtEpochMilliseconds", System.currentTimeMillis().toDouble())
+      putDouble("receivedAtMonotonicUs", (android.os.SystemClock.elapsedRealtimeNanos() / 1_000L).toDouble())
     }
     reactContext
       .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)

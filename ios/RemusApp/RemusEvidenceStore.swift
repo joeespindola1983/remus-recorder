@@ -28,6 +28,7 @@ final class RemusEvidenceStore {
     let startedAtEpochMilliseconds: Int64
     var handles: [String: FileHandle]
     var sampleCounts: [String: Int]
+    var telemetryDiagnosticsBySource: [String: Any]
     var appendCountSinceSync: Int
     var watchMessageIds: Set<String>
     var failureDescription: String?
@@ -87,6 +88,7 @@ final class RemusEvidenceStore {
         startedAtEpochMilliseconds: startedAt,
         handles: handles,
         sampleCounts: Dictionary(uniqueKeysWithValues: streamFiles.keys.map {($0, 0)}),
+        telemetryDiagnosticsBySource: [:],
         appendCountSinceSync: 0,
         watchMessageIds: [],
         failureDescription: nil
@@ -168,7 +170,8 @@ final class RemusEvidenceStore {
     deviceId: String,
     deviceName: String,
     characteristicUuid: String,
-    receivedAt: Int64
+    receivedAt: Int64,
+    receivedAtMonotonicUs: Int64
   ) {
     queue.async { [weak self] in
       guard let self, var recording = self.active else { return }
@@ -184,8 +187,16 @@ final class RemusEvidenceStore {
         normalizedName.contains("REMUS-P2") ||
         normalizedName.contains("REMUS-PR1") ||
         normalizedName.contains("REMUS-PR2")
-      let derivedSourceId = "\(isComputer ? "computer" : "blade"):\(deviceId)"
-      let sourceId = exactSourceIds.count == 1 ? exactSourceIds[0] : derivedSourceId
+      let bladeIdentity = normalizedName.range(
+        of: #"^REMUS-BLD-([0-9A-F]{8})$"#,
+        options: .regularExpression
+      ).map { String(normalizedName[$0]).dropFirst("REMUS-BLD-".count).lowercased() }
+      let derivedSourceId = bladeIdentity.map { "blade:\($0)" }
+        ?? "\(isComputer ? "computer" : "blade"):\(deviceId)"
+      let canonicalMatch = recording.recordingIdsBySource.keys.filter { $0 == derivedSourceId }
+      let sourceId = canonicalMatch.count == 1
+        ? canonicalMatch[0]
+        : exactSourceIds.count == 1 ? exactSourceIds[0] : derivedSourceId
 
       // A device may connect after the phone recording has already started.
       // Give it an explicit source recording instead of persisting orphaned
@@ -210,6 +221,7 @@ final class RemusEvidenceStore {
             "deviceName": deviceName,
             "characteristicUuid": characteristicUuid,
             "receivedAtEpochMilliseconds": receivedAt,
+            "receivedAtMonotonicUs": receivedAtMonotonicUs,
             "schemaVersion": "1.0.0",
             "sourceId": sourceId
           ]
@@ -231,6 +243,15 @@ final class RemusEvidenceStore {
         "sampleCounts": active.sampleCounts,
         "hasWriteFailure": active.failureDescription != nil,
       ]
+    }
+  }
+
+  func setTelemetryDiagnostics(bySource: [String: Any]) {
+    queue.sync {
+      guard var recording = active else { return }
+      recording.telemetryDiagnosticsBySource = bySource
+      active = recording
+      try? writeManifestOnQueue(status: "recording", endedAt: nil, parts: nil)
     }
   }
 
@@ -258,6 +279,7 @@ final class RemusEvidenceStore {
         "startedAtEpochMilliseconds": recording.startedAtEpochMilliseconds,
         "endedAtEpochMilliseconds": endedAt,
         "sampleCounts": recording.sampleCounts,
+        "telemetryDiagnosticsBySource": recording.telemetryDiagnosticsBySource,
       ]
       if let failureDescription = recording.failureDescription {
         result["failureMessage"] = failureDescription
@@ -503,6 +525,7 @@ final class RemusEvidenceStore {
       "startedAtEpochMilliseconds": recording.startedAtEpochMilliseconds,
       "status": status,
       "sampleCounts": recording.sampleCounts,
+      "telemetryDiagnosticsBySource": recording.telemetryDiagnosticsBySource,
     ]
     if let endedAt { manifest["endedAtEpochMilliseconds"] = endedAt }
     if let parts { manifest["parts"] = parts }
