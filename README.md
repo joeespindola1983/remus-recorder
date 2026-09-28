@@ -43,3 +43,14 @@ Deterministic device, transport, transfer and storage failure scenarios are
 documented in [docs/CAPTURE_SIMULATOR.md](docs/CAPTURE_SIMULATOR.md).
 Cross-source idempotent start/stop orchestration is documented in
 [docs/RECORDING_COORDINATOR.md](docs/RECORDING_COORDINATOR.md).
+
+## Temporary direct Blade capture
+
+The iOS field profile enables `RemusDirectBladeCaptureEnabled` in `Info.plist`.
+It keeps simultaneous connections to one Remus Computer and two physical
+Blades, starts/stops each connected source, ignores the legacy relay
+characteristic and persists every notification with device identity, native
+packet timestamp/sequence and phone receipt time. Receipt time is not used as
+the physical acquisition timestamp. The matching Computer firmware must be
+built with `REMUS_ENABLE_BLADE_RELAY=0`. Android multi-Blade capture remains
+outside this temporary iOS-first profile.

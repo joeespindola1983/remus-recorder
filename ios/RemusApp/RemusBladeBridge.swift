@@ -16,6 +16,10 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
 
   private let remusServiceUUID = CBUUID(string: "4fafc201-1fb5-459e-8fcc-c5c9c331914b")
   private let remusCharacteristicUUID = CBUUID(string: "beb5483e-36e1-4688-b7f5-ea07361b26a8")
+  private let bladeRelayCharacteristicUUID = CBUUID(string: "beb54844-36e1-4688-b7f5-ea07361b26a8")
+  private var directBladeCaptureEnabled: Bool {
+    return Bundle.main.object(forInfoDictionaryKey: "RemusDirectBladeCaptureEnabled") as? Bool ?? true
+  }
 
   private func isBladeName(_ name: String?) -> Bool {
     return name?.uppercased().contains("REMUS-BLD-") == true
@@ -239,10 +243,15 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
       sendStateEvent("detected", peripheral: peripheral, customName: effectiveName)
     }
 
-    // The Computer is the primary Blade central/relay. A direct Blade link is
-    // delayed as fallback, preventing the phone from taking the Blade before
-    // the Computer can establish its durable RBR1 backup.
-    if !isBladeName(effectiveName) {
+    // Direct mode keeps the Computer and both physical Blades as independent
+    // phone connections. The relay preference remains available for rollback.
+    if directBladeCaptureEnabled {
+      pendingBladeConnections.removeValue(forKey: peripheral.identifier)?.cancel()
+      if connectedPeripherals[peripheral.identifier] == nil && peripheral.state == .disconnected {
+        print("[BLE] Direct capture: connecting to \(effectiveName ?? peripheral.identifier.uuidString)")
+        central.connect(peripheral, options: nil)
+      }
+    } else if !isBladeName(effectiveName) {
       preferComputerAsBladeRelay(central)
       if connectedPeripherals[peripheral.identifier] == nil && peripheral.state == .disconnected {
         print("[BLE] Auto-connecting to Remus Computer relay: \(peripheral.identifier.uuidString)")
@@ -323,7 +332,9 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
     guard let characteristics = service.characteristics else { return }
     var hasNotify = false
     for characteristic in characteristics {
-      if characteristic.properties.contains(.notify) {
+      let isDisabledRelay = directBladeCaptureEnabled &&
+        characteristic.uuid == bladeRelayCharacteristicUUID
+      if characteristic.properties.contains(.notify) && !isDisabledRelay {
         peripheral.setNotifyValue(true, for: characteristic)
         hasNotify = true
       }

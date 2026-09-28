@@ -18,12 +18,18 @@ jest.mock('react-native', () => {
 import {
   RemusBladeAdapter,
   parseBladeIdentityHash,
+  rawGyroToRadiansPerSecond,
   REMUS_BLADE_SERVICE_UUID,
   REMUS_BLADE_CHARACTERISTIC_UUID,
   NativeBladeBridge,
 } from '../src/services/blade/RemusBladeAdapter';
 
 describe('RemusBladeAdapter (TDD)', () => {
+  it('decodes Blade gyro at ±1000 dps without changing the Computer ±500 dps scale', () => {
+    expect(rawGyroToRadiansPerSecond(3280, 'remus_blade')).toBeCloseTo(100 * Math.PI / 180);
+    expect(rawGyroToRadiansPerSecond(6550, 'remus_computer')).toBeCloseTo(100 * Math.PI / 180);
+  });
+
   it('extracts only the full stable 32-bit identity advertised by a Blade', () => {
     expect(parseBladeIdentityHash('REMUS-BLD-A1B2C3D4')).toBe(0xA1B2C3D4);
     expect(parseBladeIdentityHash('REMUS-BLD-C3D4')).toBeNull();

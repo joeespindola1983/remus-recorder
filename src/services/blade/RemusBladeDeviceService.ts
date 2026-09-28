@@ -28,13 +28,16 @@ export class RemusBladeDeviceService {
   private watchdogTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly WATCHDOG_TIMEOUT_MS = 3500;
 
-  constructor(adapter?: RemusBladeAdapter) {
+  constructor(
+    adapter?: RemusBladeAdapter,
+    options: { directBladeCapture?: boolean } = {},
+  ) {
     if (!adapter) throw new Error('RemusBladeAdapter is required');
     this.adapter = adapter;
-    this.sourceState = this.createDefaultSourceState();
+    this.sourceState = this.createDefaultSourceState(options.directBladeCapture ?? false);
   }
 
-  private createDefaultSourceState(): CaptureSourceState {
+  private createDefaultSourceState(directBladeCapture: boolean): CaptureSourceState {
     const isComputer = this.adapter.deviceFamily === 'remus_computer';
     const bladeIdentityHash = isComputer
       ? null
@@ -58,7 +61,7 @@ export class RemusBladeDeviceService {
         standaloneCapture: isComputer,
         storeAndForward: isComputer,
         postSyncDeletion: false,
-        relayCapture: isComputer,
+        relayCapture: isComputer && !directBladeCapture,
       },
       clockDomains: [
         {
