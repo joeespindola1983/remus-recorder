@@ -81,6 +81,7 @@ export const decodeRemusDeviceInfo = (data: Uint8Array): RemusDeviceInfo | null 
 };
 
 export interface RemusBladeSnapshot {
+  sourceId?: string;
   timestampMs: number;
   accelG: Vector3;
   gyroDps: Vector3;
@@ -141,6 +142,74 @@ export interface RemusClockSyncSnapshot {
   observationCount: number;
 }
 
+interface ClockObservation {
+  hostUs: number;
+  offsetUs: number;
+  roundTripUs: number;
+}
+
+const fitBoundedClockMapping = (
+  observations: ClockObservation[],
+  atHostUs: number,
+): {offsetUs: number; driftPpm: number | null; maximumErrorUs: number} => {
+  const selectedCount = Math.max(1, Math.ceil(observations.length / 3));
+  const selected = [...observations]
+    .sort((a, b) => a.roundTripUs - b.roundTripUs)
+    .slice(0, selectedCount)
+    .sort((a, b) => a.hostUs - b.hostUs);
+  const minimumTransportErrorUs = selected[0].roundTripUs / 2;
+  if (
+    selected.length < 2 ||
+    selected[selected.length - 1].hostUs === selected[0].hostUs
+  ) {
+    return {
+      offsetUs: selected[0].offsetUs,
+      driftPpm: null,
+      maximumErrorUs: minimumTransportErrorUs,
+    };
+  }
+
+  const originUs = selected[0].hostUs;
+  let sumW = 0;
+  let sumWT = 0;
+  let sumWO = 0;
+  let sumWTO = 0;
+  let sumWTT = 0;
+  for (const observation of selected) {
+    const weight = 1 / Math.max(1_000, observation.roundTripUs);
+    const timeSeconds = (observation.hostUs - originUs) / 1_000_000;
+    sumW += weight;
+    sumWT += weight * timeSeconds;
+    sumWO += weight * observation.offsetUs;
+    sumWTO += weight * timeSeconds * observation.offsetUs;
+    sumWTT += weight * timeSeconds * timeSeconds;
+  }
+  const denominator = sumW * sumWTT - sumWT * sumWT;
+  if (Math.abs(denominator) <= 1e-12) {
+    return {
+      offsetUs: selected[0].offsetUs,
+      driftPpm: null,
+      maximumErrorUs: minimumTransportErrorUs,
+    };
+  }
+  const slopeUsPerSecond = (sumW * sumWTO - sumWT * sumWO) / denominator;
+  const interceptUs = (sumWO - slopeUsPerSecond * sumWT) / sumW;
+  const predict = (hostUs: number): number =>
+    interceptUs + slopeUsPerSecond * ((hostUs - originUs) / 1_000_000);
+  const maximumResidualUs = selected.reduce(
+    (maximum, observation) => Math.max(
+      maximum,
+      Math.abs(observation.offsetUs - predict(observation.hostUs)),
+    ),
+    0,
+  );
+  return {
+    offsetUs: predict(atHostUs),
+    driftPpm: slopeUsPerSecond,
+    maximumErrorUs: minimumTransportErrorUs + maximumResidualUs,
+  };
+};
+
 
 const DEG_TO_RAD = Math.PI / 180;
 const GYRO_LSB_PER_DPS_500 = 65.5;
@@ -188,7 +257,7 @@ export class RemusBladeAdapter implements IWearableAdapter {
   private readonly streamPacketDecoder = new RemusStreamPacketDecoder();
   private deviceInfo: RemusDeviceInfo | null = null;
   private clockSync: RemusClockSyncSnapshot | null = null;
-  private clockObservations: Array<{ hostUs: number; offsetUs: number; roundTripUs: number }> = [];
+  private clockObservations: ClockObservation[] = [];
   private sessionWorstCaseUncertaintyUs = 0;
   private clockSyncTimer: ReturnType<typeof setInterval> | null = null;
   private expectedLiveSampleSequence: number | null = null;
@@ -323,50 +392,21 @@ export class RemusBladeAdapter implements IWearableAdapter {
       this.clockObservations.shift();
     }
 
-    let driftPpm: number | null = null;
-    const n = this.clockObservations.length;
-    if (n >= 2) {
-      const first = this.clockObservations[0];
-      const last = this.clockObservations[n - 1];
-      const totalElapsedUs = last.hostUs - first.hostUs;
-      if (totalElapsedUs > 5_000_000 && n >= 3) {
-        let sumW = 0;
-        let sumWT = 0;
-        let sumWO = 0;
-        let sumWTO = 0;
-        let sumWTT = 0;
-        for (const obs of this.clockObservations) {
-          const w = 1 / Math.max(1000, obs.roundTripUs);
-          const t = (obs.hostUs - first.hostUs) / 1_000_000;
-          const o = obs.offsetUs;
-          sumW += w;
-          sumWT += w * t;
-          sumWO += w * o;
-          sumWTO += w * t * o;
-          sumWTT += w * t * t;
-        }
-        const denom = sumW * sumWTT - sumWT * sumWT;
-        if (Math.abs(denom) > 1e-9) {
-          driftPpm = (sumW * sumWTO - sumWT * sumWO) / denom;
-        }
-      } else if (totalElapsedUs > 0) {
-        driftPpm = ((last.offsetUs - first.offsetUs) / totalElapsedUs) * 1_000_000;
-      }
-    }
+    const mapping = fitBoundedClockMapping(this.clockObservations, hostReceiveUs);
 
     let syncQuality: 'qualified' | 'approximate' | 'low_confidence' = 'low_confidence';
-    if (currentOffsetUncertaintyUs <= 5_000) {
+    if (mapping.maximumErrorUs <= 5_000) {
       syncQuality = 'qualified';
-    } else if (currentOffsetUncertaintyUs <= 25_000) {
+    } else if (mapping.maximumErrorUs <= 25_000) {
       syncQuality = 'approximate';
     }
 
     this.clockSync = {
-      estimatedClockOffsetUs: offsetUs,
+      estimatedClockOffsetUs: mapping.offsetUs,
       roundTripUs,
-      clockDriftPpm: driftPpm,
+      clockDriftPpm: mapping.driftPpm,
       lastSyncTimestampUs: hostReceiveUs,
-      maximumErrorUs: currentOffsetUncertaintyUs,
+      maximumErrorUs: mapping.maximumErrorUs,
       currentOffsetUncertaintyUs,
       sessionWorstCaseUncertaintyUs: this.sessionWorstCaseUncertaintyUs,
       syncQuality,
@@ -545,7 +585,10 @@ export class RemusBladeAdapter implements IWearableAdapter {
   }
 
   async sendStart(): Promise<boolean> {
+    this.streamPacketDecoder.beginRecording();
+    this.relayedStreamPacketDecoder.beginRecording();
     this.expectedLiveSampleSequence = null;
+    this.expectedRelayedSampleSequence.clear();
     if (this.deviceFamily === 'remus_computer') {
       return this.sendCommand('START');
     } else {

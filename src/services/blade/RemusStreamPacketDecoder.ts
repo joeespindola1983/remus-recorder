@@ -69,12 +69,32 @@ export class RemusStreamPacketDecoder {
   private samplesWithAnySaturationCount = 0;
   private expectedBatchSequence: number | null = null;
   private expectedSampleSequence: number | null = null;
+  private previousSampleSequence: number | null = null;
   private previousSampleTimestampUs: number | null = null;
   private lostPackets = 0;
   private lostSamples = 0;
   private duplicatedPackets = 0;
   private outOfOrderPackets = 0;
   private maxSampleGapUs = 0;
+
+  beginRecording(): void {
+    this.fragments.clear();
+    this.transportNotificationCount = 0;
+    this.decodedBatchCount = 0;
+    this.decodedImuSampleCount = 0;
+    this.invalidNotificationCount = 0;
+    this.saturationCounts.fill(0);
+    this.samplesWithAnySaturationCount = 0;
+    this.expectedBatchSequence = null;
+    this.expectedSampleSequence = null;
+    this.previousSampleSequence = null;
+    this.previousSampleTimestampUs = null;
+    this.lostPackets = 0;
+    this.lostSamples = 0;
+    this.duplicatedPackets = 0;
+    this.outOfOrderPackets = 0;
+    this.maxSampleGapUs = 0;
+  }
 
   getAccounting(): TelemetryAccounting {
     return {
@@ -192,11 +212,17 @@ export class RemusStreamPacketDecoder {
       };
       const jitterUs = view.getInt16(offset + 12, true);
       const status = view.getUint8(offset + 14);
+      const sampleSequence = firstSampleSequence + index;
       const sampleTimestampUs = firstTimestampUs + index * nominalPeriodUs + jitterUs;
-      if (this.previousSampleTimestampUs !== null) {
+      if (
+        this.previousSampleTimestampUs !== null &&
+        this.previousSampleSequence !== null &&
+        sampleSequence === this.previousSampleSequence + 1
+      ) {
         this.maxSampleGapUs = Math.max(this.maxSampleGapUs, sampleTimestampUs - this.previousSampleTimestampUs);
       }
-      this.previousSampleTimestampUs = Math.max(this.previousSampleTimestampUs ?? 0, sampleTimestampUs);
+      this.previousSampleSequence = sampleSequence;
+      this.previousSampleTimestampUs = sampleTimestampUs;
       const axes = [rawAccel.x, rawAccel.y, rawAccel.z, rawGyro.x, rawGyro.y, rawGyro.z];
       let sampleSaturated = false;
       axes.forEach((value, axis) => {
@@ -207,7 +233,7 @@ export class RemusStreamPacketDecoder {
       });
       if (sampleSaturated) this.samplesWithAnySaturationCount += 1;
       samples.push({
-        sampleSequence: firstSampleSequence + index,
+        sampleSequence,
         nativeTimestampUs: sampleTimestampUs,
         rawAccel,
         rawGyro,
@@ -228,6 +254,11 @@ export class RemusStreamPacketDecoder {
 export class RemusRelayedStreamPacketDecoder {
   private readonly fragments = new Map<string, FragmentAccumulator>();
   private readonly sourceDecoders = new Map<number, RemusStreamPacketDecoder>();
+
+  beginRecording(): void {
+    this.fragments.clear();
+    this.sourceDecoders.clear();
+  }
 
   ingestBase64(rawBase64: string): DecodedRelayedImuBatch | null {
     if (!rawBase64) return null;
