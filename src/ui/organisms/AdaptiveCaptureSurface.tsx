@@ -31,7 +31,7 @@ export interface BladeGpsStatus {
   accuracyMeters?: number;
 }
 
-const formatPace = (seconds?: number): string => {
+export const formatPace = (seconds?: number): string => {
   if (seconds === undefined || seconds > 625) return '—';
   const rounded = Math.max(0, Math.round(seconds));
   return `${String(Math.floor(rounded / 60)).padStart(2, '0')}:${String(

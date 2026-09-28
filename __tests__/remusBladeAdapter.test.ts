@@ -142,7 +142,8 @@ describe('RemusBladeAdapter (TDD)', () => {
       roundTripUs: 100_000,
       currentOffsetUncertaintyUs: 50_000,
       sessionWorstCaseUncertaintyUs: 50_000,
-      syncQuality: 'low_confidence',
+      maximumErrorUs: 20_000,
+      syncQuality: 'approximate',
       observationCount: 2,
     });
 
@@ -169,6 +170,42 @@ describe('RemusBladeAdapter (TDD)', () => {
       syncQuality: 'qualified',
       observationCount: 3,
     });
+  });
+
+  it('does not replace a qualified mapping with the final high-latency observation', () => {
+    const adapter = new RemusBladeAdapter('blade-transport', 'REMUS-BLD-A1B2C3D4');
+    const observations = [
+      {host: 1_000_000, offset: 2_000, rtt: 4_000},
+      {host: 2_000_000, offset: 2_010, rtt: 5_000},
+      {host: 3_000_000, offset: 1_990, rtt: 4_500},
+      {host: 4_000_000, offset: 40_000, rtt: 100_000},
+    ];
+
+    observations.forEach((observation, index) => {
+      const packet = Buffer.alloc(30);
+      packet[0] = 1;
+      packet[1] = 0x04;
+      packet.writeUInt32LE(index + 1, 2);
+      packet.writeBigUInt64LE(BigInt(observation.host), 6);
+      const sensorTime = observation.host + observation.rtt / 2 + observation.offset;
+      packet.writeBigUInt64LE(BigInt(sensorTime), 14);
+      packet.writeBigUInt64LE(BigInt(sensorTime), 22);
+      adapter.handleSnapshotPayload({
+        deviceId: 'blade-transport',
+        characteristicUuid: 'beb54843-36e1-4688-b7f5-ea07361b26a8',
+        rawBase64: packet.toString('base64'),
+        receivedAtMonotonicUs: observation.host + observation.rtt,
+      });
+    });
+
+    expect(adapter.getClockSync()).toMatchObject({
+      currentOffsetUncertaintyUs: 50_000,
+      sessionWorstCaseUncertaintyUs: 50_000,
+      syncQuality: 'qualified',
+      observationCount: 4,
+    });
+    expect(adapter.getClockSync()!.maximumErrorUs).toBeLessThanOrEqual(5_000);
+    expect(Math.abs(adapter.getClockSync()!.estimatedClockOffsetUs - 2_000)).toBeLessThan(100);
   });
 
   it('has canonical BLE UUIDs matching remus-sensor firmware', () => {

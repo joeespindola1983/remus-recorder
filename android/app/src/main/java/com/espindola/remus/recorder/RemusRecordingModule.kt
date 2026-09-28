@@ -175,6 +175,19 @@ class RemusRecordingModule(private val reactContext: ReactApplicationContext) :
   }
 
   @ReactMethod
+  fun appendLiveMetricPresentation(presentation: ReadableMap, promise: Promise) {
+    try {
+      val metricIdentifier = presentation.getString("metricIdentifier")
+        ?: throw IllegalArgumentException("metricIdentifier is required")
+      require(metricIdentifier == "paceSecondsPer500Meters" || metricIdentifier == "strokeRateSpm")
+      evidenceStore.appendLiveMetricPresentation(presentation.toHashMap())
+      promise.resolve(true)
+    } catch (error: Exception) {
+      promise.reject("INVALID_LIVE_METRIC_PRESENTATION", error.message, error)
+    }
+  }
+
+  @ReactMethod
   fun getRecordingState(promise: Promise) {
     val map = Arguments.createMap()
     map.putBoolean("isRecording", evidenceStore.isRecording)

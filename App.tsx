@@ -7,6 +7,7 @@ import {
   createCaptureSimulation,
 } from './src/application/simulation/CaptureSimulator';
 import { AppShell, NavigationTab } from './src/ui/organisms/AppShell';
+import {formatPace} from './src/ui/organisms/AdaptiveCaptureSurface';
 import {
   ActiveScreen,
   FinalizingScreen,
@@ -188,21 +189,38 @@ export default function App(): React.JSX.Element {
 
   const MOVING_SPEED_THRESHOLD_METERS_PER_SECOND = 0.8;
   const lastBladeTelemetryAt = useRef<number>(0);
+  const lastBladeSourceId = useRef<string | undefined>(undefined);
 
   useEffect(
     () => recordingService.onUpdate(projection => {
       const speed = projection.groundSpeedMetersPerSecond;
       const isMoving =
         speed !== undefined && speed >= MOVING_SPEED_THRESHOLD_METERS_PER_SECOND;
+      const paceSecondsPer500Meters = isMoving ? 500 / speed : undefined;
       dispatch({
         type: 'update_live_metrics',
         metrics: {
           groundSpeedMetersPerSecond: speed,
-          paceSecondsPer500Meters:
-            isMoving ? 500 / speed : undefined,
+          paceSecondsPer500Meters,
           distanceMeters: projection.distanceMeters,
         },
       });
+      if (phaseRef.current === 'recording') {
+        const presentedAtEpochMilliseconds = Date.now();
+        recordingService.appendLiveMetricPresentation({
+          metricIdentifier: 'paceSecondsPer500Meters',
+          numericValue: paceSecondsPer500Meters ?? null,
+          canonicalUnit: 's/500m',
+          renderedText: formatPace(paceSecondsPer500Meters),
+          availabilityState: isMoving ? 'available' : 'unavailable',
+          availabilityReason:
+            speed === undefined ? 'source_unavailable' :
+              isMoving ? undefined : 'below_movement_threshold',
+          sourceId: 'phone:primary',
+          supportedAtEpochMilliseconds: presentedAtEpochMilliseconds,
+          presentedAtEpochMilliseconds,
+        }).catch(() => {});
+      }
     }),
     [recordingService],
   );
@@ -210,13 +228,29 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     if (!bladeSnapshot) return;
     lastBladeTelemetryAt.current = Date.now();
+    lastBladeSourceId.current = bladeSnapshot.sourceId;
     const spm = bladeSnapshot.liveSpm;
     if (spm !== undefined && spm > 0) {
       dispatch({type: 'update_live_metrics', metrics: {strokeRateSpm: spm}});
     } else {
       dispatch({type: 'update_live_metrics', metrics: {strokeRateSpm: undefined}});
     }
-  }, [bladeSnapshot]);
+    if (phaseRef.current === 'recording' && bladeSnapshot.sourceId) {
+      const isAvailable = spm !== undefined && spm > 0;
+      const presentedAtEpochMilliseconds = Date.now();
+      recordingService.appendLiveMetricPresentation({
+        metricIdentifier: 'strokeRateSpm',
+        numericValue: isAvailable ? spm : null,
+        canonicalUnit: 'strokes/min',
+        renderedText: isAvailable ? String(Math.round(spm)) : '—',
+        availabilityState: isAvailable ? 'available' : 'unavailable',
+        availabilityReason: isAvailable ? undefined : 'source_unavailable',
+        sourceId: bladeSnapshot.sourceId,
+        supportedAtEpochMilliseconds: presentedAtEpochMilliseconds,
+        presentedAtEpochMilliseconds,
+      }).catch(() => {});
+    }
+  }, [bladeSnapshot, recordingService]);
 
   useEffect(() => {
     if (state.phase !== 'recording') return;
@@ -226,10 +260,24 @@ export default function App(): React.JSX.Element {
         Date.now() - lastBladeTelemetryAt.current > 3_500
       ) {
         dispatch({type: 'update_live_metrics', metrics: {strokeRateSpm: undefined}});
+        const sourceId = lastBladeSourceId.current;
+        lastBladeTelemetryAt.current = 0;
+        if (sourceId) {
+          recordingService.appendLiveMetricPresentation({
+            metricIdentifier: 'strokeRateSpm',
+            numericValue: null,
+            canonicalUnit: 'strokes/min',
+            renderedText: '—',
+            availabilityState: 'unavailable',
+            availabilityReason: 'telemetry_timeout',
+            sourceId,
+            presentedAtEpochMilliseconds: Date.now(),
+          }).catch(() => {});
+        }
       }
     }, 1_000);
     return () => clearInterval(interval);
-  }, [state.phase]);
+  }, [state.phase, recordingService]);
 
   useEffect(() => {
     if (state.phase !== 'recording') return;

@@ -152,4 +152,25 @@ describe('RecordingService', () => {
     await expect(service.setTelemetryDiagnostics(bySource)).resolves.toBe(true);
     expect(bridge.setTelemetryDiagnostics).toHaveBeenCalledWith({bySource});
   });
+
+  it('persists the exact canonical live metric presentation', async () => {
+    const bridge = {
+      appendLiveMetricPresentation: jest.fn().mockResolvedValue(true),
+    };
+    const service = new RecordingService(bridge as any);
+    const presentation = {
+      metricIdentifier: 'paceSecondsPer500Meters' as const,
+      numericValue: null,
+      canonicalUnit: 's/500m' as const,
+      renderedText: '—',
+      availabilityState: 'unavailable' as const,
+      availabilityReason: 'below_movement_threshold',
+      sourceId: 'phone:primary',
+      supportedAtEpochMilliseconds: 1000,
+      presentedAtEpochMilliseconds: 1001,
+    };
+
+    await expect(service.appendLiveMetricPresentation(presentation)).resolves.toBe(true);
+    expect(bridge.appendLiveMetricPresentation).toHaveBeenCalledWith(presentation);
+  });
 });

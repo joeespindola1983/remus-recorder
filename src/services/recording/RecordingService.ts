@@ -37,6 +37,18 @@ export interface RecordedWorkoutSummary {
   sampleCounts: Record<string, number>;
 }
 
+export interface LiveMetricPresentation {
+  metricIdentifier: 'paceSecondsPer500Meters' | 'strokeRateSpm';
+  numericValue: number | null;
+  canonicalUnit: 's/500m' | 'strokes/min';
+  renderedText: string;
+  availabilityState: 'available' | 'held' | 'unavailable';
+  availabilityReason?: string;
+  sourceId: string;
+  supportedAtEpochMilliseconds?: number;
+  presentedAtEpochMilliseconds: number;
+}
+
 export interface NativeRecordingBridge {
   startRecording(options: {sourceIds: string[]}): Promise<RecordingStartResult>;
   stopRecording(): Promise<RecordingManifest>;
@@ -58,6 +70,7 @@ export interface NativeRecordingBridge {
     reason?: 'telemetry_timeout';
     elapsedSeconds: number;
   }): Promise<boolean>;
+  appendLiveMetricPresentation?(presentation: LiveMetricPresentation): Promise<boolean>;
   getPhoneHardwareProfile?(): Promise<{
     hasGps?: boolean;
     hasAccelerometer?: boolean;
@@ -136,6 +149,10 @@ export class RecordingService {
   }): Promise<boolean> {
     if (!this.bridge?.recordSourceLifecycleEvent) return Promise.resolve(false);
     return this.bridge.recordSourceLifecycleEvent(options);
+  }
+
+  appendLiveMetricPresentation(presentation: LiveMetricPresentation): Promise<boolean> {
+    return this.bridge?.appendLiveMetricPresentation?.(presentation) ?? Promise.resolve(false);
   }
 
   getState(): Promise<{isRecording: boolean; activityId?: string; artifactDirectory?: string}> {

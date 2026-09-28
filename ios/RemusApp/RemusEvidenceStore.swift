@@ -44,6 +44,7 @@ final class RemusEvidenceStore {
     "phoneLocation": "phone-location.ndjson",
     "watchHeartRate": "watch-heart-rate.ndjson",
     "remusBladeLive": "remus-blade-live.ndjson",
+    "liveMetricPresentation": "live-metric-presentation.ndjson",
     "lifecycle": "lifecycle.ndjson",
   ]
 
@@ -137,6 +138,17 @@ final class RemusEvidenceStore {
 
   func appendPhoneLocation(_ payload: [String: Any]) {
     append(stream: "phoneLocation", sourceId: "phone:primary", payload: payload)
+  }
+
+  func appendLiveMetricPresentation(_ payload: [String: Any]) {
+    queue.async { [weak self] in
+      guard let self else { return }
+      do {
+        try self.appendOnQueue(stream: "liveMetricPresentation", payload: payload)
+      } catch {
+        self.recordFailureOnQueue(error)
+      }
+    }
   }
 
   func appendWatchHeartRate(_ payload: [String: Any]) {
