@@ -75,4 +75,52 @@ describe('LiveBladeParityCell (TDD)', () => {
     });
     expect(graphNode).toBeTruthy();
   });
+
+  it('updates parity even when blades have default paddle placement by associating two active blade devices', () => {
+    let sensorDataListener: ((sample: SensorSample, placement?: SensorPlacement) => void) | null = null;
+    const mockBladeManager: Partial<RemusBladeManager> = {
+      onSensorData: jest.fn((listener) => {
+        sensorDataListener = listener;
+        return () => {
+          sensorDataListener = null;
+        };
+      }),
+    };
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    ReactTestRenderer.act(() => {
+      renderer = ReactTestRenderer.create(
+        <LiveBladeParityCell
+          bladeManager={mockBladeManager as RemusBladeManager}
+          valueFontSize={48}
+        />,
+      );
+    });
+
+    // First blade (device 1): placement is 'paddle'
+    ReactTestRenderer.act(() => {
+      sensorDataListener?.({
+        deviceId: 'bld-1',
+        deviceFamily: 'remus_blade',
+        nativeTimestamp: 1000,
+        rotationRateRadiansPerSecond: { x: 0, y: 0, z: 2.0 },
+      }, 'paddle');
+    });
+
+    // Second blade (device 2): placement is 'paddle'
+    ReactTestRenderer.act(() => {
+      sensorDataListener?.({
+        deviceId: 'bld-2',
+        deviceFamily: 'remus_blade',
+        nativeTimestamp: 1010,
+        rotationRateRadiansPerSecond: { x: 0, y: 0, z: 1.6 },
+      }, 'paddle');
+    });
+
+    const valueNode = renderer.root.findByProps({
+      testID: 'metric-value-parityPercentage',
+    });
+    // 1.6 / 2.0 = 80%
+    expect(valueNode.props.children).toBe('80');
+  });
 });

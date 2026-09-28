@@ -36,6 +36,8 @@ export function LiveBladeParityCell({
   const rightRateRef = useRef<number>(0);
   const hasLeftRef = useRef<boolean>(false);
   const hasRightRef = useRef<boolean>(false);
+  const primaryDeviceIdRef = useRef<string | null>(null);
+  const secondaryDeviceIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!bladeManager || typeof bladeManager.onSensorData !== 'function') {
@@ -53,6 +55,24 @@ export function LiveBladeParityCell({
       } else if (placement === 'right_paddle') {
         rightRateRef.current = rot;
         hasRightRef.current = true;
+      } else if (sample.deviceId) {
+        if (!primaryDeviceIdRef.current) {
+          primaryDeviceIdRef.current = sample.deviceId;
+        }
+        if (sample.deviceId === primaryDeviceIdRef.current) {
+          leftRateRef.current = rot;
+          hasLeftRef.current = true;
+        } else {
+          if (!secondaryDeviceIdRef.current) {
+            secondaryDeviceIdRef.current = sample.deviceId;
+          }
+          if (sample.deviceId === secondaryDeviceIdRef.current) {
+            rightRateRef.current = rot;
+            hasRightRef.current = true;
+          } else {
+            return;
+          }
+        }
       } else {
         return;
       }
