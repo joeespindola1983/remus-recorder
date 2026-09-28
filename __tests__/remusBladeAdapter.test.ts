@@ -88,7 +88,86 @@ describe('RemusBladeAdapter (TDD)', () => {
       estimatedClockOffsetUs: 1000,
       roundTripUs: 400,
       maximumErrorUs: 200,
+      currentOffsetUncertaintyUs: 200,
+      sessionWorstCaseUncertaintyUs: 200,
       syncQuality: 'qualified',
+      observationCount: 1,
+    });
+  });
+
+  it('classifies sync quality as approximate when uncertainty is between 5ms and 25ms and tracks sessionWorstCaseUncertaintyUs', () => {
+    const adapter = new RemusBladeAdapter('blade-transport', 'REMUS-BLD-A1B2C3D4');
+    
+    // First sync: RTT = 40ms -> uncertainty = 20ms -> approximate
+    const packet1 = Buffer.alloc(30);
+    packet1[0] = 1;
+    packet1[1] = 0x04;
+    packet1.writeUInt32LE(1, 2);
+    packet1.writeBigUInt64LE(10_000_000n, 6);
+    packet1.writeBigUInt64LE(10_020_000n, 14);
+    packet1.writeBigUInt64LE(10_020_000n, 22);
+
+    adapter.handleSnapshotPayload({
+      deviceId: 'blade-transport',
+      characteristicUuid: 'beb54843-36e1-4688-b7f5-ea07361b26a8',
+      rawBase64: packet1.toString('base64'),
+      receivedAtMonotonicUs: 10_040_000,
+    });
+
+    expect(adapter.getClockSync()).toMatchObject({
+      roundTripUs: 40_000,
+      currentOffsetUncertaintyUs: 20_000,
+      sessionWorstCaseUncertaintyUs: 20_000,
+      syncQuality: 'approximate',
+      observationCount: 1,
+    });
+
+    // Second sync: RTT = 100ms -> uncertainty = 50ms -> low_confidence
+    const packet2 = Buffer.alloc(30);
+    packet2[0] = 1;
+    packet2[1] = 0x04;
+    packet2.writeUInt32LE(2, 2);
+    packet2.writeBigUInt64LE(20_000_000n, 6);
+    packet2.writeBigUInt64LE(20_050_000n, 14);
+    packet2.writeBigUInt64LE(20_050_000n, 22);
+
+    adapter.handleSnapshotPayload({
+      deviceId: 'blade-transport',
+      characteristicUuid: 'beb54843-36e1-4688-b7f5-ea07361b26a8',
+      rawBase64: packet2.toString('base64'),
+      receivedAtMonotonicUs: 20_100_000,
+    });
+
+    expect(adapter.getClockSync()).toMatchObject({
+      roundTripUs: 100_000,
+      currentOffsetUncertaintyUs: 50_000,
+      sessionWorstCaseUncertaintyUs: 50_000,
+      syncQuality: 'low_confidence',
+      observationCount: 2,
+    });
+
+    // Third sync: RTT = 6ms -> uncertainty = 3ms -> qualified
+    const packet3 = Buffer.alloc(30);
+    packet3[0] = 1;
+    packet3[1] = 0x04;
+    packet3.writeUInt32LE(3, 2);
+    packet3.writeBigUInt64LE(30_000_000n, 6);
+    packet3.writeBigUInt64LE(30_003_000n, 14);
+    packet3.writeBigUInt64LE(30_003_000n, 22);
+
+    adapter.handleSnapshotPayload({
+      deviceId: 'blade-transport',
+      characteristicUuid: 'beb54843-36e1-4688-b7f5-ea07361b26a8',
+      rawBase64: packet3.toString('base64'),
+      receivedAtMonotonicUs: 30_006_000,
+    });
+
+    expect(adapter.getClockSync()).toMatchObject({
+      roundTripUs: 6_000,
+      currentOffsetUncertaintyUs: 3_000,
+      sessionWorstCaseUncertaintyUs: 50_000, // Preserves worst-case across session
+      syncQuality: 'qualified',
+      observationCount: 3,
     });
   });
 

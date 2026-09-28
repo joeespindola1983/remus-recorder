@@ -135,7 +135,10 @@ export interface RemusClockSyncSnapshot {
   clockDriftPpm: number | null;
   lastSyncTimestampUs: number;
   maximumErrorUs: number;
-  syncQuality: 'qualified' | 'low_confidence';
+  currentOffsetUncertaintyUs: number;
+  sessionWorstCaseUncertaintyUs: number;
+  syncQuality: 'qualified' | 'approximate' | 'low_confidence';
+  observationCount: number;
 }
 
 
@@ -185,7 +188,8 @@ export class RemusBladeAdapter implements IWearableAdapter {
   private readonly streamPacketDecoder = new RemusStreamPacketDecoder();
   private deviceInfo: RemusDeviceInfo | null = null;
   private clockSync: RemusClockSyncSnapshot | null = null;
-  private previousClockObservation: { hostUs: number; offsetUs: number } | null = null;
+  private clockObservations: Array<{ hostUs: number; offsetUs: number; roundTripUs: number }> = [];
+  private sessionWorstCaseUncertaintyUs = 0;
   private clockSyncTimer: ReturnType<typeof setInterval> | null = null;
   private expectedLiveSampleSequence: number | null = null;
   private snapshotSubscription: { remove(): void } | null = null;
@@ -308,17 +312,65 @@ export class RemusBladeAdapter implements IWearableAdapter {
     const roundTripUs = hostReceiveUs - hostSendUs - (sensorSendUs - sensorReceiveUs);
     if (roundTripUs < 0 || roundTripUs > 200_000) return;
     const offsetUs = ((sensorReceiveUs - hostSendUs) + (sensorSendUs - hostReceiveUs)) / 2;
-    const prior = this.previousClockObservation;
-    const elapsedUs = prior ? hostReceiveUs - prior.hostUs : 0;
-    const driftPpm = prior && elapsedUs > 0 ? (offsetUs - prior.offsetUs) / elapsedUs * 1_000_000 : null;
-    this.previousClockObservation = { hostUs: hostReceiveUs, offsetUs };
+    const currentOffsetUncertaintyUs = roundTripUs / 2;
+    this.sessionWorstCaseUncertaintyUs = Math.max(
+      this.sessionWorstCaseUncertaintyUs,
+      currentOffsetUncertaintyUs,
+    );
+
+    this.clockObservations.push({ hostUs: hostReceiveUs, offsetUs, roundTripUs });
+    if (this.clockObservations.length > 60) {
+      this.clockObservations.shift();
+    }
+
+    let driftPpm: number | null = null;
+    const n = this.clockObservations.length;
+    if (n >= 2) {
+      const first = this.clockObservations[0];
+      const last = this.clockObservations[n - 1];
+      const totalElapsedUs = last.hostUs - first.hostUs;
+      if (totalElapsedUs > 5_000_000 && n >= 3) {
+        let sumW = 0;
+        let sumWT = 0;
+        let sumWO = 0;
+        let sumWTO = 0;
+        let sumWTT = 0;
+        for (const obs of this.clockObservations) {
+          const w = 1 / Math.max(1000, obs.roundTripUs);
+          const t = (obs.hostUs - first.hostUs) / 1_000_000;
+          const o = obs.offsetUs;
+          sumW += w;
+          sumWT += w * t;
+          sumWO += w * o;
+          sumWTO += w * t * o;
+          sumWTT += w * t * t;
+        }
+        const denom = sumW * sumWTT - sumWT * sumWT;
+        if (Math.abs(denom) > 1e-9) {
+          driftPpm = (sumW * sumWTO - sumWT * sumWO) / denom;
+        }
+      } else if (totalElapsedUs > 0) {
+        driftPpm = ((last.offsetUs - first.offsetUs) / totalElapsedUs) * 1_000_000;
+      }
+    }
+
+    let syncQuality: 'qualified' | 'approximate' | 'low_confidence' = 'low_confidence';
+    if (currentOffsetUncertaintyUs <= 5_000) {
+      syncQuality = 'qualified';
+    } else if (currentOffsetUncertaintyUs <= 25_000) {
+      syncQuality = 'approximate';
+    }
+
     this.clockSync = {
       estimatedClockOffsetUs: offsetUs,
       roundTripUs,
       clockDriftPpm: driftPpm,
       lastSyncTimestampUs: hostReceiveUs,
-      maximumErrorUs: roundTripUs / 2,
-      syncQuality: roundTripUs / 2 <= 5_000 ? 'qualified' : 'low_confidence',
+      maximumErrorUs: currentOffsetUncertaintyUs,
+      currentOffsetUncertaintyUs,
+      sessionWorstCaseUncertaintyUs: this.sessionWorstCaseUncertaintyUs,
+      syncQuality,
+      observationCount: this.clockObservations.length,
     };
   }
 
@@ -415,7 +467,7 @@ export class RemusBladeAdapter implements IWearableAdapter {
     const state = this.normalizeConnectionState(statePayload.state);
     this.isConnected = state === 'connected';
     if (this.isConnected) {
-      this.requestClockSync().catch(() => undefined);
+      this.triggerInitialClockSyncBurst();
       if (!this.clockSyncTimer) {
         this.clockSyncTimer = setInterval(() => {
           this.requestClockSync().catch(() => undefined);
@@ -426,6 +478,17 @@ export class RemusBladeAdapter implements IWearableAdapter {
       this.clockSyncTimer = null;
     }
     this.notifyDeviceState(state);
+  }
+
+  private triggerInitialClockSyncBurst(count = 8, intervalMs = 250): void {
+    let sent = 0;
+    const burst = () => {
+      if (!this.isConnected || sent >= count) return;
+      sent += 1;
+      this.requestClockSync().catch(() => undefined);
+      setTimeout(burst, intervalMs);
+    };
+    burst();
   }
 
   private async requestClockSync(): Promise<void> {
