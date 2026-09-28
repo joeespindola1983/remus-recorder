@@ -19,6 +19,27 @@ export interface DecodedRelayedImuBatch {
   batch: DecodedImuBatch;
 }
 
+export interface TelemetryAccounting {
+  transportNotificationCount: number;
+  decodedBatchCount: number;
+  decodedImuSampleCount: number;
+  invalidNotificationCount: number;
+  pendingFragmentCount: number;
+  accelSaturationCountX: number;
+  accelSaturationCountY: number;
+  accelSaturationCountZ: number;
+  gyroSaturationCountX: number;
+  gyroSaturationCountY: number;
+  gyroSaturationCountZ: number;
+  samplesWithAnySaturationCount: number;
+  samplesWithAnySaturationPercent: number;
+  lostPackets: number;
+  lostSamples: number;
+  duplicatedPackets: number;
+  outOfOrderPackets: number;
+  maxSampleGapMs: number;
+}
+
 interface FragmentAccumulator {
   fragmentCount: number;
   fragments: Array<Buffer | undefined>;
@@ -40,6 +61,45 @@ const crc32 = (data: Uint8Array): number => {
 
 export class RemusStreamPacketDecoder {
   private readonly fragments = new Map<number, FragmentAccumulator>();
+  private transportNotificationCount = 0;
+  private decodedBatchCount = 0;
+  private decodedImuSampleCount = 0;
+  private invalidNotificationCount = 0;
+  private readonly saturationCounts = [0, 0, 0, 0, 0, 0];
+  private samplesWithAnySaturationCount = 0;
+  private expectedBatchSequence: number | null = null;
+  private expectedSampleSequence: number | null = null;
+  private previousSampleTimestampUs: number | null = null;
+  private lostPackets = 0;
+  private lostSamples = 0;
+  private duplicatedPackets = 0;
+  private outOfOrderPackets = 0;
+  private maxSampleGapUs = 0;
+
+  getAccounting(): TelemetryAccounting {
+    return {
+      transportNotificationCount: this.transportNotificationCount,
+      decodedBatchCount: this.decodedBatchCount,
+      decodedImuSampleCount: this.decodedImuSampleCount,
+      invalidNotificationCount: this.invalidNotificationCount,
+      pendingFragmentCount: this.fragments.size,
+      accelSaturationCountX: this.saturationCounts[0],
+      accelSaturationCountY: this.saturationCounts[1],
+      accelSaturationCountZ: this.saturationCounts[2],
+      gyroSaturationCountX: this.saturationCounts[3],
+      gyroSaturationCountY: this.saturationCounts[4],
+      gyroSaturationCountZ: this.saturationCounts[5],
+      samplesWithAnySaturationCount: this.samplesWithAnySaturationCount,
+      samplesWithAnySaturationPercent: this.decodedImuSampleCount === 0
+        ? 0
+        : this.samplesWithAnySaturationCount / this.decodedImuSampleCount * 100,
+      lostPackets: this.lostPackets,
+      lostSamples: this.lostSamples,
+      duplicatedPackets: this.duplicatedPackets,
+      outOfOrderPackets: this.outOfOrderPackets,
+      maxSampleGapMs: this.maxSampleGapUs / 1000,
+    };
+  }
 
   ingestBase64(rawBase64: string): DecodedImuBatch | null {
     if (!rawBase64) return null;
@@ -47,14 +107,21 @@ export class RemusStreamPacketDecoder {
   }
 
   ingest(data: Uint8Array): DecodedImuBatch | null {
-    if (data.length < 2 || data[0] !== 1) return null;
+    this.transportNotificationCount += 1;
+    if (data.length < 2 || data[0] !== 1) return this.invalid();
     if (data[1] === 0x11) return this.ingestFragment(data);
-    if (data[1] !== 0x01) return null;
-    return this.decodeBatch(data);
+    if (data[1] !== 0x01) return this.invalid();
+    const batch = this.decodeBatch(data);
+    return batch ?? this.invalid();
+  }
+
+  private invalid(): null {
+    this.invalidNotificationCount += 1;
+    return null;
   }
 
   private ingestFragment(data: Uint8Array): DecodedImuBatch | null {
-    if (data.length < 9) return null;
+    if (data.length < 9) return this.invalid();
     const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
     const batchSequence = view.getUint32(2, true);
     const fragmentIndex = data[6];
@@ -64,7 +131,7 @@ export class RemusStreamPacketDecoder {
       fragmentCount === 0 ||
       fragmentIndex >= fragmentCount ||
       data.length !== 9 + payloadLength
-    ) return null;
+    ) return this.invalid();
 
     const existing = this.fragments.get(batchSequence);
     const accumulator = existing?.fragmentCount === fragmentCount
@@ -77,7 +144,8 @@ export class RemusStreamPacketDecoder {
     }
 
     this.fragments.delete(batchSequence);
-    return this.decodeBatch(Buffer.concat(accumulator.fragments as Buffer[]));
+    const batch = this.decodeBatch(Buffer.concat(accumulator.fragments as Buffer[]));
+    return batch ?? this.invalid();
   }
 
   private decodeBatch(data: Uint8Array): DecodedImuBatch | null {
@@ -96,6 +164,19 @@ export class RemusStreamPacketDecoder {
     const firstSampleSequence = view.getUint32(8, true);
     const firstTimestampUs = Number(view.getBigUint64(12, true));
     const nominalPeriodUs = view.getUint16(20, true);
+    if (this.expectedBatchSequence !== null) {
+      if (batchSequence > this.expectedBatchSequence) {
+        this.lostPackets += batchSequence - this.expectedBatchSequence;
+      } else if (batchSequence === this.expectedBatchSequence - 1) {
+        this.duplicatedPackets += 1;
+      } else if (batchSequence < this.expectedBatchSequence) {
+        this.outOfOrderPackets += 1;
+      }
+    }
+    this.expectedBatchSequence = Math.max(this.expectedBatchSequence ?? 0, batchSequence + 1);
+    if (this.expectedSampleSequence !== null && firstSampleSequence > this.expectedSampleSequence) {
+      this.lostSamples += firstSampleSequence - this.expectedSampleSequence;
+    }
     const samples: DecodedRawImuSample[] = [];
     let offset = headerLength;
     for (let index = 0; index < sampleCount; index += 1) {
@@ -111,15 +192,35 @@ export class RemusStreamPacketDecoder {
       };
       const jitterUs = view.getInt16(offset + 12, true);
       const status = view.getUint8(offset + 14);
+      const sampleTimestampUs = firstTimestampUs + index * nominalPeriodUs + jitterUs;
+      if (this.previousSampleTimestampUs !== null) {
+        this.maxSampleGapUs = Math.max(this.maxSampleGapUs, sampleTimestampUs - this.previousSampleTimestampUs);
+      }
+      this.previousSampleTimestampUs = Math.max(this.previousSampleTimestampUs ?? 0, sampleTimestampUs);
+      const axes = [rawAccel.x, rawAccel.y, rawAccel.z, rawGyro.x, rawGyro.y, rawGyro.z];
+      let sampleSaturated = false;
+      axes.forEach((value, axis) => {
+        if (value === 32767 || value === -32768) {
+          this.saturationCounts[axis] += 1;
+          sampleSaturated = true;
+        }
+      });
+      if (sampleSaturated) this.samplesWithAnySaturationCount += 1;
       samples.push({
         sampleSequence: firstSampleSequence + index,
-        nativeTimestampUs: firstTimestampUs + index * nominalPeriodUs + jitterUs,
+        nativeTimestampUs: sampleTimestampUs,
         rawAccel,
         rawGyro,
         status,
       });
       offset += bytesPerSample;
     }
+    this.decodedBatchCount += 1;
+    this.decodedImuSampleCount += samples.length;
+    this.expectedSampleSequence = Math.max(
+      this.expectedSampleSequence ?? 0,
+      firstSampleSequence + sampleCount,
+    );
     return { batchSequence, samples };
   }
 }
