@@ -26,9 +26,14 @@ export class RemusBladeManager {
   private syncedComputerSessionIds: Set<string> = new Set();
   private syncDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingSyncAfterWorkout: boolean = false;
+  private readonly directBladeCapture: boolean;
 
-  constructor(nativeBridge?: any) {
+  constructor(
+    nativeBridge?: any,
+    options: { directBladeCapture?: boolean } = {},
+  ) {
     this.nativeBridge = nativeBridge ?? NativeModules.RemusBladeBridge;
+    this.directBladeCapture = options.directBladeCapture ?? true;
     if (this.nativeBridge) {
       this.eventEmitter = new NativeEventEmitter(this.nativeBridge);
     }
@@ -59,7 +64,9 @@ export class RemusBladeManager {
           if (!this.devices.has(deviceId)) {
             console.log(`[RemusBladeManager] Discovered new device: ${deviceName} (${deviceId})`);
             const adapter = new RemusBladeAdapter(deviceId, deviceName, this.nativeBridge);
-            const service = new RemusBladeDeviceService(adapter);
+            const service = new RemusBladeDeviceService(adapter, {
+              directBladeCapture: this.directBladeCapture,
+            });
             this.devices.set(deviceId, service);
             this.initializingDeviceIds.add(deviceId);
             this.pendingStatePayloads.set(deviceId, payload);
@@ -71,7 +78,7 @@ export class RemusBladeManager {
             
             service.onStateChange(state => {
               this.listeners.forEach(l => l(state));
-              if (state.deviceFamily === 'remus_computer') {
+              if (!this.directBladeCapture && state.deviceFamily === 'remus_computer') {
                 const prev = this.lastKnownConnectionState.get(deviceId) ?? 'unavailable';
                 const curr = state.readiness?.sourceConnectionState ?? 'unavailable';
                 this.lastKnownConnectionState.set(deviceId, curr);
@@ -90,7 +97,7 @@ export class RemusBladeManager {
                 }
               }
             });
-            if (adapter.deviceFamily === 'remus_computer') {
+            if (!this.directBladeCapture && adapter.deviceFamily === 'remus_computer') {
               service.onBladeRoster(entries => this.updateRelaySources(entries));
             }
             
@@ -160,6 +167,15 @@ export class RemusBladeManager {
   ): void {
     if (this.sensorDataListeners.size === 0) return;
 
+    // Direct capture has one transport identity per physical Blade. Ignore a
+    // stale/legacy Computer relay packet so the same native sample cannot be
+    // counted twice if mixed firmware is encountered during rollout.
+    if (this.directBladeCapture &&
+        service.getSourceState().deviceFamily === 'remus_computer' &&
+        typeof sample.sourcePayload?.sourceIdentityHash === 'number') {
+      return;
+    }
+
     let placement: SensorPlacement = 'unknown';
     const sourceIdentityHash = sample.sourcePayload?.sourceIdentityHash;
     if (typeof sourceIdentityHash === 'number' && Number.isSafeInteger(sourceIdentityHash)) {
@@ -219,13 +235,17 @@ export class RemusBladeManager {
   }
 
   async startWorkoutCapture(): Promise<boolean> {
-    console.log('[RemusBladeManager] Starting capture with Computer relay preference...');
+    console.log(this.directBladeCapture
+      ? '[RemusBladeManager] Starting direct capture on every connected Remus source...'
+      : '[RemusBladeManager] Starting capture with Computer relay preference...');
     const connected = Array.from(this.devices.values())
       .filter(device => device.getConnectionState() === 'connected');
     const computers = connected.filter(
       device => device.getSourceState().deviceFamily === 'remus_computer',
     );
-    const targets = computers.length > 0 ? computers : connected;
+    const targets = this.directBladeCapture
+      ? connected
+      : computers.length > 0 ? computers : connected;
     const results = await Promise.all(
       targets.map(d => d.startWorkoutCapture())
     );
@@ -275,6 +295,10 @@ export class RemusBladeManager {
     if (sourceId) {
       const target = devices.find(device => device.getSourceState().sourceId === sourceId);
       return target ? target.connect() : false;
+    }
+    if (this.directBladeCapture) {
+      const results = await Promise.all(devices.map(device => device.connect()));
+      return results.some(result => result);
     }
     const computers = devices.filter(
       device => device.getSourceState().deviceFamily === 'remus_computer',
@@ -424,6 +448,7 @@ export class RemusBladeManager {
   }
 
   private scheduleSyncBladeAssignments(target?: RemusBladeDeviceService): void {
+    if (this.directBladeCapture) return;
     if (this.isWorkoutCaptureActive()) {
       this.pendingSyncAfterWorkout = true;
       return;
@@ -438,6 +463,7 @@ export class RemusBladeManager {
   }
 
   private async syncBladeAssignments(target?: RemusBladeDeviceService): Promise<void> {
+    if (this.directBladeCapture) return;
     if (this.syncInFlight) {
       console.log('[RemusBladeManager] syncBladeAssignments already in flight, skipping.');
       return;

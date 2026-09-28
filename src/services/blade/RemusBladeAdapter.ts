@@ -75,6 +75,15 @@ export interface NativeBladeBridge {
 
 
 const DEG_TO_RAD = Math.PI / 180;
+const GYRO_LSB_PER_DPS_500 = 65.5;
+const GYRO_LSB_PER_DPS_1000 = 32.8;
+
+export const rawGyroToRadiansPerSecond = (
+  rawValue: number,
+  deviceFamily: 'remus_blade' | 'remus_computer',
+): number => rawValue /
+  (deviceFamily === 'remus_blade' ? GYRO_LSB_PER_DPS_1000 : GYRO_LSB_PER_DPS_500) *
+  DEG_TO_RAD;
 
 export type RemusDeviceFamily = 'remus_blade' | 'remus_computer';
 
@@ -174,6 +183,7 @@ export class RemusBladeAdapter implements IWearableAdapter {
     if (data?.deviceName) {
       this.targetDeviceName = data.deviceName;
     }
+    const characteristicUuid = data.characteristicUuid?.toLowerCase();
     if (data?.rawCsv) {
       console.log(`[RemusBladeAdapter:${this.targetDeviceId}] Received rawCsv: ${data.rawCsv}`);
       if (this.handleControlMessage(data.rawCsv)) {
@@ -187,9 +197,9 @@ export class RemusBladeAdapter implements IWearableAdapter {
       }
     }
     if (data?.rawBase64) {
-      if (data.characteristicUuid?.toLowerCase() === REMUS_IMU_STREAM_CHARACTERISTIC_UUID) {
+      if (characteristicUuid === REMUS_IMU_STREAM_CHARACTERISTIC_UUID) {
         this.handleLiveImuPacket(data.rawBase64);
-      } else if (data.characteristicUuid?.toLowerCase() === REMUS_BLADE_RELAY_CHARACTERISTIC_UUID) {
+      } else if (characteristicUuid === REMUS_BLADE_RELAY_CHARACTERISTIC_UUID) {
         this.handleRelayedImuPacket(data.rawBase64);
       } else {
         this.handleBinaryChunk(data.rawBase64);
@@ -217,9 +227,9 @@ export class RemusBladeAdapter implements IWearableAdapter {
           z: raw.rawAccel.z / 4096,
         },
         rotationRateRadiansPerSecond: {
-          x: raw.rawGyro.x / 65.5 * DEG_TO_RAD,
-          y: raw.rawGyro.y / 65.5 * DEG_TO_RAD,
-          z: raw.rawGyro.z / 65.5 * DEG_TO_RAD,
+          x: rawGyroToRadiansPerSecond(raw.rawGyro.x, 'remus_blade'),
+          y: rawGyroToRadiansPerSecond(raw.rawGyro.y, 'remus_blade'),
+          z: rawGyroToRadiansPerSecond(raw.rawGyro.z, 'remus_blade'),
         },
         sourcePayload: {
           transportDeviceId: this.targetDeviceId,
@@ -257,9 +267,9 @@ export class RemusBladeAdapter implements IWearableAdapter {
           z: raw.rawAccel.z / 4096,
         },
         rotationRateRadiansPerSecond: {
-          x: raw.rawGyro.x / 65.5 * DEG_TO_RAD,
-          y: raw.rawGyro.y / 65.5 * DEG_TO_RAD,
-          z: raw.rawGyro.z / 65.5 * DEG_TO_RAD,
+          x: rawGyroToRadiansPerSecond(raw.rawGyro.x, this.deviceFamily),
+          y: rawGyroToRadiansPerSecond(raw.rawGyro.y, this.deviceFamily),
+          z: rawGyroToRadiansPerSecond(raw.rawGyro.z, this.deviceFamily),
         },
         sourcePayload: {
           batchSequence: batch.batchSequence,

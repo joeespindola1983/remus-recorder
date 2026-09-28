@@ -50,7 +50,7 @@ describe('RemusBladeManager (TDD - Connection & Sync Refactor)', () => {
     mockBridge = NativeModules.RemusBladeBridge;
     jest.clearAllMocks();
 
-    manager = new RemusBladeManager(mockBridge);
+    manager = new RemusBladeManager(mockBridge, { directBladeCapture: false });
     await manager.initialize();
   });
 
@@ -374,6 +374,59 @@ describe('RemusBladeManager (TDD - Connection & Sync Refactor)', () => {
     ((leftService as any).adapter as any).sensorListeners.forEach((l: any) => l(sampleDirect));
     expect(received.filter(r => r.placement !== 'hull')).toHaveLength(2);
   });
-});
 
+  it('starts Computer and two direct Blades together in direct capture mode', async () => {
+    manager.destroy();
+    manager = new RemusBladeManager(mockBridge, { directBladeCapture: true });
+    await manager.initialize();
+
+    for (const device of [
+      { deviceId: 'computer-1', deviceName: 'REMUS-PC-01' },
+      { deviceId: 'blade-left', deviceName: 'REMUS-BLD-0BACC631' },
+      { deviceId: 'blade-right', deviceName: 'REMUS-BLD-EE907E5A' },
+    ]) {
+      emitEvent('onRemusBladeStateChanged', { ...device, state: 'detected' });
+    }
+    await jest.advanceTimersByTimeAsync(100);
+    for (const device of [
+      { deviceId: 'computer-1', deviceName: 'REMUS-PC-01' },
+      { deviceId: 'blade-left', deviceName: 'REMUS-BLD-0BACC631' },
+      { deviceId: 'blade-right', deviceName: 'REMUS-BLD-EE907E5A' },
+    ]) {
+      emitEvent('onRemusBladeStateChanged', { ...device, state: 'connected' });
+    }
+    await jest.advanceTimersByTimeAsync(100);
+
+    await expect(manager.startWorkoutCapture()).resolves.toBe(true);
+
+    expect(mockBridge.sendCommand).toHaveBeenCalledWith('computer-1', 'START');
+    expect(mockBridge.sendBinaryCommand).toHaveBeenCalledWith('blade-left', 'AQEAAAAA');
+    expect(mockBridge.sendBinaryCommand).toHaveBeenCalledWith('blade-right', 'AQEAAAAA');
+    expect(manager.getDevice('computer-1')?.getSourceState().recordingState).toBe('recording');
+    expect(manager.getDevice('blade-left')?.getSourceState().recordingState).toBe('recording');
+    expect(manager.getDevice('blade-right')?.getSourceState().recordingState).toBe('recording');
+  });
+
+  it('ignores relayed Blade samples in direct capture mode', async () => {
+    manager.destroy();
+    manager = new RemusBladeManager(mockBridge, { directBladeCapture: true });
+    await manager.initialize();
+    emitEvent('onRemusBladeStateChanged', {
+      deviceId: 'computer-1', deviceName: 'REMUS-PC-01', state: 'detected',
+    });
+    await jest.advanceTimersByTimeAsync(100);
+
+    const received: any[] = [];
+    manager.onSensorData(sample => received.push(sample));
+    const computer = manager.getDevice('computer-1');
+    ((computer as any).adapter as any).sensorListeners.forEach((listener: any) => listener({
+      deviceId: 'blade:0bacc631',
+      deviceFamily: 'remus_blade',
+      nativeTimestamp: 1000,
+      sourcePayload: { sourceIdentityHash: 0x0bacc631 },
+    }));
+
+    expect(received).toEqual([]);
+  });
+});
 

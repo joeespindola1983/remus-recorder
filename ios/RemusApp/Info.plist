@@ -51,6 +51,8 @@
 	<string>Remus utiliza os sensores de movimento e acelerômetro para monitorar sua atividade física e deslocamento.</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
+	<key>RemusDirectBladeCaptureEnabled</key>
+	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>bluetooth-central</string>
