@@ -17,6 +17,8 @@ jest.mock('react-native', () => {
 
 import {
   RemusBladeAdapter,
+  canonicalRemusSourceId,
+  decodeRemusDeviceInfo,
   parseBladeIdentityHash,
   rawGyroToRadiansPerSecond,
   REMUS_BLADE_SERVICE_UUID,
@@ -34,6 +36,60 @@ describe('RemusBladeAdapter (TDD)', () => {
     expect(parseBladeIdentityHash('REMUS-BLD-A1B2C3D4')).toBe(0xA1B2C3D4);
     expect(parseBladeIdentityHash('REMUS-BLD-C3D4')).toBeNull();
     expect(parseBladeIdentityHash('REMUS-P1-1234')).toBeNull();
+  });
+
+  it('uses the advertised Blade identity instead of the temporary BLE identifier', () => {
+    expect(canonicalRemusSourceId('temporary-ios-uuid', 'REMUS-BLD-A1B2C3D4'))
+      .toBe('blade:a1b2c3d4');
+  });
+
+  it('decodes the versioned firmware device metadata contract', () => {
+    const serial = Buffer.from('RB-P1-A1B2C3D4');
+    const firmware = Buffer.from('1.4.0');
+    const packet = Buffer.alloc(12 + serial.length + firmware.length);
+    packet.set([1, 2, 1, 1, 3, 0, 200, 0, 1, 2, serial.length], 0);
+    serial.copy(packet, 11);
+    packet[11 + serial.length] = firmware.length;
+    firmware.copy(packet, 12 + serial.length);
+
+    expect(decodeRemusDeviceInfo(packet)).toEqual({
+      protocolVersion: 1,
+      deviceFamily: 'remus_blade',
+      deviceModel: 'rbp1',
+      hardwareRevision: 1,
+      capabilities: 3,
+      nominalSampleRateHz: 200,
+      accelerometerRangeG: 8,
+      gyroscopeRangeDps: 1000,
+      dlpfSetting: null,
+      deviceSerialNumber: 'RB-P1-A1B2C3D4',
+      firmwareVersion: '1.4.0',
+    });
+  });
+
+  it('maps the sensor monotonic clock to the host clock with an explicit error bound', () => {
+    const adapter = new RemusBladeAdapter('blade-transport', 'REMUS-BLD-A1B2C3D4');
+    const packet = Buffer.alloc(30);
+    packet[0] = 1;
+    packet[1] = 0x04;
+    packet.writeUInt32LE(7, 2);
+    packet.writeBigUInt64LE(1_000_000n, 6);
+    packet.writeBigUInt64LE(1_001_200n, 14);
+    packet.writeBigUInt64LE(1_001_300n, 22);
+
+    adapter.handleSnapshotPayload({
+      deviceId: 'blade-transport',
+      characteristicUuid: 'beb54843-36e1-4688-b7f5-ea07361b26a8',
+      rawBase64: packet.toString('base64'),
+      receivedAtMonotonicUs: 1_000_500,
+    });
+
+    expect(adapter.getClockSync()).toMatchObject({
+      estimatedClockOffsetUs: 1000,
+      roundTripUs: 400,
+      maximumErrorUs: 200,
+      syncQuality: 'qualified',
+    });
   });
 
   it('has canonical BLE UUIDs matching remus-sensor firmware', () => {
