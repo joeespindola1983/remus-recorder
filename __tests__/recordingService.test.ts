@@ -128,4 +128,28 @@ describe('RecordingService', () => {
     await expect(service.recordSourceLifecycleEvent(event)).resolves.toBe(true);
     expect(bridge.recordSourceLifecycleEvent).toHaveBeenCalledWith(event);
   });
+
+  it('forwards telemetry diagnostics containing placement and calibration to native bridge', async () => {
+    const bridge = {
+      setTelemetryDiagnostics: jest.fn().mockResolvedValue(true),
+    };
+    const service = new RecordingService(bridge as any);
+    const bySource = {
+      'blade:0bacc631': {
+        telemetry: { decodedBatchCount: 100 },
+        sensorPlacement: 'left_paddle',
+        boatSide: 'port',
+        sourceRole: 'BLADE_PORT',
+        calibration: {
+          sensorFrameToBladeFrame: [{x: 0, y: 1, z: 0}, {x: 0, y: 0, z: 1}, {x: 1, y: 0, z: 0}],
+          calibrationVersion: '1.0.0',
+          gravityAgreement: 0.95,
+          qualified: true,
+        },
+      },
+    };
+
+    await expect(service.setTelemetryDiagnostics(bySource)).resolves.toBe(true);
+    expect(bridge.setTelemetryDiagnostics).toHaveBeenCalledWith({bySource});
+  });
 });
