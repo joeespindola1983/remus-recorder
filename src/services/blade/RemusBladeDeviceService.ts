@@ -10,11 +10,12 @@ import {
 } from '../../contracts/acquisition/types';
 import {
   BladeRosterEntry,
+  canonicalRemusSourceId,
   RemusBladeAdapter,
   RemusBladeSnapshot,
-  parseBladeIdentityHash,
 } from './RemusBladeAdapter';
 import { SensorSample, WearableConnectionState, WearableDevice } from '../../types/wearables';
+import { TelemetryAccounting } from './RemusStreamPacketDecoder';
 
 export class RemusBladeDeviceService {
   private adapter: RemusBladeAdapter;
@@ -39,14 +40,10 @@ export class RemusBladeDeviceService {
 
   private createDefaultSourceState(directBladeCapture: boolean): CaptureSourceState {
     const isComputer = this.adapter.deviceFamily === 'remus_computer';
-    const bladeIdentityHash = isComputer
-      ? null
-      : parseBladeIdentityHash(this.adapter.targetDeviceName);
-    const sourceId = isComputer
-      ? `computer:${this.adapter.targetDeviceId}`
-      : bladeIdentityHash === null
-        ? `blade:${this.adapter.targetDeviceId}`
-        : `blade:${bladeIdentityHash.toString(16).padStart(8, '0')}`;
+    const sourceId = canonicalRemusSourceId(
+      this.adapter.targetDeviceId,
+      this.adapter.targetDeviceName,
+    );
     const descriptor: SourceDescriptor = {
       sourceId,
       deviceFamily: this.adapter.deviceFamily,
@@ -241,6 +238,18 @@ export class RemusBladeDeviceService {
     return this.connectionState;
   }
 
+  getTelemetryAccounting(): TelemetryAccounting {
+    return this.adapter.getTelemetryAccounting();
+  }
+
+  getDeviceConfiguration() {
+    return this.adapter.getDeviceInfo();
+  }
+
+  getClockSync() {
+    return this.adapter.getClockSync();
+  }
+
   async startWorkoutCapture(): Promise<boolean> {
     if (this.connectionState !== 'connected') {
       this.handleDisconnection();
@@ -336,12 +345,7 @@ export class RemusBladeDeviceService {
     }
     const isComputer = device.deviceFamily === 'remus_computer';
     const rawId = device.id.replace(/^(blade|computer):/, '');
-    const bladeIdentityHash = isComputer ? null : parseBladeIdentityHash(device.name ?? '');
-    const sourceId = isComputer
-      ? `computer:${rawId}`
-      : bladeIdentityHash === null
-        ? `blade:${rawId}`
-        : `blade:${bladeIdentityHash.toString(16).padStart(8, '0')}`;
+    const sourceId = canonicalRemusSourceId(rawId, device.name ?? '');
     const sensorPlacement = isComputer
       ? 'hull'
       : this.sourceState.sensorPlacement === 'left_paddle' || this.sourceState.sensorPlacement === 'right_paddle'

@@ -11,18 +11,73 @@ import {
 import {
   RemusRelayedStreamPacketDecoder,
   RemusStreamPacketDecoder,
+  TelemetryAccounting,
 } from './RemusStreamPacketDecoder';
 
 export const REMUS_BLADE_SERVICE_UUID = '4fafc201-1fb5-459e-8fcc-c5c9c331914b';
 export const REMUS_BLADE_CHARACTERISTIC_UUID = 'beb5483e-36e1-4688-b7f5-ea07361b26a8';
+export const REMUS_DEVICE_INFO_CHARACTERISTIC_UUID = 'beb5483f-36e1-4688-b7f5-ea07361b26a8';
 export const REMUS_IMU_STREAM_CHARACTERISTIC_UUID = 'beb54841-36e1-4688-b7f5-ea07361b26a8';
 export const REMUS_BLADE_RELAY_CHARACTERISTIC_UUID = 'beb54844-36e1-4688-b7f5-ea07361b26a8';
+export const REMUS_CLOCK_SYNC_CHARACTERISTIC_UUID = 'beb54843-36e1-4688-b7f5-ea07361b26a8';
 
 export const parseBladeIdentityHash = (deviceName: string): number | null => {
   const match = deviceName.trim().toUpperCase().match(/^REMUS-BLD-([0-9A-F]{8})$/);
   if (!match) return null;
   const value = Number.parseInt(match[1], 16);
   return Number.isSafeInteger(value) && value > 0 && value <= 0xFFFFFFFF ? value : null;
+};
+
+export const canonicalRemusSourceId = (transportDeviceId: string, deviceName: string): string => {
+  const identityHash = parseBladeIdentityHash(deviceName);
+  if (identityHash !== null) {
+    return `blade:${identityHash.toString(16).padStart(8, '0')}`;
+  }
+  const family = classifyRemusDeviceName(deviceName);
+  return `${family === 'remus_computer' ? 'computer' : 'blade'}:${transportDeviceId}`;
+};
+
+export interface RemusDeviceInfo {
+  protocolVersion: number;
+  deviceFamily: RemusDeviceFamily;
+  deviceModel: 'rbp1' | 'rcp1' | 'unknown';
+  hardwareRevision: number;
+  capabilities: number;
+  nominalSampleRateHz: number;
+  accelerometerRangeG: number | null;
+  gyroscopeRangeDps: number | null;
+  dlpfSetting: number | null;
+  deviceSerialNumber: string;
+  firmwareVersion: string;
+}
+
+export const decodeRemusDeviceInfo = (data: Uint8Array): RemusDeviceInfo | null => {
+  if (data.length < 12 || (data[0] !== 1 && data[0] !== 2)) return null;
+  const serialLengthOffset = data[0] === 2 ? 11 : 10;
+  const serialOffset = serialLengthOffset + 1;
+  const serialLength = data[serialLengthOffset];
+  const firmwareLengthOffset = serialOffset + serialLength;
+  if (firmwareLengthOffset >= data.length) return null;
+  const firmwareLength = data[firmwareLengthOffset];
+  if (firmwareLengthOffset + 1 + firmwareLength !== data.length) return null;
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  const family = data[1] === 2 ? 'remus_blade' : data[1] === 1 ? 'remus_computer' : null;
+  if (!family) return null;
+  return {
+    protocolVersion: data[0],
+    deviceFamily: family,
+    deviceModel: family === 'remus_blade' && data[2] === 1
+      ? 'rbp1'
+      : family === 'remus_computer' && data[2] === 1 ? 'rcp1' : 'unknown',
+    hardwareRevision: data[3],
+    capabilities: view.getUint16(4, true),
+    nominalSampleRateHz: view.getUint16(6, true),
+    accelerometerRangeG: data[8] === 1 ? 8 : data[8] === 2 ? 16 : null,
+    gyroscopeRangeDps: data[9] === 1 ? 500 : data[9] === 2 ? 1000 : data[9] === 3 ? 2000 : null,
+    dlpfSetting: data[0] === 2 ? data[10] : null,
+    deviceSerialNumber: Buffer.from(data.subarray(serialOffset, firmwareLengthOffset)).toString('utf8'),
+    firmwareVersion: Buffer.from(data.subarray(firmwareLengthOffset + 1)).toString('utf8'),
+  };
 };
 
 export interface RemusBladeSnapshot {
@@ -66,6 +121,7 @@ export interface NativeBladeBridge {
   disconnectPeripheral?(): Promise<void>;
   sendCommand?(identifier: string, command: string): Promise<boolean>;
   sendBinaryCommand?(identifier: string, base64Command: string): Promise<boolean>;
+  requestClockSync?(identifier: string): Promise<boolean>;
   addListener?(
     eventName: string,
     listener: (data: any) => void
@@ -73,16 +129,31 @@ export interface NativeBladeBridge {
   removeListeners?(count: number): void;
 }
 
+export interface RemusClockSyncSnapshot {
+  estimatedClockOffsetUs: number;
+  roundTripUs: number;
+  clockDriftPpm: number | null;
+  lastSyncTimestampUs: number;
+  maximumErrorUs: number;
+  syncQuality: 'qualified' | 'low_confidence';
+}
+
 
 const DEG_TO_RAD = Math.PI / 180;
 const GYRO_LSB_PER_DPS_500 = 65.5;
 const GYRO_LSB_PER_DPS_1000 = 32.8;
+const GYRO_LSB_PER_DPS_2000 = 16.4;
 
 export const rawGyroToRadiansPerSecond = (
   rawValue: number,
   deviceFamily: 'remus_blade' | 'remus_computer',
+  configuredRangeDps?: number,
 ): number => rawValue /
-  (deviceFamily === 'remus_blade' ? GYRO_LSB_PER_DPS_1000 : GYRO_LSB_PER_DPS_500) *
+  (configuredRangeDps === 2000
+    ? GYRO_LSB_PER_DPS_2000
+    : configuredRangeDps === 1000 || deviceFamily === 'remus_blade'
+      ? GYRO_LSB_PER_DPS_1000
+      : GYRO_LSB_PER_DPS_500) *
   DEG_TO_RAD;
 
 export type RemusDeviceFamily = 'remus_blade' | 'remus_computer';
@@ -112,6 +183,10 @@ export class RemusBladeAdapter implements IWearableAdapter {
   private eventEmitter: NativeEventEmitter | null = null;
   private isConnected = false;
   private readonly streamPacketDecoder = new RemusStreamPacketDecoder();
+  private deviceInfo: RemusDeviceInfo | null = null;
+  private clockSync: RemusClockSyncSnapshot | null = null;
+  private previousClockObservation: { hostUs: number; offsetUs: number } | null = null;
+  private clockSyncTimer: ReturnType<typeof setInterval> | null = null;
   private expectedLiveSampleSequence: number | null = null;
   private snapshotSubscription: { remove(): void } | null = null;
   private stateSubscription: { remove(): void } | null = null;
@@ -176,6 +251,7 @@ export class RemusBladeAdapter implements IWearableAdapter {
       deviceId?: string;
       deviceName?: string;
       characteristicUuid?: string;
+      receivedAtMonotonicUs?: number;
     };
     if (!data?.deviceId || data.deviceId !== this.targetDeviceId) {
       return;
@@ -197,7 +273,11 @@ export class RemusBladeAdapter implements IWearableAdapter {
       }
     }
     if (data?.rawBase64) {
-      if (characteristicUuid === REMUS_IMU_STREAM_CHARACTERISTIC_UUID) {
+      if (characteristicUuid === REMUS_DEVICE_INFO_CHARACTERISTIC_UUID) {
+        this.deviceInfo = decodeRemusDeviceInfo(Buffer.from(data.rawBase64, 'base64'));
+      } else if (characteristicUuid === REMUS_CLOCK_SYNC_CHARACTERISTIC_UUID) {
+        this.handleClockSyncPacket(data.rawBase64, data.receivedAtMonotonicUs);
+      } else if (characteristicUuid === REMUS_IMU_STREAM_CHARACTERISTIC_UUID) {
         this.handleLiveImuPacket(data.rawBase64);
       } else if (characteristicUuid === REMUS_BLADE_RELAY_CHARACTERISTIC_UUID) {
         this.handleRelayedImuPacket(data.rawBase64);
@@ -205,6 +285,41 @@ export class RemusBladeAdapter implements IWearableAdapter {
         this.handleBinaryChunk(data.rawBase64);
       }
     }
+  }
+
+  getDeviceInfo(): RemusDeviceInfo | null {
+    return this.deviceInfo;
+  }
+
+  getTelemetryAccounting(): TelemetryAccounting {
+    return this.streamPacketDecoder.getAccounting();
+  }
+
+  getClockSync(): RemusClockSyncSnapshot | null {
+    return this.clockSync;
+  }
+
+  private handleClockSyncPacket(rawBase64: string, hostReceiveUs?: number): void {
+    const packet = Buffer.from(rawBase64, 'base64');
+    if (packet.length !== 30 || packet[0] !== 1 || packet[1] !== 0x04 || hostReceiveUs === undefined) return;
+    const hostSendUs = Number(packet.readBigUInt64LE(6));
+    const sensorReceiveUs = Number(packet.readBigUInt64LE(14));
+    const sensorSendUs = Number(packet.readBigUInt64LE(22));
+    const roundTripUs = hostReceiveUs - hostSendUs - (sensorSendUs - sensorReceiveUs);
+    if (roundTripUs < 0 || roundTripUs > 200_000) return;
+    const offsetUs = ((sensorReceiveUs - hostSendUs) + (sensorSendUs - hostReceiveUs)) / 2;
+    const prior = this.previousClockObservation;
+    const elapsedUs = prior ? hostReceiveUs - prior.hostUs : 0;
+    const driftPpm = prior && elapsedUs > 0 ? (offsetUs - prior.offsetUs) / elapsedUs * 1_000_000 : null;
+    this.previousClockObservation = { hostUs: hostReceiveUs, offsetUs };
+    this.clockSync = {
+      estimatedClockOffsetUs: offsetUs,
+      roundTripUs,
+      clockDriftPpm: driftPpm,
+      lastSyncTimestampUs: hostReceiveUs,
+      maximumErrorUs: roundTripUs / 2,
+      syncQuality: roundTripUs / 2 <= 5_000 ? 'qualified' : 'low_confidence',
+    };
   }
 
   private handleRelayedImuPacket(rawBase64: string): void {
@@ -257,24 +372,30 @@ export class RemusBladeAdapter implements IWearableAdapter {
         ? 0
         : Math.max(0, raw.sampleSequence - this.expectedLiveSampleSequence);
       this.expectedLiveSampleSequence = raw.sampleSequence + 1;
+      const accelLsbPerG = this.deviceInfo?.accelerometerRangeG === 16 ? 2048 : 4096;
       const sample: SensorSample = {
         nativeTimestamp: raw.nativeTimestampUs / 1000,
         deviceId: this.targetDeviceId,
         deviceFamily: this.deviceFamily,
         accelerationIncludingGravityG: {
-          x: raw.rawAccel.x / 4096,
-          y: raw.rawAccel.y / 4096,
-          z: raw.rawAccel.z / 4096,
+          x: raw.rawAccel.x / accelLsbPerG,
+          y: raw.rawAccel.y / accelLsbPerG,
+          z: raw.rawAccel.z / accelLsbPerG,
         },
         rotationRateRadiansPerSecond: {
-          x: rawGyroToRadiansPerSecond(raw.rawGyro.x, this.deviceFamily),
-          y: rawGyroToRadiansPerSecond(raw.rawGyro.y, this.deviceFamily),
-          z: rawGyroToRadiansPerSecond(raw.rawGyro.z, this.deviceFamily),
+          x: rawGyroToRadiansPerSecond(raw.rawGyro.x, this.deviceFamily, this.deviceInfo?.gyroscopeRangeDps ?? undefined),
+          y: rawGyroToRadiansPerSecond(raw.rawGyro.y, this.deviceFamily, this.deviceInfo?.gyroscopeRangeDps ?? undefined),
+          z: rawGyroToRadiansPerSecond(raw.rawGyro.z, this.deviceFamily, this.deviceInfo?.gyroscopeRangeDps ?? undefined),
         },
         sourcePayload: {
           batchSequence: batch.batchSequence,
           sampleSequence: raw.sampleSequence,
           nativeTimestampUs: raw.nativeTimestampUs,
+          commonTimelineTimestampUs: this.clockSync
+            ? raw.nativeTimestampUs - this.clockSync.estimatedClockOffsetUs
+            : undefined,
+          clockMaximumErrorUs: this.clockSync?.maximumErrorUs,
+          clockSyncQuality: this.clockSync?.syncQuality,
           sampleStatus: raw.status,
           missingSamplesBefore,
         },
@@ -293,7 +414,26 @@ export class RemusBladeAdapter implements IWearableAdapter {
     }
     const state = this.normalizeConnectionState(statePayload.state);
     this.isConnected = state === 'connected';
+    if (this.isConnected) {
+      this.requestClockSync().catch(() => undefined);
+      if (!this.clockSyncTimer) {
+        this.clockSyncTimer = setInterval(() => {
+          this.requestClockSync().catch(() => undefined);
+        }, 10_000);
+      }
+    } else if (this.clockSyncTimer) {
+      clearInterval(this.clockSyncTimer);
+      this.clockSyncTimer = null;
+    }
     this.notifyDeviceState(state);
+  }
+
+  private async requestClockSync(): Promise<void> {
+    try {
+      await this.nativeBridge?.requestClockSync?.(this.targetDeviceId);
+    } catch {
+      // A missed observation lowers coverage; it must not interrupt acquisition.
+    }
   }
 
   async getConnectedDevices(): Promise<WearableDevice[]> {
@@ -797,6 +937,8 @@ export class RemusBladeAdapter implements IWearableAdapter {
   }
 
   destroy(): void {
+    if (this.clockSyncTimer) clearInterval(this.clockSyncTimer);
+    this.clockSyncTimer = null;
     if (this.activeDownload?.timeout) {
       clearTimeout(this.activeDownload.timeout);
     }

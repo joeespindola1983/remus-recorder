@@ -267,6 +267,21 @@ export class RemusBladeManager {
     return results.some(r => r);
   }
 
+  getTelemetryDiagnostics(): Record<string, {
+    telemetry: ReturnType<RemusBladeDeviceService['getTelemetryAccounting']>;
+    deviceConfiguration: ReturnType<RemusBladeDeviceService['getDeviceConfiguration']>;
+    clockSync: ReturnType<RemusBladeDeviceService['getClockSync']>;
+  }> {
+    return Object.fromEntries(Array.from(this.devices.values()).map(device => [
+      device.getSourceState().sourceId,
+      {
+        telemetry: device.getTelemetryAccounting(),
+        deviceConfiguration: device.getDeviceConfiguration(),
+        clockSync: device.getClockSync(),
+      },
+    ]));
+  }
+
   async connect(sourceId?: string): Promise<boolean> {
     if (sourceId?.startsWith('blade:')) {
       const identityHash = Number.parseInt(sourceId.substring('blade:'.length), 16);
