@@ -234,13 +234,14 @@ export class RemusBladeManager {
 
   // Facade methods for App.tsx compatibility
 
-  getLatestSnapshot(): any {
+  getLatestSnapshot(): ReturnType<RemusBladeDeviceService['getLatestSnapshot']> {
     // Stroke rate is authoritative only from Remus Computer. Blade v1 sends
     // raw IMU for later analysis and must never drive the live SPM card.
     for (const device of this.devices.values()) {
-      if (device.getSourceState().deviceFamily !== 'remus_computer') continue;
+      const sourceState = device.getSourceState();
+      if (sourceState.deviceFamily !== 'remus_computer') continue;
       const snap = device.getLatestSnapshot();
-      if (snap) return snap;
+      if (snap) return {...snap, sourceId: sourceState.sourceId};
     }
     return null;
   }

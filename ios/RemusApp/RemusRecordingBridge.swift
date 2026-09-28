@@ -130,6 +130,48 @@ final class RemusRecordingBridge: RCTEventEmitter, CLLocationManagerDelegate {
   }
 
   @objc
+  func appendLiveMetricPresentation(
+    _ presentation: NSDictionary,
+    resolver resolve: @escaping RCTPromiseResolveBlock,
+    rejecter reject: @escaping RCTPromiseRejectBlock
+  ) {
+    guard
+      let metricIdentifier = presentation["metricIdentifier"] as? String,
+      ["paceSecondsPer500Meters", "strokeRateSpm"].contains(metricIdentifier),
+      let canonicalUnit = presentation["canonicalUnit"] as? String,
+      let renderedText = presentation["renderedText"] as? String,
+      let availabilityState = presentation["availabilityState"] as? String,
+      let sourceId = presentation["sourceId"] as? String,
+      let presentedAt = presentation["presentedAtEpochMilliseconds"] as? NSNumber
+    else {
+      reject("INVALID_LIVE_METRIC_PRESENTATION", "Missing or invalid live metric presentation fields", nil)
+      return
+    }
+    var payload: [String: Any] = [
+      "type": "liveMetricPresentation",
+      "metricIdentifier": metricIdentifier,
+      "canonicalUnit": canonicalUnit,
+      "renderedText": renderedText,
+      "availabilityState": availabilityState,
+      "sourceId": sourceId,
+      "presentedAtEpochMilliseconds": presentedAt,
+    ]
+    if let value = presentation["numericValue"], !(value is NSNull) {
+      payload["numericValue"] = value
+    } else {
+      payload["numericValue"] = NSNull()
+    }
+    if let reason = presentation["availabilityReason"] as? String {
+      payload["availabilityReason"] = reason
+    }
+    if let supportedAt = presentation["supportedAtEpochMilliseconds"] as? NSNumber {
+      payload["supportedAtEpochMilliseconds"] = supportedAt
+    }
+    evidenceStore.appendLiveMetricPresentation(payload)
+    resolve(true)
+  }
+
+  @objc
   func exportRecording(
     _ options: NSDictionary,
     resolver resolve: @escaping RCTPromiseResolveBlock,

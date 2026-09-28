@@ -26,6 +26,7 @@ class RemusEvidenceStore private constructor() {
     "phoneLocation" to "phone-location.ndjson",
     "watchHeartRate" to "watch-heart-rate.ndjson",
     "remusBladeLive" to "remus-blade-live.ndjson",
+    "liveMetricPresentation" to "live-metric-presentation.ndjson",
     "lifecycle" to "lifecycle.ndjson"
   )
 
@@ -111,6 +112,10 @@ class RemusEvidenceStore private constructor() {
 
   fun appendPhoneLocation(payload: Map<String, Any?>) {
     append("phoneLocation", "phone:primary", payload)
+  }
+
+  fun appendLiveMetricPresentation(payload: Map<String, Any?>) {
+    append("liveMetricPresentation", null, payload)
   }
 
   fun appendWatchHeartRate(payload: Map<String, Any?>) {

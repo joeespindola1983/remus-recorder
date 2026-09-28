@@ -19,15 +19,19 @@ const crc32 = (data: Uint8Array): number => {
   return result;
 };
 
-const makeBatch = (): Buffer => {
+const makeBatch = (
+  batchSequence = 7,
+  firstSampleSequence = 100,
+  firstTimestampUs = 1_000_000,
+): Buffer => {
   const sampleCount = 2;
   const result = Buffer.alloc(23 + sampleCount * 15 + 4);
   result[0] = 1;
   result[1] = 1;
   result[3] = 23;
-  result.writeUInt32LE(7, 4);
-  result.writeUInt32LE(100, 8);
-  result.writeBigUInt64LE(1_000_000n, 12);
+  result.writeUInt32LE(batchSequence, 4);
+  result.writeUInt32LE(firstSampleSequence, 8);
+  result.writeBigUInt64LE(BigInt(firstTimestampUs), 12);
   result.writeUInt16LE(5_000, 20);
   result[22] = sampleCount;
   const axes = [4096, -2048, 1024, 66, -131, 0];
@@ -137,6 +141,56 @@ describe('RemusStreamPacketDecoder', () => {
       gyroSaturationCountZ: 0,
       samplesWithAnySaturationCount: 1,
       samplesWithAnySaturationPercent: 50,
+    });
+  });
+
+  it('starts every recording with independent sequence, gap, and saturation accounting', () => {
+    const decoder = new RemusStreamPacketDecoder();
+    const saturated = makeBatch(0, 0, 1_000_000);
+    saturated.writeInt16LE(32767, 23);
+    saturated.writeUInt32LE(
+      crc32(saturated.subarray(0, saturated.length - 4)),
+      saturated.length - 4,
+    );
+
+    decoder.beginRecording();
+    decoder.ingest(saturated);
+    decoder.ingest(makeBatch(1, 2, 1_010_000));
+    expect(decoder.getAccounting()).toMatchObject({
+      decodedBatchCount: 2,
+      decodedImuSampleCount: 4,
+      samplesWithAnySaturationCount: 1,
+      outOfOrderPackets: 0,
+      lostPackets: 0,
+      lostSamples: 0,
+    });
+
+    decoder.beginRecording();
+    decoder.ingest(makeBatch(0, 0, 2_000_000));
+    expect(decoder.getAccounting()).toMatchObject({
+      decodedBatchCount: 1,
+      decodedImuSampleCount: 2,
+      samplesWithAnySaturationCount: 0,
+      outOfOrderPackets: 0,
+      lostPackets: 0,
+      lostSamples: 0,
+      maxSampleGapMs: 4.85,
+    });
+  });
+
+  it('does not turn missing or reordered batches into a native sample gap', () => {
+    const decoder = new RemusStreamPacketDecoder();
+    decoder.beginRecording();
+
+    decoder.ingest(makeBatch(0, 0, 1_000_000));
+    decoder.ingest(makeBatch(2, 4, 900_000_000));
+    decoder.ingest(makeBatch(1, 2, 1_010_000));
+
+    expect(decoder.getAccounting()).toMatchObject({
+      lostPackets: 1,
+      lostSamples: 2,
+      outOfOrderPackets: 1,
+      maxSampleGapMs: 4.85,
     });
   });
 });

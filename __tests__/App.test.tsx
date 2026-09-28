@@ -49,6 +49,7 @@ beforeEach(() => {
       binPath: '/evidence/activity-test/samples/blade_200hz.bin',
       csvPath: '/evidence/activity-test/samples/blade_200hz.csv',
     }),
+    appendLiveMetricPresentation: jest.fn().mockResolvedValue(true),
     addListener: jest.fn(),
     removeListeners: jest.fn(),
   };
@@ -334,6 +335,15 @@ test('suppresses pace when speed is below 0.8 m/s and formats pace above thresho
     renderer.root.findByProps({ testID: 'metric-value-paceSecondsPer500Meters' })
       .props.children,
   ).toBe('—');
+  expect(
+    NativeModules.RemusRecordingBridge.appendLiveMetricPresentation,
+  ).toHaveBeenLastCalledWith(expect.objectContaining({
+    metricIdentifier: 'paceSecondsPer500Meters',
+    numericValue: null,
+    renderedText: '—',
+    availabilityState: 'unavailable',
+    availabilityReason: 'below_movement_threshold',
+  }));
 
   // Emitting moving speed (>= 0.8 m/s, e.g. 2.5 m/s -> 200s = 03:20)
   await ReactTestRenderer.act(async () => {
@@ -350,6 +360,15 @@ test('suppresses pace when speed is below 0.8 m/s and formats pace above thresho
     renderer.root.findByProps({ testID: 'metric-value-paceSecondsPer500Meters' })
       .props.children,
   ).toBe('03:20');
+  expect(
+    NativeModules.RemusRecordingBridge.appendLiveMetricPresentation,
+  ).toHaveBeenLastCalledWith(expect.objectContaining({
+    metricIdentifier: 'paceSecondsPer500Meters',
+    numericValue: 200,
+    renderedText: '03:20',
+    availabilityState: 'available',
+    sourceId: 'phone:primary',
+  }));
 
   await ReactTestRenderer.act(async () => {
     renderer.unmount();
@@ -393,6 +412,15 @@ test('updates stroke rate only from Remus Computer snapshots', async () => {
     renderer.root.findByProps({ testID: 'metric-value-strokeRateSpm' })
       .props.children,
   ).toBe('28');
+  expect(
+    NativeModules.RemusRecordingBridge.appendLiveMetricPresentation,
+  ).toHaveBeenLastCalledWith(expect.objectContaining({
+    metricIdentifier: 'strokeRateSpm',
+    numericValue: 28,
+    renderedText: '28',
+    availabilityState: 'available',
+    sourceId: 'computer:PC01',
+  }));
 
   await ReactTestRenderer.act(async () => {
     const emitter = new NativeEventEmitter(NativeModules.RemusBladeBridge);
@@ -407,6 +435,14 @@ test('updates stroke rate only from Remus Computer snapshots', async () => {
     renderer.root.findByProps({ testID: 'metric-value-strokeRateSpm' })
       .props.children,
   ).toBe('—');
+  expect(
+    NativeModules.RemusRecordingBridge.appendLiveMetricPresentation,
+  ).toHaveBeenLastCalledWith(expect.objectContaining({
+    metricIdentifier: 'strokeRateSpm',
+    numericValue: null,
+    renderedText: '—',
+    availabilityState: 'unavailable',
+  }));
 
   await ReactTestRenderer.act(async () => {
     renderer.unmount();
