@@ -7,6 +7,25 @@ export interface BladeMountingProfile {
   profileVersion: string;
 }
 
+export const BLADE_MOUNT_PORT: BladeMountingProfile = {
+  handToBladeAxis: 'y',
+  bladeFaceNormalAxis: 'z',
+  profileVersion: '1.0.0',
+};
+
+export const BLADE_MOUNT_STARBOARD: BladeMountingProfile = {
+  handToBladeAxis: '-y',
+  bladeFaceNormalAxis: 'z',
+  profileVersion: '1.0.0',
+};
+
+export const getDefaultMountingProfile = (placement?: string): BladeMountingProfile => {
+  if (placement === 'right_paddle' || placement === 'starboard') {
+    return BLADE_MOUNT_STARBOARD;
+  }
+  return BLADE_MOUNT_PORT;
+};
+
 export interface BladeMountCalibration {
   sensorFrameToBladeFrame: [Vector3, Vector3, Vector3];
   calibrationVersion: string;

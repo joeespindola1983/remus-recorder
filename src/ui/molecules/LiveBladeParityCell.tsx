@@ -43,7 +43,8 @@ export function LiveBladeParityCell({
     }
 
     const unsub = bladeManager.onSensorData((sample, placement) => {
-      const rot = normalizeBladeRotation(sample, placement);
+      const calibration = bladeManager.getBladeMountCalibration?.(sample.deviceId);
+      const rot = normalizeBladeRotation(sample, placement, calibration);
       if (rot === null) return;
 
       if (placement === 'left_paddle') {

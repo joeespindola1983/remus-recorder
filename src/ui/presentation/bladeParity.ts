@@ -1,5 +1,9 @@
 import { SensorPlacement } from '../../contracts/acquisition/types';
 import { SensorSample } from '../../types/wearables';
+import {
+  BladeMountCalibration,
+  transformToBladeFrame,
+} from '../../analysis/rowing/BladeMountCalibration';
 
 export interface ParityHistoryPoint {
   left: number;
@@ -10,16 +14,35 @@ export interface ParityHistoryPoint {
 
 /**
  * Normalizes blade angular rotation around the vertical pin (yaw/sweep axis).
- * For inverted blade mounting (e.g. right_paddle), inverts the sign so that
+ * When calibration is provided, uses semantic oarSweep from transformToBladeFrame.
+ * For inverted blade mounting (e.g. right_paddle) without calibration, inverts the sign so that
  * stroke phases (drive / recovery) are positive/negative symmetrically on both oars.
  */
 export function normalizeBladeRotation(
   sample: SensorSample,
   placement?: SensorPlacement,
+  calibration?: BladeMountCalibration,
 ): number | null {
   if (!sample.rotationRateRadiansPerSecond) {
     return null;
   }
+
+  if (calibration) {
+    const bladeFrame = transformToBladeFrame(
+      {
+        x: sample.rotationRateRadiansPerSecond.x,
+        y: sample.rotationRateRadiansPerSecond.y,
+        z: sample.rotationRateRadiansPerSecond.z,
+      },
+      calibration,
+    );
+    const sweep = bladeFrame.oarSweep;
+    if (typeof sweep !== 'number' || Number.isNaN(sweep)) {
+      return null;
+    }
+    return sweep;
+  }
+
   const z = sample.rotationRateRadiansPerSecond.z;
   if (typeof z !== 'number' || Number.isNaN(z)) {
     return null;
