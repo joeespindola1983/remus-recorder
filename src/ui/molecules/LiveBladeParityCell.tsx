@@ -38,6 +38,7 @@ export function LiveBladeParityCell({
   const hasRightRef = useRef<boolean>(false);
   const primaryDeviceIdRef = useRef<string | null>(null);
   const secondaryDeviceIdRef = useRef<string | null>(null);
+  const lastHistoryUpdateRef = useRef<number>(0);
 
   useEffect(() => {
     if (!bladeManager || typeof bladeManager.onSensorData !== 'function') {
@@ -85,18 +86,24 @@ export function LiveBladeParityCell({
           setParityPercent(score);
         }
 
-        setHistory(prev =>
-          addParityHistoryPoint(
-            prev,
-            {
-              left,
-              right,
-              parityPercent: score,
-              timestamp: Date.now(),
-            },
-            MAX_HISTORY_POINTS,
-          ),
-        );
+        const now = Date.now();
+        // Throttle rolling history to ~60ms (~16 Hz, spanning ~1.5s across 24 bars)
+        // to show a full readable stroke wave instead of 60ms sub-fraction.
+        if (now - lastHistoryUpdateRef.current >= 60) {
+          lastHistoryUpdateRef.current = now;
+          setHistory(prev =>
+            addParityHistoryPoint(
+              prev,
+              {
+                left,
+                right,
+                parityPercent: score,
+                timestamp: now,
+              },
+              MAX_HISTORY_POINTS,
+            ),
+          );
+        }
       }
     });
 
