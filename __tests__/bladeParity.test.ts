@@ -5,6 +5,11 @@ import {
   addParityHistoryPoint,
   ParityHistoryPoint,
 } from '../src/ui/presentation/bladeParity';
+import {
+  calibrateBladeMount,
+  BLADE_MOUNT_PORT,
+  BLADE_MOUNT_STARBOARD,
+} from '../src/analysis/rowing/BladeMountCalibration';
 
 describe('bladeParity (TDD)', () => {
   describe('normalizeBladeRotation', () => {
@@ -45,6 +50,30 @@ describe('bladeParity (TDD)', () => {
         rotationRateRadiansPerSecond: { x: 0.1, y: 0.2, z: -1.8 },
       };
       expect(normalizeBladeRotation(sample, 'unknown')).toBe(-1.8);
+    });
+
+    it('uses calibrated blade frame to transform mirrored blades into matching oarSweep angular velocity', () => {
+      const calibL = calibrateBladeMount(BLADE_MOUNT_PORT, { x: 0, y: 0, z: 1 });
+      const calibR = calibrateBladeMount(BLADE_MOUNT_STARBOARD, { x: 0, y: 0, z: 1 });
+
+      const sampleL: SensorSample = {
+        deviceId: 'bld-1',
+        deviceFamily: 'remus_blade',
+        nativeTimestamp: 1000,
+        rotationRateRadiansPerSecond: { x: 0, y: 2.5, z: 0 },
+      };
+      const sampleR: SensorSample = {
+        deviceId: 'bld-2',
+        deviceFamily: 'remus_blade',
+        nativeTimestamp: 1000,
+        rotationRateRadiansPerSecond: { x: 0, y: -2.5, z: 0 },
+      };
+
+      const sweepL = normalizeBladeRotation(sampleL, 'left_paddle', calibL);
+      const sweepR = normalizeBladeRotation(sampleR, 'right_paddle', calibR);
+
+      expect(sweepL).toBeCloseTo(2.5);
+      expect(sweepR).toBeCloseTo(2.5);
     });
   });
 

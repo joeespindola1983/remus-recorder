@@ -428,5 +428,21 @@ describe('RemusBladeManager (TDD - Connection & Sync Refactor)', () => {
 
     expect(received).toEqual([]);
   });
+
+  it('includes placement, boatSide, sourceRole, and calibration in getTelemetryDiagnostics', async () => {
+    emitEvent('onRemusBladeStateChanged', {
+      deviceId: 'blade-1',
+      deviceName: 'REMUS-BLD-0BACC631',
+      state: 'detected',
+    });
+    await jest.advanceTimersByTimeAsync(100);
+
+    manager.setPlacement('blade:0bacc631', 'left_paddle');
+    const diag = manager.getTelemetryDiagnostics();
+    expect(diag['blade:0bacc631']).toBeDefined();
+    expect(diag['blade:0bacc631'].sensorPlacement).toBe('left_paddle');
+    expect(diag['blade:0bacc631'].boatSide).toBe('port');
+    expect(diag['blade:0bacc631'].sourceRole).toBe('BLADE_PORT');
+  });
 });
 

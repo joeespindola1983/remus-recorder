@@ -96,6 +96,48 @@ describe('RemusStreamPacketDecoder', () => {
 
     expect(decoder.ingest(fragments[0])).toBeNull();
     expect(decoder.ingest(fragments[1])?.samples).toHaveLength(2);
+    expect(decoder.getAccounting()).toMatchObject({
+      transportNotificationCount: 2,
+      decodedBatchCount: 1,
+      decodedImuSampleCount: 2,
+      invalidNotificationCount: 0,
+      pendingFragmentCount: 0,
+    });
+  });
+
+  it('accounts for invalid transport notifications without calling them samples', () => {
+    const decoder = new RemusStreamPacketDecoder();
+
+    expect(decoder.ingest(Buffer.from([1, 1, 0]))).toBeNull();
+
+    expect(decoder.getAccounting()).toMatchObject({
+      transportNotificationCount: 1,
+      decodedBatchCount: 0,
+      decodedImuSampleCount: 0,
+      invalidNotificationCount: 1,
+    });
+  });
+
+  it('counts rail saturation independently for every accelerometer and gyroscope axis', () => {
+    const batch = makeBatch();
+    batch.writeInt16LE(32767, 23);
+    batch.writeInt16LE(-32768, 25);
+    batch.writeInt16LE(32767, 29);
+    batch.writeUInt32LE(crc32(batch.subarray(0, batch.length - 4)), batch.length - 4);
+    const decoder = new RemusStreamPacketDecoder();
+
+    decoder.ingest(batch);
+
+    expect(decoder.getAccounting()).toMatchObject({
+      accelSaturationCountX: 1,
+      accelSaturationCountY: 1,
+      accelSaturationCountZ: 0,
+      gyroSaturationCountX: 1,
+      gyroSaturationCountY: 0,
+      gyroSaturationCountZ: 0,
+      samplesWithAnySaturationCount: 1,
+      samplesWithAnySaturationPercent: 50,
+    });
   });
 });
 

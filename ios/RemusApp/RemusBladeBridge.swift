@@ -10,6 +10,8 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
   private var lastAdvertisementAt: [UUID: Date] = [:]
   private var discoveryExpiryTimer: Timer?
   private var targetCharacteristics: [UUID: CBCharacteristic] = [:]
+  private var clockSyncCharacteristics: [UUID: CBCharacteristic] = [:]
+  private var clockSyncRequestIds: [UUID: UInt32] = [:]
   private var effectiveNames: [UUID: String] = [:]
   private var pendingBladeConnections: [UUID: DispatchWorkItem] = [:]
   private var hasListeners = false
@@ -17,6 +19,7 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
   private let remusServiceUUID = CBUUID(string: "4fafc201-1fb5-459e-8fcc-c5c9c331914b")
   private let remusCharacteristicUUID = CBUUID(string: "beb5483e-36e1-4688-b7f5-ea07361b26a8")
   private let bladeRelayCharacteristicUUID = CBUUID(string: "beb54844-36e1-4688-b7f5-ea07361b26a8")
+  private let clockSyncCharacteristicUUID = CBUUID(string: "beb54843-36e1-4688-b7f5-ea07361b26a8")
   private var directBladeCaptureEnabled: Bool {
     return Bundle.main.object(forInfoDictionaryKey: "RemusDirectBladeCaptureEnabled") as? Bool ?? true
   }
@@ -166,6 +169,26 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
       ? .withoutResponse
       : .withResponse
     peripheral.writeValue(data, for: characteristic, type: writeType)
+    resolve(true)
+  }
+
+  @objc
+  func requestClockSync(_ identifier: String, resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+    guard let requested = UUID(uuidString: identifier),
+          let peripheral = connectedPeripherals[requested],
+          let characteristic = clockSyncCharacteristics[requested] else {
+      resolve(false)
+      return
+    }
+    let requestId = (clockSyncRequestIds[requested] ?? 0) &+ 1
+    clockSyncRequestIds[requested] = requestId
+    let sentAtUs = UInt64(ProcessInfo.processInfo.systemUptime * 1_000_000)
+    var data = Data([1, 0x04])
+    var requestIdLe = requestId.littleEndian
+    var sentAtLe = sentAtUs.littleEndian
+    withUnsafeBytes(of: &requestIdLe) { data.append(contentsOf: $0) }
+    withUnsafeBytes(of: &sentAtLe) { data.append(contentsOf: $0) }
+    peripheral.writeValue(data, for: characteristic, type: .withResponse)
     resolve(true)
   }
 
@@ -338,6 +361,13 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
         peripheral.setNotifyValue(true, for: characteristic)
         hasNotify = true
       }
+      if characteristic.uuid.uuidString.lowercased() == "beb5483f-36e1-4688-b7f5-ea07361b26a8" &&
+          characteristic.properties.contains(.read) {
+        peripheral.readValue(for: characteristic)
+      }
+      if characteristic.uuid == clockSyncCharacteristicUUID {
+        clockSyncCharacteristics[peripheral.identifier] = characteristic
+      }
       
       let uuid = characteristic.uuid.uuidString.lowercased()
       let isPrimaryWrite = uuid == "beb5483e-36e1-4688-b7f5-ea07361b26a8" || uuid == "beb54840-36e1-4688-b7f5-ea07361b26a8"
@@ -360,6 +390,7 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
     let characteristicUuid = characteristic.uuid.uuidString.lowercased()
 
     let receivedAt = Int64(Date().timeIntervalSince1970 * 1_000)
+    let receivedAtMonotonicUs = Int64(ProcessInfo.processInfo.systemUptime * 1_000_000)
     let deviceId = peripheral.identifier.uuidString
     let deviceName = peripheral.name ?? "Remus Blade"
 
@@ -369,7 +400,8 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
       deviceId: deviceId,
       deviceName: deviceName,
       characteristicUuid: characteristicUuid,
-      receivedAt: receivedAt
+      receivedAt: receivedAt,
+      receivedAtMonotonicUs: receivedAtMonotonicUs
     )
 
     if hasListeners {
@@ -380,6 +412,7 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
         "deviceName": deviceName,
         "characteristicUuid": characteristicUuid,
         "receivedAtEpochMilliseconds": receivedAt,
+        "receivedAtMonotonicUs": receivedAtMonotonicUs,
       ])
     }
   }

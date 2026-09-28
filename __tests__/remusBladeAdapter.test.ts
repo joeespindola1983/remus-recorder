@@ -17,6 +17,8 @@ jest.mock('react-native', () => {
 
 import {
   RemusBladeAdapter,
+  canonicalRemusSourceId,
+  decodeRemusDeviceInfo,
   parseBladeIdentityHash,
   rawGyroToRadiansPerSecond,
   REMUS_BLADE_SERVICE_UUID,
@@ -34,6 +36,139 @@ describe('RemusBladeAdapter (TDD)', () => {
     expect(parseBladeIdentityHash('REMUS-BLD-A1B2C3D4')).toBe(0xA1B2C3D4);
     expect(parseBladeIdentityHash('REMUS-BLD-C3D4')).toBeNull();
     expect(parseBladeIdentityHash('REMUS-P1-1234')).toBeNull();
+  });
+
+  it('uses the advertised Blade identity instead of the temporary BLE identifier', () => {
+    expect(canonicalRemusSourceId('temporary-ios-uuid', 'REMUS-BLD-A1B2C3D4'))
+      .toBe('blade:a1b2c3d4');
+  });
+
+  it('decodes the versioned firmware device metadata contract', () => {
+    const serial = Buffer.from('RB-P1-A1B2C3D4');
+    const firmware = Buffer.from('1.4.0');
+    const packet = Buffer.alloc(12 + serial.length + firmware.length);
+    packet.set([1, 2, 1, 1, 3, 0, 200, 0, 1, 2, serial.length], 0);
+    serial.copy(packet, 11);
+    packet[11 + serial.length] = firmware.length;
+    firmware.copy(packet, 12 + serial.length);
+
+    expect(decodeRemusDeviceInfo(packet)).toEqual({
+      protocolVersion: 1,
+      deviceFamily: 'remus_blade',
+      deviceModel: 'rbp1',
+      hardwareRevision: 1,
+      capabilities: 3,
+      nominalSampleRateHz: 200,
+      accelerometerRangeG: 8,
+      gyroscopeRangeDps: 1000,
+      dlpfSetting: null,
+      deviceSerialNumber: 'RB-P1-A1B2C3D4',
+      firmwareVersion: '1.4.0',
+    });
+  });
+
+  it('maps the sensor monotonic clock to the host clock with an explicit error bound', () => {
+    const adapter = new RemusBladeAdapter('blade-transport', 'REMUS-BLD-A1B2C3D4');
+    const packet = Buffer.alloc(30);
+    packet[0] = 1;
+    packet[1] = 0x04;
+    packet.writeUInt32LE(7, 2);
+    packet.writeBigUInt64LE(1_000_000n, 6);
+    packet.writeBigUInt64LE(1_001_200n, 14);
+    packet.writeBigUInt64LE(1_001_300n, 22);
+
+    adapter.handleSnapshotPayload({
+      deviceId: 'blade-transport',
+      characteristicUuid: 'beb54843-36e1-4688-b7f5-ea07361b26a8',
+      rawBase64: packet.toString('base64'),
+      receivedAtMonotonicUs: 1_000_500,
+    });
+
+    expect(adapter.getClockSync()).toMatchObject({
+      estimatedClockOffsetUs: 1000,
+      roundTripUs: 400,
+      maximumErrorUs: 200,
+      currentOffsetUncertaintyUs: 200,
+      sessionWorstCaseUncertaintyUs: 200,
+      syncQuality: 'qualified',
+      observationCount: 1,
+    });
+  });
+
+  it('classifies sync quality as approximate when uncertainty is between 5ms and 25ms and tracks sessionWorstCaseUncertaintyUs', () => {
+    const adapter = new RemusBladeAdapter('blade-transport', 'REMUS-BLD-A1B2C3D4');
+    
+    // First sync: RTT = 40ms -> uncertainty = 20ms -> approximate
+    const packet1 = Buffer.alloc(30);
+    packet1[0] = 1;
+    packet1[1] = 0x04;
+    packet1.writeUInt32LE(1, 2);
+    packet1.writeBigUInt64LE(10_000_000n, 6);
+    packet1.writeBigUInt64LE(10_020_000n, 14);
+    packet1.writeBigUInt64LE(10_020_000n, 22);
+
+    adapter.handleSnapshotPayload({
+      deviceId: 'blade-transport',
+      characteristicUuid: 'beb54843-36e1-4688-b7f5-ea07361b26a8',
+      rawBase64: packet1.toString('base64'),
+      receivedAtMonotonicUs: 10_040_000,
+    });
+
+    expect(adapter.getClockSync()).toMatchObject({
+      roundTripUs: 40_000,
+      currentOffsetUncertaintyUs: 20_000,
+      sessionWorstCaseUncertaintyUs: 20_000,
+      syncQuality: 'approximate',
+      observationCount: 1,
+    });
+
+    // Second sync: RTT = 100ms -> uncertainty = 50ms -> low_confidence
+    const packet2 = Buffer.alloc(30);
+    packet2[0] = 1;
+    packet2[1] = 0x04;
+    packet2.writeUInt32LE(2, 2);
+    packet2.writeBigUInt64LE(20_000_000n, 6);
+    packet2.writeBigUInt64LE(20_050_000n, 14);
+    packet2.writeBigUInt64LE(20_050_000n, 22);
+
+    adapter.handleSnapshotPayload({
+      deviceId: 'blade-transport',
+      characteristicUuid: 'beb54843-36e1-4688-b7f5-ea07361b26a8',
+      rawBase64: packet2.toString('base64'),
+      receivedAtMonotonicUs: 20_100_000,
+    });
+
+    expect(adapter.getClockSync()).toMatchObject({
+      roundTripUs: 100_000,
+      currentOffsetUncertaintyUs: 50_000,
+      sessionWorstCaseUncertaintyUs: 50_000,
+      syncQuality: 'low_confidence',
+      observationCount: 2,
+    });
+
+    // Third sync: RTT = 6ms -> uncertainty = 3ms -> qualified
+    const packet3 = Buffer.alloc(30);
+    packet3[0] = 1;
+    packet3[1] = 0x04;
+    packet3.writeUInt32LE(3, 2);
+    packet3.writeBigUInt64LE(30_000_000n, 6);
+    packet3.writeBigUInt64LE(30_003_000n, 14);
+    packet3.writeBigUInt64LE(30_003_000n, 22);
+
+    adapter.handleSnapshotPayload({
+      deviceId: 'blade-transport',
+      characteristicUuid: 'beb54843-36e1-4688-b7f5-ea07361b26a8',
+      rawBase64: packet3.toString('base64'),
+      receivedAtMonotonicUs: 30_006_000,
+    });
+
+    expect(adapter.getClockSync()).toMatchObject({
+      roundTripUs: 6_000,
+      currentOffsetUncertaintyUs: 3_000,
+      sessionWorstCaseUncertaintyUs: 50_000, // Preserves worst-case across session
+      syncQuality: 'qualified',
+      observationCount: 3,
+    });
   });
 
   it('has canonical BLE UUIDs matching remus-sensor firmware', () => {
