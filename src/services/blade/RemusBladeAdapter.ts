@@ -327,7 +327,6 @@ export class RemusBladeAdapter implements IWearableAdapter {
   private sessionWorstCaseUncertaintyUs = 0;
   private currentDeviceBootId: number | null = null;
   private readonly clockSyncListeners: Set<() => void> = new Set();
-  private clockSyncTimer: ReturnType<typeof setInterval> | null = null;
   private expectedLiveSampleSequence: number | null = null;
   private snapshotSubscription: { remove(): void } | null = null;
   private stateSubscription: { remove(): void } | null = null;
@@ -676,34 +675,12 @@ export class RemusBladeAdapter implements IWearableAdapter {
     }
     const state = this.normalizeConnectionState(statePayload.state);
     this.isConnected = state === 'connected';
-    if (this.isConnected) {
-      this.triggerInitialClockSyncBurst();
-      if (!this.clockSyncTimer) {
-        this.clockSyncTimer = setInterval(() => {
-          this.requestClockSync().catch(() => undefined);
-        }, 10_000);
-      }
-    } else {
-      if (this.clockSyncTimer) {
-        clearInterval(this.clockSyncTimer);
-        this.clockSyncTimer = null;
-      }
+    if (!this.isConnected) {
       this.clockSync = null;
       this.clockObservations = [];
       this.clockMappingEstimator.invalidate('disconnect');
     }
     this.notifyDeviceState(state);
-  }
-
-  private triggerInitialClockSyncBurst(count = 8, intervalMs = 250): void {
-    let sent = 0;
-    const burst = () => {
-      if (!this.isConnected || sent >= count) return;
-      sent += 1;
-      this.requestClockSync().catch(() => undefined);
-      setTimeout(burst, intervalMs);
-    };
-    burst();
   }
 
   async requestClockSync(): Promise<boolean> {
@@ -1264,8 +1241,6 @@ export class RemusBladeAdapter implements IWearableAdapter {
   }
 
   destroy(): void {
-    if (this.clockSyncTimer) clearInterval(this.clockSyncTimer);
-    this.clockSyncTimer = null;
     if (this.activeDownload?.timeout) {
       clearTimeout(this.activeDownload.timeout);
     }

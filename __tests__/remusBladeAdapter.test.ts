@@ -583,10 +583,25 @@ describe('RemusBladeAdapter (TDD)', () => {
         disconnectPeripheral: jest.fn().mockResolvedValue(undefined),
         sendCommand: jest.fn().mockResolvedValue(true),
         sendBinaryCommand: jest.fn().mockResolvedValue(true),
+        requestClockSync: jest.fn().mockResolvedValue(true),
         addListener: jest.fn(),
         removeListeners: jest.fn(),
       };
       adapter = new RemusBladeAdapter("remus-blade:p1", "Remus Blade P1", mockBridge);
+    });
+
+    it('leaves clock-sync scheduling to the shared round-robin coordinator', () => {
+      jest.useFakeTimers();
+      adapter.handleStatePayload({
+        deviceId: 'remus-blade:p1',
+        deviceName: 'Remus Blade P1',
+        state: 'connected',
+      });
+
+      jest.advanceTimersByTime(30_000);
+
+      expect(mockBridge.requestClockSync).not.toHaveBeenCalled();
+      jest.useRealTimers();
     });
 
     it('sends the binary stream command to a Remus Blade', async () => {

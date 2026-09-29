@@ -27,6 +27,7 @@ jest.mock('react-native', () => {
         disconnectPeripheral: jest.fn().mockResolvedValue(undefined),
         sendCommand: jest.fn().mockResolvedValue(true),
         sendBinaryCommand: jest.fn().mockResolvedValue(true),
+        requestClockSync: jest.fn().mockResolvedValue(true),
         addListener: jest.fn(),
         removeListeners: jest.fn(),
       },
@@ -407,6 +408,32 @@ describe('RemusBladeManager (TDD - Connection & Sync Refactor)', () => {
     expect(manager.getDevice('blade-right')?.getSourceState().recordingState).toBe('recording');
   });
 
+  it('queues clock sync only once per connection instead of restarting the burst on telemetry', async () => {
+    manager.destroy();
+    manager = new RemusBladeManager(mockBridge, { directBladeCapture: true });
+    await manager.initialize();
+
+    emitEvent('onRemusBladeStateChanged', {
+      deviceId: 'computer-1', deviceName: 'REMUS-P1-FC84', state: 'detected',
+    });
+    await jest.advanceTimersByTimeAsync(100);
+    emitEvent('onRemusBladeStateChanged', {
+      deviceId: 'computer-1', deviceName: 'REMUS-P1-FC84', state: 'connected',
+    });
+
+    for (let second = 0; second < 5; second += 1) {
+      emitEvent('onRemusBladeSnapshot', {
+        deviceId: 'computer-1',
+        deviceName: 'REMUS-P1-FC84',
+        rawCsv: `${1000 + second * 1000},0.01,0.02,0.99,0.1,0.2,0.3,,,,0/4:18:0.0m,${second},100,28.0`,
+      });
+      await jest.advanceTimersByTimeAsync(1000);
+    }
+
+    expect(mockBridge.requestClockSync).toHaveBeenCalledTimes(6);
+    expect(mockBridge.requestClockSync).toHaveBeenCalledWith('computer-1');
+  });
+
   it('ignores relayed Blade samples in direct capture mode', async () => {
     manager.destroy();
     manager = new RemusBladeManager(mockBridge, { directBladeCapture: true });
@@ -445,4 +472,3 @@ describe('RemusBladeManager (TDD - Connection & Sync Refactor)', () => {
     expect(diag['blade:0bacc631'].sourceRole).toBe('BLADE_PORT');
   });
 });
-

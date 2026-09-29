@@ -20,6 +20,7 @@ export class RemusBladeManager {
   private eventEmitter: NativeEventEmitter | null = null;
   private devices: Map<string, RemusBladeDeviceService> = new Map();
   private readonly clockSyncScheduler: ClockSyncScheduler;
+  private readonly clockSyncConnectedDeviceIds = new Set<string>();
   private initializingDeviceIds: Set<string> = new Set();
   private pendingStatePayloads: Map<string, any> = new Map();
   private listeners: Set<(sourceState: CaptureSourceState) => void> = new Set();
@@ -88,10 +89,12 @@ export class RemusBladeManager {
             service.onStateChange(state => {
               this.listeners.forEach(l => l(state));
               const curr = state.readiness?.sourceConnectionState ?? 'unavailable';
-              if (curr === 'connected') {
+              if (curr === 'connected' && !this.clockSyncConnectedDeviceIds.has(deviceId)) {
+                this.clockSyncConnectedDeviceIds.add(deviceId);
                 this.clockSyncScheduler.registerDevice(deviceId, () => service.requestClockSync());
                 this.clockSyncScheduler.queueBurst(deviceId);
-              } else {
+              } else if (curr !== 'connected' && this.clockSyncConnectedDeviceIds.has(deviceId)) {
+                this.clockSyncConnectedDeviceIds.delete(deviceId);
                 this.clockSyncScheduler.unregisterDevice(deviceId);
               }
               if (!this.directBladeCapture && state.deviceFamily === 'remus_computer') {
@@ -232,6 +235,7 @@ export class RemusBladeManager {
     this.stateSubscription?.remove();
     this.deviceSensorSubscriptions.forEach(unsub => unsub());
     this.deviceSensorSubscriptions.clear();
+    this.clockSyncConnectedDeviceIds.clear();
     this.clockSyncScheduler.destroy();
     this.sensorDataListeners.clear();
     this.devices.forEach(d => d.destroy());

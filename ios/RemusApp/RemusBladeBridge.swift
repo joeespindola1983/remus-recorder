@@ -12,12 +12,14 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
   private var targetCharacteristics: [UUID: CBCharacteristic] = [:]
   private var clockSyncCharacteristics: [UUID: CBCharacteristic] = [:]
   private var clockSyncRequestIds: [UUID: UInt32] = [:]
+  private var telemetryReadyPeripheralIds: Set<UUID> = []
   private var effectiveNames: [UUID: String] = [:]
   private var pendingBladeConnections: [UUID: DispatchWorkItem] = [:]
   private var hasListeners = false
 
   private let remusServiceUUID = CBUUID(string: "4fafc201-1fb5-459e-8fcc-c5c9c331914b")
   private let remusCharacteristicUUID = CBUUID(string: "beb5483e-36e1-4688-b7f5-ea07361b26a8")
+  private let imuStreamCharacteristicUUID = CBUUID(string: "beb54841-36e1-4688-b7f5-ea07361b26a8")
   private let bladeRelayCharacteristicUUID = CBUUID(string: "beb54844-36e1-4688-b7f5-ea07361b26a8")
   private let clockSyncCharacteristicUUID = CBUUID(string: "beb54843-36e1-4688-b7f5-ea07361b26a8")
   private var directBladeCaptureEnabled: Bool {
@@ -57,18 +59,31 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
   override func startObserving() {
     hasListeners = true
     startDiscoveryExpiryTimer()
-    if let firstConnected = connectedPeripherals.values.first, targetCharacteristics[firstConnected.identifier] != nil {
-      sendStateEvent("connected", peripheral: firstConnected)
-    } else if let firstDiscovered = discoveredPeripherals.values.first,
-              let lastSeen = lastAdvertisementAt[firstDiscovered.identifier],
-              Date().timeIntervalSince(lastSeen) <= 6 {
-      sendStateEvent("detected", peripheral: firstDiscovered)
-    } else if centralManager?.state == .poweredOn {
+    var replayedState = false
+    let connected = connectedPeripherals.values.sorted { lhs, rhs in
+      let lhsName = effectiveNames[lhs.identifier] ?? lhs.name
+      let rhsName = effectiveNames[rhs.identifier] ?? rhs.name
+      return !isBladeName(lhsName) && isBladeName(rhsName)
+    }
+    for peripheral in connected where telemetryReadyPeripheralIds.contains(peripheral.identifier) {
+      sendStateEvent("connected", peripheral: peripheral)
+      replayedState = true
+    }
+    let now = Date()
+    for peripheral in discoveredPeripherals.values where connectedPeripherals[peripheral.identifier] == nil {
+      if let lastSeen = lastAdvertisementAt[peripheral.identifier], now.timeIntervalSince(lastSeen) <= 6 {
+        sendStateEvent("detected", peripheral: peripheral)
+        replayedState = true
+      }
+    }
+    if !replayedState && centralManager?.state == .poweredOn {
       sendStateEvent("scanning")
-    } else {
+    } else if !replayedState {
       discoveredPeripherals.removeAll()
       connectedPeripherals.removeAll()
       targetCharacteristics.removeAll()
+      clockSyncCharacteristics.removeAll()
+      telemetryReadyPeripheralIds.removeAll()
       lastAdvertisementAt.removeAll()
       sendStateEvent("disconnected")
     }
@@ -151,6 +166,8 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
     }
     connectedPeripherals.removeAll()
     targetCharacteristics.removeAll()
+    clockSyncCharacteristics.removeAll()
+    telemetryReadyPeripheralIds.removeAll()
     sendStateEvent(discoveredPeripherals.isEmpty ? "disconnected" : "detected")
     resolve(true)
   }
@@ -310,6 +327,8 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
     connectedPeripherals.removeValue(forKey: peripheral.identifier)
     pendingBladeConnections.removeValue(forKey: peripheral.identifier)?.cancel()
     targetCharacteristics.removeValue(forKey: peripheral.identifier)
+    clockSyncCharacteristics.removeValue(forKey: peripheral.identifier)
+    telemetryReadyPeripheralIds.remove(peripheral.identifier)
     sendStateEvent("error", peripheral: peripheral)
   }
 
@@ -319,6 +338,8 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
     }
     connectedPeripherals.removeValue(forKey: peripheral.identifier)
     targetCharacteristics.removeValue(forKey: peripheral.identifier)
+    clockSyncCharacteristics.removeValue(forKey: peripheral.identifier)
+    telemetryReadyPeripheralIds.remove(peripheral.identifier)
     sendStateEvent("disconnected", peripheral: peripheral)
   }
 
@@ -353,13 +374,19 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
 
   func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
     guard let characteristics = service.characteristics else { return }
-    var hasNotify = false
+    var hasPrimaryTelemetry = false
+    var hasImuStream = false
     for characteristic in characteristics {
       let isDisabledRelay = directBladeCaptureEnabled &&
         characteristic.uuid == bladeRelayCharacteristicUUID
       if characteristic.properties.contains(.notify) && !isDisabledRelay {
         peripheral.setNotifyValue(true, for: characteristic)
-        hasNotify = true
+        if characteristic.uuid == remusCharacteristicUUID {
+          hasPrimaryTelemetry = true
+        }
+        if characteristic.uuid == imuStreamCharacteristicUUID {
+          hasImuStream = true
+        }
       }
       if characteristic.uuid.uuidString.lowercased() == "beb5483f-36e1-4688-b7f5-ea07361b26a8" &&
           characteristic.properties.contains(.read) {
@@ -378,8 +405,17 @@ class RemusBladeBridge: RCTEventEmitter, CBCentralManagerDelegate, CBPeripheralD
         }
       }
     }
-    if hasNotify {
+    // A clock-sync endpoint alone must never make a source capture-ready.
+    // Computer requires its legacy telemetry stream; Blade requires raw IMU.
+    let effectiveName = effectiveNames[peripheral.identifier] ?? peripheral.name
+    let hasRequiredTelemetry = isBladeName(effectiveName) ? hasImuStream : hasPrimaryTelemetry
+    if hasRequiredTelemetry {
+      telemetryReadyPeripheralIds.insert(peripheral.identifier)
       sendStateEvent("connected", peripheral: peripheral)
+    } else {
+      telemetryReadyPeripheralIds.remove(peripheral.identifier)
+      print("[BLE] Required telemetry characteristic missing for \(effectiveName ?? peripheral.identifier.uuidString)")
+      sendStateEvent("error", peripheral: peripheral, customName: effectiveName)
     }
   }
 
