@@ -13,6 +13,7 @@ import {
   canonicalRemusSourceId,
   RemusBladeAdapter,
   RemusBladeSnapshot,
+  RemusComputerLocationObservation,
 } from './RemusBladeAdapter';
 import { SensorSample, WearableConnectionState, WearableDevice } from '../../types/wearables';
 import { TelemetryAccounting } from './RemusStreamPacketDecoder';
@@ -257,12 +258,24 @@ export class RemusBladeDeviceService {
     return this.adapter.getTelemetryAccounting();
   }
 
+  getGpsTelemetryAccounting() {
+    return this.adapter.getGpsTelemetryAccounting();
+  }
+
   getDeviceConfiguration() {
     return this.adapter.getDeviceInfo();
   }
 
   getClockSync() {
     return this.adapter.getClockSync();
+  }
+
+  getClockMapping() {
+    return this.adapter.getClockMappingEstimator().getMapping();
+  }
+
+  getRecordings() {
+    return this.adapter.getAllRecordings();
   }
 
   async startWorkoutCapture(): Promise<boolean> {
@@ -347,11 +360,25 @@ export class RemusBladeDeviceService {
     return this.adapter.onBladeRoster(listener);
   }
 
+  getAdapter(): RemusBladeAdapter {
+    return this.adapter;
+  }
+
+  requestClockSync(): Promise<boolean> {
+    return this.adapter.requestClockSync();
+  }
+
   onSensorData(listener: (data: SensorSample) => void): () => void {
     if (typeof this.adapter.onSensorData === 'function') {
       return this.adapter.onSensorData(listener);
     }
     return () => {};
+  }
+
+  onLocationObservation(
+    listener: (data: RemusComputerLocationObservation) => void,
+  ): () => void {
+    return this.adapter.onLocationObservation(listener);
   }
 
   private updateIdentityFromDevice(device: WearableDevice): void {

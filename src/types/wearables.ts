@@ -23,7 +23,11 @@ export interface WearableDevice {
   state: WearableConnectionState;
   batteryLevel?: number;
   heartRatePermissionState?: HeartRatePermissionState;
+  recordingState?: 'idle' | 'recording' | 'unavailable' | 'stopped';
+  recordingId?: string;
+  clockDomainId?: string;
 }
+
 
 export interface PositionCoordinates {
   latitude: number;

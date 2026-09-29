@@ -137,4 +137,43 @@ describe('AppleWatchAdapter (TDD)', () => {
 
     expect(received).not.toHaveBeenCalled();
   });
+
+  it('updates device state and notifies listeners when RECORDING_STATE message is received', () => {
+    const changed = jest.fn();
+    adapter.onDeviceStateChanged(changed);
+
+    adapter.handleRawWatchMessage({
+      type: 'RECORDING_STATE',
+      recordingState: 'recording',
+      recordingId: 'rec:watch:apple:primary:001',
+      clockDomainId: 'clk:apple-watch:001',
+    });
+
+    expect(changed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'apple-watch',
+        deviceFamily: 'apple_watch',
+        recordingState: 'recording',
+        recordingId: 'rec:watch:apple:primary:001',
+        clockDomainId: 'clk:apple-watch:001',
+      }),
+    );
+  });
+
+  it('preserves recordingId and clockDomainId in sourcePayload of sensor samples', done => {
+    adapter.onSensorData((sample: SensorSample) => {
+      expect(sample.heartRateBeatsPerMinute).toBe(145);
+      expect(sample.sourcePayload?.recordingId).toBe('rec:watch:apple:001');
+      expect(sample.sourcePayload?.clockDomainId).toBe('clk:apple-watch:001');
+      done();
+    });
+
+    adapter.handleRawWatchMessage({
+      type: 'HEART_RATE_OBSERVATION',
+      nativeTimestamp: 1690000005000,
+      heartRateBeatsPerMinute: 145,
+      recordingId: 'rec:watch:apple:001',
+      clockDomainId: 'clk:apple-watch:001',
+    });
+  });
 });

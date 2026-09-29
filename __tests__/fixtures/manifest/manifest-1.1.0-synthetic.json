@@ -1,0 +1,117 @@
+{
+  "schemaVersion": "1.1.0",
+  "producer": "remus-recorder-ios",
+  "activityId": "activity:synthetic-110",
+  "activityCorrelationId": "corr-synth-110",
+  "recordingIdsBySource": {
+    "phone:primary": "rec:phone:001",
+    "remus-blade:p1:left": "rec:blade:001"
+  },
+  "startedAtEpochMilliseconds": 1700000000000,
+  "endedAtEpochMilliseconds": 1700001200000,
+  "status": "finalized",
+  "sampleCounts": {
+    "phone:primary": 60000,
+    "remus-blade:p1:left": 240000
+  },
+  "recordings": [
+    {
+      "recordingId": "rec:phone:001",
+      "sourceId": "phone:primary",
+      "clockDomainId": "clock:phone:001",
+      "deviceBootId": null,
+      "startReason": "normal_start",
+      "endReason": "normal_stop",
+      "startedAtNativeMicroseconds": "0",
+      "endedAtNativeMicroseconds": "1200000000",
+      "startedAtReceiptEpochMilliseconds": 1700000000000,
+      "endedAtReceiptEpochMilliseconds": 1700001200000,
+      "sampleCounts": {
+        "motion": 60000
+      },
+      "parts": [
+        {
+          "filename": "motion.ndjson",
+          "byteLength": 1048576,
+          "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+          "stream": "phoneMotion",
+          "lineCount": 60000,
+          "recordingId": "rec:phone:001",
+          "sourceId": "phone:primary"
+        }
+      ]
+    },
+    {
+      "recordingId": "rec:blade:001",
+      "sourceId": "remus-blade:p1:left",
+      "clockDomainId": "clock:blade:boot1",
+      "deviceBootId": "boot-token-001",
+      "startReason": "normal_start",
+      "endReason": "device_restarted",
+      "startedAtNativeMicroseconds": "1000000",
+      "endedAtNativeMicroseconds": "600000000",
+      "startedAtReceiptEpochMilliseconds": 1700000000000,
+      "endedAtReceiptEpochMilliseconds": 1700000600000,
+      "sampleCounts": {
+        "imu": 120000
+      },
+      "parts": [
+        {
+          "filename": "blade_left_seg1.ndjson",
+          "byteLength": 1048576,
+          "sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+          "stream": "remusBladeRawStream",
+          "lineCount": 120000,
+          "recordingId": "rec:blade:001",
+          "sourceId": "remus-blade:p1:left"
+        }
+      ]
+    },
+    {
+      "recordingId": "rec:blade:002",
+      "sourceId": "remus-blade:p1:left",
+      "clockDomainId": "clock:blade:boot2",
+      "deviceBootId": "boot-token-002",
+      "startReason": "device_restarted",
+      "endReason": "normal_stop",
+      "startedAtNativeMicroseconds": "1500000",
+      "endedAtNativeMicroseconds": "601500000",
+      "startedAtReceiptEpochMilliseconds": 1700000601000,
+      "endedAtReceiptEpochMilliseconds": 1700001200000,
+      "sampleCounts": {
+        "imu": 120000
+      },
+      "parts": [
+        {
+          "filename": "blade_left_seg2.ndjson",
+          "byteLength": 1048576,
+          "sha256": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+          "stream": "remusBladeRawStream",
+          "lineCount": 120000,
+          "recordingId": "rec:blade:002",
+          "sourceId": "remus-blade:p1:left"
+        }
+      ]
+    }
+  ],
+  "parts": [
+    {
+      "filename": "motion.ndjson",
+      "byteLength": 1048576,
+      "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "stream": "phoneMotion"
+    },
+    {
+      "filename": "blade_left_seg1.ndjson",
+      "byteLength": 1048576,
+      "sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+      "stream": "remusBladeRawStream"
+    },
+    {
+      "filename": "blade_left_seg2.ndjson",
+      "byteLength": 1048576,
+      "sha256": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+      "stream": "remusBladeRawStream"
+    }
+  ]
+}

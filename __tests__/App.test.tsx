@@ -61,6 +61,7 @@ beforeEach(() => {
     disconnectPeripheral: jest.fn().mockResolvedValue(undefined),
     sendCommand: jest.fn().mockResolvedValue(true),
     sendBinaryCommand: jest.fn().mockResolvedValue(true),
+    requestClockSync: jest.fn().mockResolvedValue(true),
     addListener: jest.fn(),
     removeListeners: jest.fn(),
   };
@@ -174,6 +175,44 @@ test('creates recording identities for connected raw-stream Blades before START'
   await ReactTestRenderer.act(async () => {
     renderer.unmount();
   });
+});
+
+test('creates recording identities for the Computer and both direct Blades', async () => {
+  let renderer!: ReactTestRenderer.ReactTestRenderer;
+  await ReactTestRenderer.act(async () => {
+    renderer = renderApp();
+  });
+
+  const emitter = new NativeEventEmitter(NativeModules.RemusBladeBridge);
+  const devices = [
+    {deviceId: 'PC01', deviceName: 'REMUS-P1-FC84'},
+    {deviceId: 'LEFT', deviceName: 'REMUS-BLD-0BACC631'},
+    {deviceId: 'RIGHT', deviceName: 'REMUS-BLD-EE907E5A'},
+  ];
+  await ReactTestRenderer.act(async () => {
+    for (const device of devices) {
+      (emitter as any).emit('onRemusBladeStateChanged', {...device, state: 'detected'});
+      (emitter as any).emit('onRemusBladeStateChanged', {...device, state: 'connected'});
+    }
+  });
+
+  await ReactTestRenderer.act(async () => {
+    renderer.root
+      .findByProps({accessibilityLabel: 'Iniciar atividade'})
+      .props.onPress();
+  });
+
+  expect(NativeModules.RemusRecordingBridge.startRecording).toHaveBeenCalledWith({
+    sourceIds: expect.arrayContaining([
+      'phone:primary',
+      'computer:PC01',
+      'blade:0bacc631',
+      'blade:ee907e5a',
+    ]),
+  });
+  expect(NativeModules.RemusBladeBridge.sendCommand).toHaveBeenCalledWith('PC01', 'START');
+  expect(NativeModules.RemusBladeBridge.sendBinaryCommand).toHaveBeenCalledWith('LEFT', 'AQEAAAAA');
+  expect(NativeModules.RemusBladeBridge.sendBinaryCommand).toHaveBeenCalledWith('RIGHT', 'AQEAAAAA');
 });
 
 test('moves from ready through recording to a preserved summary', async () => {

@@ -42,9 +42,11 @@ final class RemusEvidenceStore {
   private let streamFiles = [
     "phoneMotion": "phone-motion.ndjson",
     "phoneLocation": "phone-location.ndjson",
+    "remusComputerLocation": "remus-computer-location.ndjson",
     "watchHeartRate": "watch-heart-rate.ndjson",
     "remusBladeLive": "remus-blade-live.ndjson",
     "liveMetricPresentation": "live-metric-presentation.ndjson",
+    "boatMotionObservation": "boat-motion-observation.ndjson",
     "lifecycle": "lifecycle.ndjson",
   ]
 
@@ -60,8 +62,11 @@ final class RemusEvidenceStore {
 
       let activityId = "activity:\(UUID().uuidString.lowercased())"
       let correlationId = "correlation:\(UUID().uuidString.lowercased())"
-      let recordings = Dictionary(uniqueKeysWithValues: uniqueSourceIds.map {
-        ($0, "recording:\(UUID().uuidString.lowercased())")
+      let recordings = Dictionary(uniqueKeysWithValues: uniqueSourceIds.map { sourceId in
+        let id = sourceId.hasPrefix("computer:") || sourceId.hasPrefix("blade:")
+          ? "rec:\(sourceId):001"
+          : "recording:\(UUID().uuidString.lowercased())"
+        return (sourceId, id)
       })
       let startedAt = epochMilliseconds()
       let root = try evidenceRoot()
@@ -140,11 +145,50 @@ final class RemusEvidenceStore {
     append(stream: "phoneLocation", sourceId: "phone:primary", payload: payload)
   }
 
+  func appendRemusComputerLocation(_ payload: [String: Any]) {
+    guard let sourceId = payload["sourceId"] as? String else { return }
+    append(
+      stream: "remusComputerLocation",
+      sourceId: sourceId,
+      payload: payload
+    )
+  }
+
   func appendLiveMetricPresentation(_ payload: [String: Any]) {
     queue.async { [weak self] in
       guard let self else { return }
       do {
         try self.appendOnQueue(stream: "liveMetricPresentation", payload: payload)
+      } catch {
+        self.recordFailureOnQueue(error)
+      }
+    }
+  }
+
+  func appendBoatMotionObservation(_ payload: [String: Any]) {
+    queue.async { [weak self] in
+      guard let self else { return }
+      do {
+        try self.appendOnQueue(stream: "boatMotionObservation", payload: payload)
+      } catch {
+        self.recordFailureOnQueue(error)
+      }
+    }
+  }
+
+  func appendWatchRecordingState(_ payload: [String: Any]) {
+    queue.async { [weak self] in
+      guard let self, var recording = self.active else { return }
+      let sourceId = "watch:apple:primary"
+      if let recId = payload["recordingId"] as? String, !recId.isEmpty {
+        recording.recordingIdsBySource[sourceId] = recId
+      }
+      self.active = recording
+      do {
+        try self.writeManifestOnQueue(status: "recording", endedAt: nil, parts: nil)
+        var lifecyclePayload = payload
+        lifecyclePayload["timestampEpochMilliseconds"] = Int64(Date().timeIntervalSince1970 * 1000)
+        try self.appendOnQueue(stream: "lifecycle", payload: lifecyclePayload)
       } catch {
         self.recordFailureOnQueue(error)
       }
@@ -159,8 +203,10 @@ final class RemusEvidenceStore {
         guard !recording.watchMessageIds.contains(messageId) else { return }
         recording.watchMessageIds.insert(messageId)
       }
-      if recording.recordingIdsBySource[sourceId] == nil {
-        recording.recordingIdsBySource[sourceId] = "recording:\(UUID().uuidString.lowercased())"
+      if let recId = payload["recordingId"] as? String, !recId.isEmpty {
+        recording.recordingIdsBySource[sourceId] = recId
+      } else if recording.recordingIdsBySource[sourceId] == nil {
+        recording.recordingIdsBySource[sourceId] = "rec:watch:apple:primary:\(UUID().uuidString.lowercased())"
       }
       self.active = recording
       do {
@@ -175,6 +221,71 @@ final class RemusEvidenceStore {
       }
     }
   }
+
+  func activeCorrelationId() -> String? {
+    queue.sync { active?.activityCorrelationId }
+  }
+
+  func importWatchArchive(
+    fileURL: URL,
+    metadata: [String: Any],
+    sha256: String
+  ) {
+    queue.async { [weak self] in
+      guard let self else { return }
+      do {
+        let recId = (metadata["recordingId"] as? String) ?? "rec:watch:apple:primary:001"
+        let safeRecId = recId.replacingOccurrences(of: ":", with: "_")
+        let correlationId = metadata["activityCorrelationId"] as? String
+
+        let destinationDir: URL
+        let isAttachedToActive: Bool
+
+        if let active = self.active,
+           (correlationId != nil && active.activityCorrelationId == correlationId) ||
+           (active.recordingIdsBySource["watch:apple:primary"] == recId) {
+          destinationDir = active.directory
+          isAttachedToActive = true
+        } else {
+          let inbox = try self.evidenceRoot().appendingPathComponent("inbox/watch/\(safeRecId)", isDirectory: true)
+          try self.fileManager.createDirectory(at: inbox, withIntermediateDirectories: true)
+          destinationDir = inbox
+          isAttachedToActive = false
+        }
+
+        let targetArchiveURL = destinationDir.appendingPathComponent("watch-archive-\(safeRecId).zip")
+        if self.fileManager.fileExists(atPath: targetArchiveURL.path) {
+          try self.fileManager.removeItem(at: targetArchiveURL)
+        }
+        try self.fileManager.copyItem(at: fileURL, to: targetArchiveURL)
+
+        var transferRecord = metadata
+        transferRecord["importedAtEpochMilliseconds"] = self.epochMilliseconds()
+        transferRecord["calculatedSha256"] = sha256
+        transferRecord["archiveFilename"] = targetArchiveURL.lastPathComponent
+        transferRecord["isAttachedToActive"] = isAttachedToActive
+
+        let metaData = try JSONSerialization.data(withJSONObject: transferRecord, options: [.prettyPrinted, .sortedKeys])
+        try metaData.write(to: destinationDir.appendingPathComponent("watch-transfer.json"), options: [.atomic])
+
+        if isAttachedToActive, var active = self.active {
+          active.recordingIdsBySource["watch:apple:primary"] = recId
+          self.active = active
+          try self.writeManifestOnQueue(status: "recording", endedAt: nil, parts: nil)
+          try self.appendOnQueue(stream: "lifecycle", payload: [
+            "type": "watch_archive_imported",
+            "recordingId": recId,
+            "sha256": sha256,
+            "timestampEpochMilliseconds": self.epochMilliseconds()
+          ])
+        }
+      } catch {
+        self.recordFailureOnQueue(error)
+      }
+    }
+  }
+
+
 
   func appendRemusBladeLive(
     rawCsv: String,
@@ -528,12 +639,55 @@ final class RemusEvidenceStore {
     parts: [[String: Any]]?
   ) throws {
     guard let recording = active else { return }
+    var effectiveRecordingIds = recording.recordingIdsBySource
+    var recordingsArray: [[String: Any]] = []
+    for (sourceId, recId) in recording.recordingIdsBySource {
+      if sourceId.hasPrefix("computer:") || sourceId.hasPrefix("blade:") {
+        if let diagnostics = recording.telemetryDiagnosticsBySource[sourceId] as? [String: Any],
+           let hardwareRecordings = diagnostics["recordings"] as? [[String: Any]],
+           !hardwareRecordings.isEmpty {
+          recordingsArray.append(contentsOf: hardwareRecordings)
+          if let firstId = hardwareRecordings.first?["recordingId"] as? String {
+            effectiveRecordingIds[sourceId] = firstId
+          }
+        } else {
+          effectiveRecordingIds.removeValue(forKey: sourceId)
+        }
+        continue
+      }
+      let localCounts: [String: Int]
+      if sourceId.hasPrefix("phone:") {
+        localCounts = [
+          "phoneMotion": recording.sampleCounts["phoneMotion", default: 0],
+          "phoneLocation": recording.sampleCounts["phoneLocation", default: 0],
+        ]
+      } else if sourceId.hasPrefix("watch:") {
+        localCounts = ["watchHeartRate": recording.sampleCounts["watchHeartRate", default: 0]]
+      } else {
+        localCounts = [:]
+      }
+      var recData: [String: Any] = [
+        "recordingId": recId,
+        "sourceId": sourceId,
+        "clockDomainId": "clock:\(sourceId):001",
+        "startedAtReceiptEpochMilliseconds": recording.startedAtEpochMilliseconds,
+        "startReason": "normal_start",
+        "sampleCounts": localCounts
+      ]
+      if let ended = endedAt {
+        recData["endedAtReceiptEpochMilliseconds"] = ended
+        recData["endReason"] = status == "finalized" ? "normal_stop" : "interrupted"
+      }
+      recordingsArray.append(recData)
+    }
+
     var manifest: [String: Any] = [
-      "schemaVersion": "1.0.0",
+      "schemaVersion": "1.1.0",
       "producer": "remus-recorder-ios",
       "activityId": recording.activityId,
       "activityCorrelationId": recording.activityCorrelationId,
-      "recordingIdsBySource": recording.recordingIdsBySource,
+      "recordingIdsBySource": effectiveRecordingIds,
+      "recordings": recordingsArray,
       "startedAtEpochMilliseconds": recording.startedAtEpochMilliseconds,
       "status": status,
       "sampleCounts": recording.sampleCounts,

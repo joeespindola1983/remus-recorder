@@ -167,7 +167,85 @@ final class RemusRecordingBridge: RCTEventEmitter, CLLocationManagerDelegate {
     if let supportedAt = presentation["supportedAtEpochMilliseconds"] as? NSNumber {
       payload["supportedAtEpochMilliseconds"] = supportedAt
     }
+    if let supportedAtNative = presentation["supportedAtNativeTimestamp"] as? NSNumber {
+      payload["supportedAtNativeTimestamp"] = supportedAtNative
+    }
+    if let clockDomainId = presentation["clockDomainId"] as? String {
+      payload["clockDomainId"] = clockDomainId
+    }
     evidenceStore.appendLiveMetricPresentation(payload)
+    resolve(true)
+  }
+
+  @objc
+  func appendBoatMotionObservation(
+    _ observation: NSDictionary,
+    resolver resolve: @escaping RCTPromiseResolveBlock,
+    rejecter reject: @escaping RCTPromiseRejectBlock
+  ) {
+    guard
+      let metricIdentifier = observation["metricIdentifier"] as? String,
+      metricIdentifier == "boatMotionState",
+      let value = observation["value"] as? String,
+      let quality = observation["quality"] as? String
+    else {
+      reject("INVALID_BOAT_MOTION_OBSERVATION", "Expected valid boatMotionState observation", nil)
+      return
+    }
+
+    var payload: [String: Any] = [
+      "metricIdentifier": metricIdentifier,
+      "value": value,
+      "quality": quality,
+    ]
+    if let observationId = observation["observationId"] as? String {
+      payload["observationId"] = observationId
+    }
+    if let reason = observation["reason"] as? String {
+      payload["reason"] = reason
+    }
+    if let sourceIds = observation["sourceIds"] as? [String] {
+      payload["sourceIds"] = sourceIds
+    }
+    if let recordingId = observation["recordingId"] as? String {
+      payload["recordingId"] = recordingId
+    }
+    if let observedAt = observation["observedAtEpochMilliseconds"] as? NSNumber {
+      payload["observedAtEpochMilliseconds"] = observedAt
+    }
+    if let evaluatedAt = observation["evaluatedAtEpochMilliseconds"] as? NSNumber {
+      payload["evaluatedAtEpochMilliseconds"] = evaluatedAt
+    }
+    if let policyVersion = observation["policyVersion"] as? String {
+      payload["policyVersion"] = policyVersion
+    }
+
+    evidenceStore.appendBoatMotionObservation(payload)
+    resolve(true)
+  }
+
+  @objc
+  func appendRemusComputerLocation(
+    _ observation: NSDictionary,
+    resolver resolve: @escaping RCTPromiseResolveBlock,
+    rejecter reject: @escaping RCTPromiseRejectBlock
+  ) {
+    guard
+      let sourceId = observation["sourceId"] as? String,
+      sourceId.hasPrefix("computer:"),
+      observation["recordingId"] is String,
+      observation["clockDomainId"] is String,
+      observation["observationSequence"] is NSNumber,
+      observation["nativeTimestampUs"] is NSNumber,
+      observation["gpsTimeOfWeekMilliseconds"] is NSNumber,
+      observation["receivedAtEpochMilliseconds"] is NSNumber
+    else {
+      reject("INVALID_REMUS_COMPUTER_LOCATION", "Missing GNSS identity or native timing", nil)
+      return
+    }
+    var payload = observation as? [String: Any] ?? [:]
+    payload["type"] = "remusComputerLocationObservation"
+    evidenceStore.appendRemusComputerLocation(payload)
     resolve(true)
   }
 
@@ -403,15 +481,32 @@ final class RemusRecordingBridge: RCTEventEmitter, CLLocationManagerDelegate {
     guard hasListeners, let startedAt else { return }
     let state = evidenceStore.snapshot()
     let counts = state["sampleCounts"] as? [String: Int] ?? [:]
+    let now = Date()
     var projection: [String: Any] = [
-      "elapsedSeconds": Int(Date().timeIntervalSince(startedAt)),
+      "elapsedSeconds": Int(now.timeIntervalSince(startedAt)),
       "motionSampleCount": counts["phoneMotion", default: 0],
       "locationSampleCount": counts["phoneLocation", default: 0],
       "watchHeartRateSampleCount": counts["watchHeartRate", default: 0],
       "remusBladeLiveSampleCount": counts["remusBladeLive", default: 0],
       "distanceMeters": distanceMeters,
     ]
-    if let value = latestSpeedMetersPerSecond { projection["groundSpeedMetersPerSecond"] = value }
+    if let loc = lastLocation {
+      let freshnessMs = now.timeIntervalSince(loc.timestamp) * 1000.0
+      projection["locationSourceTimeEpochMs"] = Int64(loc.timestamp.timeIntervalSince1970 * 1000.0)
+      projection["locationFreshnessMs"] = freshnessMs
+      if freshnessMs <= 3500.0, let value = latestSpeedMetersPerSecond {
+        projection["groundSpeedMetersPerSecond"] = value
+      }
+      if loc.speedAccuracy >= 0 {
+        projection["speedAccuracyMetersPerSecond"] = loc.speedAccuracy
+      }
+      if loc.courseAccuracy >= 0 {
+        projection["courseAccuracyDegrees"] = loc.courseAccuracy
+      }
+      if loc.course >= 0 {
+        projection["courseDegrees"] = loc.course
+      }
+    }
     if let value = latestHorizontalAccuracyMeters { projection["horizontalAccuracyMeters"] = value }
     if let value = latestAccelerationMagnitudeG { projection["accelerationIncludingGravityG"] = value }
     sendEvent(withName: "onRecordingUpdate", body: projection)

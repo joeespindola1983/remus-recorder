@@ -1,0 +1,66 @@
+{
+  "schemaVersion": "1.1.0",
+  "producer": "remus-recorder-ios",
+  "activityId": "activity:synthetic-relayed-dual-blades",
+  "activityCorrelationId": "corr-synth-relayed",
+  "recordingIdsBySource": {
+    "phone:primary": "rec:phone:001",
+    "blade:11112222": "rec:blade:11112222:001",
+    "blade:33334444": "rec:blade:33334444:001"
+  },
+  "startedAtEpochMilliseconds": 1700000000000,
+  "endedAtEpochMilliseconds": 1700000600000,
+  "status": "finalized",
+  "sampleCounts": {
+    "phone:primary": 30000,
+    "blade:11112222": 60000,
+    "blade:33334444": 60000
+  },
+  "recordings": [
+    {
+      "recordingId": "rec:phone:001",
+      "sourceId": "phone:primary",
+      "clockDomainId": "clk:phone:001",
+      "deviceBootId": null,
+      "startReason": "normal_start",
+      "endReason": "normal_stop",
+      "startedAtNativeMicroseconds": "0",
+      "endedAtNativeMicroseconds": "600000000",
+      "startedAtReceiptEpochMilliseconds": 1700000000000,
+      "endedAtReceiptEpochMilliseconds": 1700000600000,
+      "sampleCounts": {
+        "motion": 30000
+      }
+    },
+    {
+      "recordingId": "rec:blade:11112222:001",
+      "sourceId": "blade:11112222",
+      "clockDomainId": "clk:blade:11112222:001",
+      "deviceBootId": "0x11112222",
+      "startReason": "normal_start",
+      "endReason": "normal_stop",
+      "startedAtNativeMicroseconds": "1000000",
+      "endedAtNativeMicroseconds": "601000000",
+      "startedAtReceiptEpochMilliseconds": 1700000000000,
+      "endedAtReceiptEpochMilliseconds": 1700000600000,
+      "sampleCounts": {
+        "rawImu": 60000
+      }
+    },
+    {
+      "recordingId": "rec:blade:33334444:001",
+      "sourceId": "blade:33334444",
+      "clockDomainId": "clk:blade:33334444:001",
+      "deviceBootId": "0x33334444",
+      "startReason": "normal_start",
+      "endReason": "normal_stop",
+      "startedAtNativeMicroseconds": "2000000",
+      "endedAtNativeMicroseconds": "602000000",
+      "startedAtReceiptEpochMilliseconds": 1700000000000,
+      "endedAtReceiptEpochMilliseconds": 1700000600000,
+      "sampleCounts": {
+        "rawImu": 60000
+      }
+    }
+  ]
+}

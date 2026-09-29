@@ -88,4 +88,42 @@ describe('RemusBladeBinaryDecoder (TDD)', () => {
     expect(csv).toContain('timestamp_us,ax,ay,az,gx,gy,gz,lat,lon,speed_kmh,sats');
     expect(csv).toContain('1000000,1.000,0.000,0.000,0.00,0.00,0.00');
   });
+
+  it('decodes RBP2 receiver-native GNSS records', () => {
+    const header = Buffer.alloc(32);
+    header.write('RBP2', 0, 4, 'ascii');
+    header.writeUInt8(2, 4);
+    header.writeUInt8(200, 7);
+    const gps = Buffer.alloc(41);
+    gps.writeUInt8(0x04, 0);
+    gps.writeUInt32LE(1234, 1);
+    gps.writeUInt32LE(216507200, 5);
+    gps.writeInt32LE(-157490560, 9);
+    gps.writeInt32LE(-478697480, 13);
+    gps.writeUInt32LE(203, 17);
+    gps.writeUInt32LE(26, 21);
+    gps.writeInt32LE(32361581, 25);
+    gps.writeUInt32LE(4156269, 29);
+    gps.writeUInt32LE(1300, 33);
+    gps.writeUInt8(10, 37);
+    gps.writeUInt8(43, 38);
+    gps.writeUInt8(3, 39);
+    gps.writeUInt8(1, 40);
+
+    const decoded = decodeRemusBladeBinary(Buffer.concat([header, gps]));
+    expect(decoded.header.magic).toBe('RBP2');
+    expect(decoded.gpsFixes[0]).toMatchObject({
+      timestampMs: 1234,
+      gpsTimeOfWeekMilliseconds: 216507200,
+      latitude: -15.749056,
+      longitude: -47.869748,
+      speedKmh: 7.308,
+      speedAccuracyMetersPerSecond: 0.26,
+      courseDegrees: 323.61581,
+      courseAccuracyDegrees: 41.56269,
+      accuracyMeters: 1.3,
+      fixType: 3,
+      hasValidFix: true,
+    });
+  });
 });

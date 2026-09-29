@@ -18,13 +18,18 @@ import { color } from './src/ui/theme/tokens';
 import {ProfileScreen} from './src/ui/screens/ProfileScreen';
 import { t } from './src/i18n';
 import { PhoneDeviceService } from './src/services/sensors/PhoneDeviceService';
-import { RemusBladeSnapshot } from './src/services/blade/RemusBladeAdapter';
+import {
+  RemusBladeSnapshot,
+  RemusComputerLocationObservation,
+} from './src/services/blade/RemusBladeAdapter';
 import { RemusBladeManager } from './src/services/blade/RemusBladeManager';
 import { useWearables } from './src/services/wearables';
 import {
   RecordingManifest,
   RecordingService,
 } from './src/services/recording/RecordingService';
+import { LivePresentationRecorder } from './src/services/presentation/LivePresentationRecorder';
+import { BoatMotionDetector } from './src/services/motion/BoatMotionDetector';
 
 export default function App(): React.JSX.Element {
   const [activeTab, setActiveTab] = useState<NavigationTab>('activities');
@@ -78,6 +83,28 @@ export default function App(): React.JSX.Element {
   phaseRef.current = state.phase;
   const elapsedSecondsRef = useRef(state.metrics.elapsedSeconds);
   elapsedSecondsRef.current = state.metrics.elapsedSeconds;
+  const latestComputerLocationRef = useRef<RemusComputerLocationObservation | null>(null);
+  const [presentationRecorder] = useState(
+    () =>
+      new LivePresentationRecorder({
+        formatPaceFn: formatPace,
+        onPresentation: presentation => {
+          if (phaseRef.current === 'recording') {
+            recordingService.appendLiveMetricPresentation(presentation).catch(() => {});
+          }
+        },
+      }),
+  );
+  const [boatMotionDetector] = useState(
+    () =>
+      new BoatMotionDetector({
+        onObservation: observation => {
+          if (phaseRef.current === 'recording') {
+            recordingService.appendBoatMotionObservation(observation).catch(() => {});
+          }
+        },
+      }),
+  );
 
   useEffect(() => {
     const unsub = bladeManager.onStateChange(sourceState => {
@@ -139,6 +166,13 @@ export default function App(): React.JSX.Element {
     };
   }, [bladeManager, recordingService]);
 
+  useEffect(() => bladeManager.onLocationObservation(observation => {
+    latestComputerLocationRef.current = observation;
+    if (phaseRef.current === 'recording' || phaseRef.current === 'finalizing') {
+      recordingService.appendRemusComputerLocation(observation).catch(() => {});
+    }
+  }), [bladeManager, recordingService]);
+
   useEffect(() => {
     const device = wearable.devices[0];
     if (
@@ -187,97 +221,91 @@ export default function App(): React.JSX.Element {
     });
   }, [wearable.currentSample, wearableSourceId]);
 
-  const MOVING_SPEED_THRESHOLD_METERS_PER_SECOND = 0.8;
-  const lastBladeTelemetryAt = useRef<number>(0);
-  const lastBladeSourceId = useRef<string | undefined>(undefined);
-
   useEffect(
-    () => recordingService.onUpdate(projection => {
-      const speed = projection.groundSpeedMetersPerSecond;
-      const isMoving =
-        speed !== undefined && speed >= MOVING_SPEED_THRESHOLD_METERS_PER_SECOND;
-      const paceSecondsPer500Meters = isMoving ? 500 / speed : undefined;
-      dispatch({
-        type: 'update_live_metrics',
-        metrics: {
-          groundSpeedMetersPerSecond: speed,
-          paceSecondsPer500Meters,
-          distanceMeters: projection.distanceMeters,
-        },
-      });
-      if (phaseRef.current === 'recording') {
-        const presentedAtEpochMilliseconds = Date.now();
-        recordingService.appendLiveMetricPresentation({
-          metricIdentifier: 'paceSecondsPer500Meters',
-          numericValue: paceSecondsPer500Meters ?? null,
-          canonicalUnit: 's/500m',
-          renderedText: formatPace(paceSecondsPer500Meters),
-          availabilityState: isMoving ? 'available' : 'unavailable',
-          availabilityReason:
-            speed === undefined ? 'source_unavailable' :
-              isMoving ? undefined : 'below_movement_threshold',
-          sourceId: 'phone:primary',
-          supportedAtEpochMilliseconds: presentedAtEpochMilliseconds,
-          presentedAtEpochMilliseconds,
-        }).catch(() => {});
-      }
-    }),
-    [recordingService],
+    () =>
+      recordingService.onUpdate(projection => {
+        const now = Date.now();
+        const pc = latestComputerLocationRef.current;
+        const computerGps = pc?.hasValidFix === true &&
+          now - pc.receivedAtEpochMilliseconds <= 1500 &&
+          pc.speedAccuracyMetersPerSecond <= 1.5 ? pc : null;
+        const useComputerGps = computerGps !== null;
+        const groundSpeedMetersPerSecond = computerGps
+          ? computerGps.groundSpeedMetersPerSecond
+          : projection.groundSpeedMetersPerSecond;
+        const speedAccuracyMetersPerSecond = computerGps
+          ? computerGps.speedAccuracyMetersPerSecond
+          : projection.speedAccuracyMetersPerSecond;
+        const sourceId = computerGps?.sourceId ?? 'phone:primary';
+        const pacePres = presentationRecorder.updatePace({
+          groundSpeedMetersPerSecond,
+          locationSourceTimeEpochMs: useComputerGps ? undefined : projection.locationSourceTimeEpochMs,
+          speedAccuracyMetersPerSecond,
+          locationFreshnessMs: useComputerGps
+            ? now - computerGps!.receivedAtEpochMilliseconds
+            : projection.locationFreshnessMs,
+          sourceId,
+          recordingId: computerGps?.recordingId,
+          supportedAtNativeTimestamp: computerGps?.nativeTimestampUs,
+          clockDomainId: computerGps?.clockDomainId,
+        });
+        boatMotionDetector.update({
+          timestampMs: computerGps?.receivedAtEpochMilliseconds ?? projection.locationSourceTimeEpochMs ?? now,
+          groundSpeedMetersPerSecond,
+          speedAccuracyMetersPerSecond,
+          courseDegrees: computerGps?.courseDegrees ?? projection.courseDegrees,
+          courseAccuracyDegrees: computerGps?.courseAccuracyDegrees ?? projection.courseAccuracyDegrees,
+          horizontalAccuracyMeters: computerGps?.horizontalAccuracyMeters ?? projection.horizontalAccuracyMeters,
+          locationFreshnessMs: computerGps ? now - computerGps.receivedAtEpochMilliseconds : projection.locationFreshnessMs,
+          sourceId,
+          recordingId: computerGps?.recordingId,
+          nowEpochMs: now,
+        });
+        const paceSecondsPer500Meters =
+          pacePres.availabilityState === 'available' && pacePres.numericValue !== null
+            ? pacePres.numericValue
+            : undefined;
+        dispatch({
+          type: 'update_live_metrics',
+          metrics: {
+            groundSpeedMetersPerSecond,
+            paceSecondsPer500Meters,
+            distanceMeters: projection.distanceMeters,
+          },
+        });
+      }),
+    [recordingService, presentationRecorder, boatMotionDetector],
   );
 
   useEffect(() => {
-    if (!bladeSnapshot) return;
-    lastBladeTelemetryAt.current = Date.now();
-    lastBladeSourceId.current = bladeSnapshot.sourceId;
-    const spm = bladeSnapshot.liveSpm;
-    if (spm !== undefined && spm > 0) {
-      dispatch({type: 'update_live_metrics', metrics: {strokeRateSpm: spm}});
-    } else {
-      dispatch({type: 'update_live_metrics', metrics: {strokeRateSpm: undefined}});
-    }
-    if (phaseRef.current === 'recording' && bladeSnapshot.sourceId) {
-      const isAvailable = spm !== undefined && spm > 0;
-      const presentedAtEpochMilliseconds = Date.now();
-      recordingService.appendLiveMetricPresentation({
-        metricIdentifier: 'strokeRateSpm',
-        numericValue: isAvailable ? spm : null,
-        canonicalUnit: 'strokes/min',
-        renderedText: isAvailable ? String(Math.round(spm)) : '—',
-        availabilityState: isAvailable ? 'available' : 'unavailable',
-        availabilityReason: isAvailable ? undefined : 'source_unavailable',
-        sourceId: bladeSnapshot.sourceId,
-        supportedAtEpochMilliseconds: presentedAtEpochMilliseconds,
-        presentedAtEpochMilliseconds,
-      }).catch(() => {});
-    }
-  }, [bladeSnapshot, recordingService]);
+    if (!bladeSnapshot || !bladeSnapshot.sourceId) return;
+    const spmPres = presentationRecorder.updateSpm({
+      sourceId: bladeSnapshot.sourceId,
+      liveSpm: bladeSnapshot.liveSpm,
+      availabilityState: bladeSnapshot.liveSpmAvailabilityState,
+      availabilityReason: bladeSnapshot.liveSpmAvailabilityReason,
+      supportedAtNativeTimestamp: bladeSnapshot.liveSpmSupportedNativeTimestamp,
+      clockDomainId: bladeSnapshot.clockDomainId,
+    });
+    const strokeRateSpm =
+      spmPres &&
+      (spmPres.availabilityState === 'available' || spmPres.availabilityState === 'held') &&
+      spmPres.numericValue !== null
+        ? spmPres.numericValue
+        : undefined;
+    dispatch({type: 'update_live_metrics', metrics: {strokeRateSpm}});
+  }, [bladeSnapshot, presentationRecorder]);
 
   useEffect(() => {
     if (state.phase !== 'recording') return;
     const interval = setInterval(() => {
-      if (
-        lastBladeTelemetryAt.current > 0 &&
-        Date.now() - lastBladeTelemetryAt.current > 3_500
-      ) {
+      presentationRecorder.checkHeartbeat();
+      if (!presentationRecorder.isSpmActive()) {
         dispatch({type: 'update_live_metrics', metrics: {strokeRateSpm: undefined}});
-        const sourceId = lastBladeSourceId.current;
-        lastBladeTelemetryAt.current = 0;
-        if (sourceId) {
-          recordingService.appendLiveMetricPresentation({
-            metricIdentifier: 'strokeRateSpm',
-            numericValue: null,
-            canonicalUnit: 'strokes/min',
-            renderedText: '—',
-            availabilityState: 'unavailable',
-            availabilityReason: 'telemetry_timeout',
-            sourceId,
-            presentedAtEpochMilliseconds: Date.now(),
-          }).catch(() => {});
-        }
       }
     }, 1_000);
     return () => clearInterval(interval);
-  }, [state.phase, recordingService]);
+  }, [state.phase, presentationRecorder]);
 
   useEffect(() => {
     if (state.phase !== 'recording') return;
@@ -320,6 +348,9 @@ export default function App(): React.JSX.Element {
         )
         .map(source => source.sourceId);
       const started = await recordingService.start(participatingSourceIds);
+      latestComputerLocationRef.current = null;
+      presentationRecorder.reset();
+      boatMotionDetector.reset();
       dispatch({
         type: 'commit_capture',
         activityId: started.activityId,
@@ -327,9 +358,14 @@ export default function App(): React.JSX.Element {
         recordingIdsBySource: started.recordingIdsBySource,
       });
       console.log('[App] Starting bladeManager & wearable capture...');
+      const watchRecordingId = started.recordingIdsBySource?.['watch:apple:primary'] ?? 'rec:watch:apple:primary:001';
       const results = await Promise.allSettled([
         bladeManager.startWorkoutCapture(),
-        wearable.startRecording(),
+        wearable.startRecording({
+          activityCorrelationId: started.activityCorrelationId,
+          recordingId: watchRecordingId,
+          startCommandId: `cmd-start-${started.activityCorrelationId}`,
+        }),
       ]);
       console.log('[App] blade & wearable start results:', JSON.stringify(results));
     } catch (error) {
@@ -342,14 +378,18 @@ export default function App(): React.JSX.Element {
 
   const stopCapture = async (): Promise<void> => {
     dispatch({ type: 'request_stop' });
+    const stopCommandId = `cmd-stop-${Date.now()}`;
     await Promise.allSettled([
       bladeManager.stopWorkoutCapture(),
-      wearable.stopRecording(),
+      wearable.stopRecording({ stopCommandId }),
     ]);
 
     try {
       await recordingService.setTelemetryDiagnostics(bladeManager.getTelemetryDiagnostics());
       const manifest = await recordingService.stop();
+      presentationRecorder.reset();
+      boatMotionDetector.reset();
+      latestComputerLocationRef.current = null;
       setLastManifest(manifest);
       if (manifest.status !== 'finalized') {
         throw new Error(

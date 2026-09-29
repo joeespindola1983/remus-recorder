@@ -1,6 +1,7 @@
 import { Buffer } from 'buffer';
 
 import {
+  RemusGpsStreamPacketDecoder,
   RemusRelayedStreamPacketDecoder,
   RemusStreamPacketDecoder,
 } from '../src/services/blade/RemusStreamPacketDecoder';
@@ -56,6 +57,74 @@ const makeRelayedPacket = (payload = makeBatch()): Buffer => {
   result.writeUInt32LE(crc32(result.subarray(0, result.length - 4)), result.length - 4);
   return result;
 };
+
+const makeGpsBatch = (): Buffer => {
+  const result = Buffer.alloc(23 + 2 * 40 + 4);
+  result[0] = 1;
+  result[1] = 0x05;
+  result[3] = 23;
+  result.writeUInt32LE(9, 4);
+  result.writeUInt32LE(100, 8);
+  result.writeBigUInt64LE(5_000_000n, 12);
+  result[20] = 2;
+  result[21] = 40;
+  const writeObservation = (offset: number, deltaUs: number, iTow: number) => {
+    result.writeUInt32LE(deltaUs, offset);
+    result.writeUInt32LE(iTow, offset + 4);
+    result.writeInt32LE(-157490560, offset + 8);
+    result.writeInt32LE(-478697480, offset + 12);
+    result.writeUInt32LE(203, offset + 16);
+    result.writeUInt32LE(26, offset + 20);
+    result.writeInt32LE(32361581, offset + 24);
+    result.writeUInt32LE(4156269, offset + 28);
+    result.writeUInt32LE(1300, offset + 32);
+    result[offset + 36] = 10;
+    result[offset + 37] = 43;
+    result[offset + 38] = 3;
+    result[offset + 39] = 1;
+  };
+  writeObservation(23, 0, 216507200);
+  writeObservation(63, 200_000, 216507400);
+  result.writeUInt32LE(crc32(result.subarray(0, result.length - 4)), result.length - 4);
+  return result;
+};
+
+describe('RemusGpsStreamPacketDecoder', () => {
+  it('decodes coherent receiver-native observations without inventing epoch time', () => {
+    const decoder = new RemusGpsStreamPacketDecoder();
+    const decoded = decoder.ingest(makeGpsBatch());
+    expect(decoded?.batchSequence).toBe(9);
+    expect(decoded?.observations).toHaveLength(2);
+    expect(decoded?.observations[0]).toMatchObject({
+      observationSequence: 100,
+      nativeTimestampUs: 5_000_000,
+      gpsTimeOfWeekMilliseconds: 216507200,
+      positionWgs84: {latitude: -15.749056, longitude: -47.869748},
+      groundSpeedMetersPerSecond: 2.03,
+      speedAccuracyMetersPerSecond: 0.26,
+      horizontalAccuracyMeters: 1.3,
+      hasValidFix: true,
+    });
+    expect(decoded?.observations[1].nativeTimestampUs).toBe(5_200_000);
+    expect(decoder.getAccounting()).toMatchObject({
+      decodedBatchCount: 1,
+      decodedObservationCount: 2,
+      lostPackets: 0,
+      lostObservations: 0,
+    });
+  });
+
+  it('detects missing GNSS observations independently from IMU continuity', () => {
+    const decoder = new RemusGpsStreamPacketDecoder();
+    decoder.ingest(makeGpsBatch());
+    const next = makeGpsBatch();
+    next.writeUInt32LE(11, 4);
+    next.writeUInt32LE(104, 8);
+    next.writeUInt32LE(crc32(next.subarray(0, next.length - 4)), next.length - 4);
+    decoder.ingest(next);
+    expect(decoder.getAccounting()).toMatchObject({lostPackets: 1, lostObservations: 2});
+  });
+});
 
 describe('RemusStreamPacketDecoder', () => {
   it('decodes and validates a versioned raw IMU batch', () => {

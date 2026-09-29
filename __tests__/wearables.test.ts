@@ -123,19 +123,57 @@ describe('WearableHub & Normalized Interface (TDD)', () => {
     });
   });
 
-  it('should dispatch startRecording to connected devices and broadcast to adapters', async () => {
+  it('should dispatch startRecording to connected device exactly once with correlation metadata and no duplicate broadcast', async () => {
     await hub.initialize();
     appleAdapter.sentData = [];
-    await hub.startRecording();
-    expect(appleAdapter.sentData.length).toBeGreaterThanOrEqual(1);
-    expect(appleAdapter.sentData.some(entry => entry.payload.command === 'START_RECORD')).toBe(true);
+    await hub.startRecording({
+      activityCorrelationId: 'act-corr-123',
+      recordingId: 'rec:watch:apple:primary:001',
+      startCommandId: 'cmd-start-999',
+    });
+
+    expect(appleAdapter.sentData).toHaveLength(1);
+    expect(appleAdapter.sentData[0]).toEqual({
+      deviceId: 'apple-watch-1',
+      payload: expect.objectContaining({
+        command: 'START_RECORD',
+        action: 'START_RECORD',
+        protocolVersion: '1.1.0',
+        activityCorrelationId: 'act-corr-123',
+        recordingId: 'rec:watch:apple:primary:001',
+        startCommandId: 'cmd-start-999',
+      }),
+    });
   });
 
-  it('should dispatch stopRecording to connected devices and broadcast to adapters', async () => {
+  it('should dispatch startRecording via broadcast exactly once when no device is connected', async () => {
+    await hub.initialize();
+    jest.spyOn(appleAdapter, 'getConnectedDevices').mockResolvedValue([]);
+    appleAdapter.sentData = [];
+
+    await hub.startRecording();
+
+    expect(appleAdapter.sentData).toHaveLength(1);
+    expect(appleAdapter.sentData[0].deviceId).toBe('broadcast');
+    expect(appleAdapter.sentData[0].payload.command).toBe('START_RECORD');
+  });
+
+  it('should dispatch stopRecording to connected device exactly once with stopCommandId and no duplicate broadcast', async () => {
     await hub.initialize();
     appleAdapter.sentData = [];
-    await hub.stopRecording();
-    expect(appleAdapter.sentData.length).toBeGreaterThanOrEqual(1);
-    expect(appleAdapter.sentData.some(entry => entry.payload.command === 'STOP_RECORD')).toBe(true);
+    await hub.stopRecording({
+      stopCommandId: 'cmd-stop-888',
+    });
+
+    expect(appleAdapter.sentData).toHaveLength(1);
+    expect(appleAdapter.sentData[0]).toEqual({
+      deviceId: 'apple-watch-1',
+      payload: expect.objectContaining({
+        command: 'STOP_RECORD',
+        action: 'STOP_RECORD',
+        protocolVersion: '1.1.0',
+        stopCommandId: 'cmd-stop-888',
+      }),
+    });
   });
 });

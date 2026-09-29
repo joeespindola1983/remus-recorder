@@ -4,6 +4,7 @@ import {
   BladeRosterEntry,
   parseBladeIdentityHash,
   RemusBladeAdapter,
+  RemusComputerLocationObservation,
 } from './RemusBladeAdapter';
 import { CaptureSourceState } from '../../application/capture/ActivityCapture';
 import { SensorPlacement } from '../../contracts/acquisition/types';
@@ -13,16 +14,21 @@ import {
   calibrateBladeMount,
   getDefaultMountingProfile,
 } from '../../analysis/rowing/BladeMountCalibration';
+import { ClockSyncScheduler } from './ClockSyncScheduler';
 
 export class RemusBladeManager {
   private nativeBridge: any;
   private eventEmitter: NativeEventEmitter | null = null;
   private devices: Map<string, RemusBladeDeviceService> = new Map();
+  private readonly clockSyncScheduler: ClockSyncScheduler;
+  private readonly clockSyncConnectedDeviceIds = new Set<string>();
   private initializingDeviceIds: Set<string> = new Set();
   private pendingStatePayloads: Map<string, any> = new Map();
   private listeners: Set<(sourceState: CaptureSourceState) => void> = new Set();
   private sensorDataListeners: Set<(sample: SensorSample, placement?: SensorPlacement) => void> = new Set();
+  private locationListeners: Set<(observation: RemusComputerLocationObservation) => void> = new Set();
   private deviceSensorSubscriptions: Map<string, () => void> = new Map();
+  private deviceLocationSubscriptions: Map<string, () => void> = new Map();
   private stateSubscription: { remove(): void } | null = null;
   private bladeAssignments: Map<number, 'left_paddle' | 'right_paddle'> = new Map();
   private bladeCalibrations: Map<string, BladeMountCalibration> = new Map();
@@ -40,6 +46,7 @@ export class RemusBladeManager {
   ) {
     this.nativeBridge = nativeBridge ?? NativeModules.RemusBladeBridge;
     this.directBladeCapture = options.directBladeCapture ?? true;
+    this.clockSyncScheduler = new ClockSyncScheduler();
     if (this.nativeBridge) {
       this.eventEmitter = new NativeEventEmitter(this.nativeBridge);
     }
@@ -81,12 +88,24 @@ export class RemusBladeManager {
               this.handleIncomingSensorData(service, sample);
             });
             this.deviceSensorSubscriptions.set(deviceId, unsubSensor);
+            const unsubLocation = service.onLocationObservation(observation => {
+              this.locationListeners.forEach(listener => listener(observation));
+            });
+            this.deviceLocationSubscriptions.set(deviceId, unsubLocation);
             
             service.onStateChange(state => {
               this.listeners.forEach(l => l(state));
+              const curr = state.readiness?.sourceConnectionState ?? 'unavailable';
+              if (curr === 'connected' && !this.clockSyncConnectedDeviceIds.has(deviceId)) {
+                this.clockSyncConnectedDeviceIds.add(deviceId);
+                this.clockSyncScheduler.registerDevice(deviceId, () => service.requestClockSync());
+                this.clockSyncScheduler.queueBurst(deviceId);
+              } else if (curr !== 'connected' && this.clockSyncConnectedDeviceIds.has(deviceId)) {
+                this.clockSyncConnectedDeviceIds.delete(deviceId);
+                this.clockSyncScheduler.unregisterDevice(deviceId);
+              }
               if (!this.directBladeCapture && state.deviceFamily === 'remus_computer') {
                 const prev = this.lastKnownConnectionState.get(deviceId) ?? 'unavailable';
-                const curr = state.readiness?.sourceConnectionState ?? 'unavailable';
                 this.lastKnownConnectionState.set(deviceId, curr);
 
                 if (curr === 'connected') {
@@ -167,6 +186,13 @@ export class RemusBladeManager {
     };
   }
 
+  onLocationObservation(
+    listener: (observation: RemusComputerLocationObservation) => void,
+  ): () => void {
+    this.locationListeners.add(listener);
+    return () => this.locationListeners.delete(listener);
+  }
+
   private handleIncomingSensorData(
     service: RemusBladeDeviceService,
     sample: SensorSample,
@@ -223,6 +249,10 @@ export class RemusBladeManager {
     this.stateSubscription?.remove();
     this.deviceSensorSubscriptions.forEach(unsub => unsub());
     this.deviceSensorSubscriptions.clear();
+    this.deviceLocationSubscriptions.forEach(unsub => unsub());
+    this.deviceLocationSubscriptions.clear();
+    this.clockSyncConnectedDeviceIds.clear();
+    this.clockSyncScheduler.destroy();
     this.sensorDataListeners.clear();
     this.devices.forEach(d => d.destroy());
     this.devices.clear();
@@ -230,6 +260,10 @@ export class RemusBladeManager {
     this.pendingStatePayloads.clear();
     this.listeners.clear();
     this.relaySources.clear();
+  }
+
+  getClockSyncScheduler(): ClockSyncScheduler {
+    return this.clockSyncScheduler;
   }
 
   // Facade methods for App.tsx compatibility
@@ -300,8 +334,11 @@ export class RemusBladeManager {
 
   getTelemetryDiagnostics(): Record<string, {
     telemetry: ReturnType<RemusBladeDeviceService['getTelemetryAccounting']>;
+    gpsTelemetry: ReturnType<RemusBladeDeviceService['getGpsTelemetryAccounting']>;
     deviceConfiguration: ReturnType<RemusBladeDeviceService['getDeviceConfiguration']>;
     clockSync: ReturnType<RemusBladeDeviceService['getClockSync']>;
+    clockMapping: ReturnType<RemusBladeDeviceService['getClockMapping']>;
+    recordings: ReturnType<RemusBladeDeviceService['getRecordings']>;
     sensorPlacement?: SensorPlacement;
     boatSide?: 'port' | 'starboard';
     sourceRole?: string;
@@ -319,8 +356,11 @@ export class RemusBladeManager {
         sourceId,
         {
           telemetry: device.getTelemetryAccounting(),
+          gpsTelemetry: device.getGpsTelemetryAccounting(),
           deviceConfiguration: device.getDeviceConfiguration(),
           clockSync: device.getClockSync(),
+          clockMapping: device.getClockMapping(),
+          recordings: device.getRecordings(),
           sensorPlacement: placement,
           boatSide,
           sourceRole,

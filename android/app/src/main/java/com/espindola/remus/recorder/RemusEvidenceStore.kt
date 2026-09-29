@@ -24,9 +24,11 @@ class RemusEvidenceStore private constructor() {
   private val streamFiles = mapOf(
     "phoneMotion" to "phone-motion.ndjson",
     "phoneLocation" to "phone-location.ndjson",
+    "remusComputerLocation" to "remus-computer-location.ndjson",
     "watchHeartRate" to "watch-heart-rate.ndjson",
     "remusBladeLive" to "remus-blade-live.ndjson",
     "liveMetricPresentation" to "live-metric-presentation.ndjson",
+    "boatMotionObservation" to "boat-motion-observation.ndjson",
     "lifecycle" to "lifecycle.ndjson"
   )
 
@@ -64,7 +66,11 @@ class RemusEvidenceStore private constructor() {
 
       val recordingIds = mutableMapOf<String, String>()
       for (sourceId in sourceIds) {
-        recordingIds[sourceId] = "recording:" + UUID.randomUUID().toString().lowercase()
+        recordingIds[sourceId] = if (sourceId.startsWith("computer:") || sourceId.startsWith("blade:")) {
+          "rec:$sourceId:001"
+        } else {
+          "recording:" + UUID.randomUUID().toString().lowercase()
+        }
       }
       if (!recordingIds.containsKey("phone:primary")) {
         recordingIds["phone:primary"] = "recording:" + UUID.randomUUID().toString().lowercase()
@@ -114,8 +120,18 @@ class RemusEvidenceStore private constructor() {
     append("phoneLocation", "phone:primary", payload)
   }
 
+  fun appendRemusComputerLocation(payload: Map<String, Any?>) {
+    append("remusComputerLocation", payload["sourceId"] as? String, payload)
+  }
+
   fun appendLiveMetricPresentation(payload: Map<String, Any?>) {
-    append("liveMetricPresentation", null, payload)
+    val sourceId = payload["sourceId"] as? String
+    append("liveMetricPresentation", sourceId, payload)
+  }
+
+  fun appendBoatMotionObservation(payload: Map<String, Any?>) {
+    val sourceId = (payload["sourceIds"] as? List<*>)?.firstOrNull() as? String ?: "phone:primary"
+    append("boatMotionObservation", sourceId, payload)
   }
 
   fun appendWatchHeartRate(payload: Map<String, Any?>) {
@@ -231,8 +247,10 @@ class RemusEvidenceStore private constructor() {
   }
 
   private fun append(stream: String, sourceId: String?, payload: Map<String, Any?>) {
-    if (!isRecording) return
-    if (sourceId != null && currentRecordingIdsBySource[sourceId] == null) return
+    synchronized(this) {
+      if (!isRecording) return
+      if (sourceId != null && currentRecordingIdsBySource[sourceId] == null) return
+    }
 
     val json = JSONObject()
     json.put("schemaVersion", "1.0.0")
@@ -247,15 +265,12 @@ class RemusEvidenceStore private constructor() {
     val line = json.toString()
 
     executor.execute {
-      synchronized(this) {
-        if (!isRecording) return@execute
-        val writer = writers[stream] ?: return@execute
-        try {
-          writer.write(line)
-          writer.newLine()
-          sampleCounts[stream] = (sampleCounts[stream] ?: 0L) + 1L
-        } catch (_: Exception) {}
-      }
+      val writer = writers[stream] ?: return@execute
+      try {
+        writer.write(line)
+        writer.newLine()
+        sampleCounts[stream] = (sampleCounts[stream] ?: 0L) + 1L
+      } catch (_: Exception) {}
     }
   }
 
@@ -265,73 +280,76 @@ class RemusEvidenceStore private constructor() {
         return emptyMap()
       }
 
-      val endedAt = System.currentTimeMillis()
-      appendLifecycleEvent("recording_stopped", endedAt)
-
       isRecording = false
+      val endedAt = System.currentTimeMillis()
 
-      // Flush and close all writers
-      for (writer in writers.values) {
-        try {
-          writer.flush()
-          writer.close()
-        } catch (_: Exception) {}
-      }
-      writers.clear()
+      val future = executor.submit(java.util.concurrent.Callable<Map<String, Any>> {
+        appendLifecycleEvent("recording_stopped", endedAt)
 
-      val dir = currentDirectory ?: File(context.filesDir, "evidence")
-      val parts = mutableListOf<Map<String, Any>>()
+        // Flush and close all writers
+        for (writer in writers.values) {
+          try {
+            writer.flush()
+            writer.close()
+          } catch (_: Exception) {}
+        }
+        writers.clear()
 
-      for ((stream, filename) in streamFiles) {
-        val file = File(dir, filename)
-        if (file.exists()) {
-          val sha = computeSha256(file)
+        val dir = currentDirectory ?: File(context.filesDir, "evidence")
+        val parts = mutableListOf<Map<String, Any>>()
+
+        for ((stream, filename) in streamFiles) {
+          val file = File(dir, filename)
+          if (file.exists()) {
+            val sha = computeSha256(file)
+            parts.add(mapOf(
+              "stream" to stream,
+              "filename" to filename,
+              "sampleCount" to (sampleCounts[stream] ?: 0L),
+              "byteLength" to file.length(),
+              "sha256" to sha
+            ))
+          }
+        }
+
+        val binFile = File(dir, "blade_200hz.bin")
+        if (binFile.exists()) {
           parts.add(mapOf(
-            "stream" to stream,
-            "filename" to filename,
-            "sampleCount" to (sampleCounts[stream] ?: 0L),
-            "byteLength" to file.length(),
-            "sha256" to sha
+            "stream" to "remusBladeRawBinary",
+            "filename" to "blade_200hz.bin",
+            "byteLength" to binFile.length(),
+            "sha256" to computeSha256(binFile)
           ))
         }
-      }
+        val csvFile = File(dir, "blade_200hz.csv")
+        if (csvFile.exists()) {
+          parts.add(mapOf(
+            "stream" to "remusBladeRawCsv",
+            "filename" to "blade_200hz.csv",
+            "byteLength" to csvFile.length(),
+            "sha256" to computeSha256(csvFile)
+          ))
+        }
 
-      val binFile = File(dir, "blade_200hz.bin")
-      if (binFile.exists()) {
-        parts.add(mapOf(
-          "stream" to "remusBladeRawBinary",
-          "filename" to "blade_200hz.bin",
-          "byteLength" to binFile.length(),
-          "sha256" to computeSha256(binFile)
-        ))
-      }
-      val csvFile = File(dir, "blade_200hz.csv")
-      if (csvFile.exists()) {
-        parts.add(mapOf(
-          "stream" to "remusBladeRawCsv",
-          "filename" to "blade_200hz.csv",
-          "byteLength" to csvFile.length(),
-          "sha256" to computeSha256(csvFile)
-        ))
-      }
+        writeManifest("finalized", endedAt, parts)
 
-      writeManifest("finalized", endedAt, parts)
+        mapOf<String, Any>(
+          "schemaVersion" to "1.1.0",
+          "producer" to "remus-recorder-android",
+          "activityId" to (currentActivityId ?: ""),
+          "activityCorrelationId" to (currentCorrelationId ?: ""),
+          "recordingIdsBySource" to effectiveRecordingIds(),
+          "recordings" to canonicalRecordings("finalized", endedAt),
+          "startedAtEpochMilliseconds" to startedAtEpochMs,
+          "endedAtEpochMilliseconds" to endedAt,
+          "status" to "finalized",
+          "sampleCounts" to sampleCounts.toMap(),
+          "telemetryDiagnosticsBySource" to telemetryDiagnosticsBySource,
+          "parts" to parts
+        )
+      })
 
-      val manifestMap = mapOf<String, Any>(
-        "schemaVersion" to "1.0.0",
-        "producer" to "remus-recorder-android",
-        "activityId" to (currentActivityId ?: ""),
-        "activityCorrelationId" to (currentCorrelationId ?: ""),
-        "recordingIdsBySource" to currentRecordingIdsBySource,
-        "startedAtEpochMilliseconds" to startedAtEpochMs,
-        "endedAtEpochMilliseconds" to endedAt,
-        "status" to "finalized",
-        "sampleCounts" to sampleCounts.toMap(),
-        "telemetryDiagnosticsBySource" to telemetryDiagnosticsBySource,
-        "parts" to parts
-      )
-
-      return manifestMap
+      return future.get()
     }
   }
 
@@ -339,16 +357,21 @@ class RemusEvidenceStore private constructor() {
     val dir = currentDirectory ?: return
     try {
       val manifest = JSONObject()
-      manifest.put("schemaVersion", "1.0.0")
+      manifest.put("schemaVersion", "1.1.0")
       manifest.put("producer", "remus-recorder-android")
       manifest.put("activityId", currentActivityId)
       manifest.put("activityCorrelationId", currentCorrelationId)
 
       val recObj = JSONObject()
-      for ((k, v) in currentRecordingIdsBySource) {
+      for ((k, v) in effectiveRecordingIds()) {
         recObj.put(k, v)
       }
       manifest.put("recordingIdsBySource", recObj)
+      val recordings = JSONArray()
+      for (recording in canonicalRecordings(status, endedAt)) {
+        recordings.put(JSONObject(recording))
+      }
+      manifest.put("recordings", recordings)
       manifest.put("startedAtEpochMilliseconds", startedAtEpochMs)
       manifest.put("status", status)
 
@@ -379,6 +402,58 @@ class RemusEvidenceStore private constructor() {
       manifestFile.writeText(manifest.toString(2))
     } catch (_: Exception) {}
   }
+
+  private fun diagnosticRecordings(sourceId: String): List<Map<String, Any>> {
+    val diagnostics = telemetryDiagnosticsBySource[sourceId] as? Map<*, *> ?: return emptyList()
+    val recordings = diagnostics["recordings"] as? List<*> ?: return emptyList()
+    return recordings.mapNotNull { item ->
+      val map = item as? Map<*, *> ?: return@mapNotNull null
+      map.entries
+        .filter { it.value != null }
+        .associate { it.key.toString() to it.value!! }
+    }
+  }
+
+  private fun effectiveRecordingIds(): Map<String, String> =
+    currentRecordingIdsBySource.mapNotNull { (sourceId, recordingId) ->
+      if (sourceId.startsWith("computer:") || sourceId.startsWith("blade:")) {
+        val first = diagnosticRecordings(sourceId).firstOrNull()
+        val actualId = first?.get("recordingId") as? String
+        if (actualId == null) null else sourceId to actualId
+      } else {
+        sourceId to recordingId
+      }
+    }.toMap()
+
+  private fun canonicalRecordings(status: String, endedAt: Long?): List<Map<String, Any>> =
+    currentRecordingIdsBySource.flatMap { (sourceId, recordingId) ->
+      if (sourceId.startsWith("computer:") || sourceId.startsWith("blade:")) {
+        return@flatMap diagnosticRecordings(sourceId)
+      }
+      val localCounts = when {
+        sourceId.startsWith("phone:") -> mapOf(
+          "phoneMotion" to (sampleCounts["phoneMotion"] ?: 0L),
+          "phoneLocation" to (sampleCounts["phoneLocation"] ?: 0L)
+        )
+        sourceId.startsWith("watch:") -> mapOf(
+          "watchHeartRate" to (sampleCounts["watchHeartRate"] ?: 0L)
+        )
+        else -> emptyMap()
+      }
+      val recording = mutableMapOf<String, Any>(
+        "recordingId" to recordingId,
+        "sourceId" to sourceId,
+        "clockDomainId" to "clock:$sourceId:001",
+        "startReason" to "normal_start",
+        "startedAtReceiptEpochMilliseconds" to startedAtEpochMs,
+        "sampleCounts" to localCounts
+      )
+      if (endedAt != null) {
+        recording["endedAtReceiptEpochMilliseconds"] = endedAt
+        recording["endReason"] = if (status == "finalized") "normal_stop" else "interrupted"
+      }
+      listOf(recording)
+    }
 
   fun saveBladeRawBinary(context: Context, activityId: String, base64Data: String, rawCsv: String?): Boolean {
     val bytes = Base64.decode(base64Data, Base64.DEFAULT)
