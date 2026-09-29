@@ -101,6 +101,8 @@ export class LivePresentationRecorder {
     nowEpochMs?: number;
     sourceId?: string;
     recordingId?: string;
+    supportedAtNativeTimestamp?: number;
+    clockDomainId?: string;
   }): LiveMetricPresentation {
     const now = params.nowEpochMs ?? Date.now();
     const sourceId = params.sourceId ?? 'phone:primary';
@@ -109,7 +111,7 @@ export class LivePresentationRecorder {
     let availabilityReason: PresentationAvailabilityReason = 'source_unavailable';
     let numericValue: number | null = null;
     let renderedText = '—';
-    let supportedAt = params.locationSourceTimeEpochMs ?? now;
+    let supportedAt = params.locationSourceTimeEpochMs;
 
     const speed = params.groundSpeedMetersPerSecond;
 
@@ -145,7 +147,7 @@ export class LivePresentationRecorder {
       availabilityReason = 'available';
       numericValue = 500 / speed;
       renderedText = this.formatPace(numericValue);
-      supportedAt = params.locationSourceTimeEpochMs ?? now;
+      supportedAt = params.locationSourceTimeEpochMs;
     }
 
     const presentation: LiveMetricPresentation = {
@@ -159,7 +161,11 @@ export class LivePresentationRecorder {
       availabilityReason,
       sourceId,
       recordingId: params.recordingId,
-      supportedAtEpochMilliseconds: supportedAt,
+      ...(supportedAt !== undefined ? {supportedAtEpochMilliseconds: supportedAt} : {}),
+      ...(params.supportedAtNativeTimestamp !== undefined
+        ? {supportedAtNativeTimestamp: params.supportedAtNativeTimestamp}
+        : {}),
+      ...(params.clockDomainId ? {clockDomainId: params.clockDomainId} : {}),
       presentedAtEpochMilliseconds: now,
       algorithmVersion: this.algorithmVersion,
       presentationPolicyVersion: this.presentationPolicyVersion,

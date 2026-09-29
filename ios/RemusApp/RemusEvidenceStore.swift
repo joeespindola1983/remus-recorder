@@ -42,6 +42,7 @@ final class RemusEvidenceStore {
   private let streamFiles = [
     "phoneMotion": "phone-motion.ndjson",
     "phoneLocation": "phone-location.ndjson",
+    "remusComputerLocation": "remus-computer-location.ndjson",
     "watchHeartRate": "watch-heart-rate.ndjson",
     "remusBladeLive": "remus-blade-live.ndjson",
     "liveMetricPresentation": "live-metric-presentation.ndjson",
@@ -61,8 +62,11 @@ final class RemusEvidenceStore {
 
       let activityId = "activity:\(UUID().uuidString.lowercased())"
       let correlationId = "correlation:\(UUID().uuidString.lowercased())"
-      let recordings = Dictionary(uniqueKeysWithValues: uniqueSourceIds.map {
-        ($0, "recording:\(UUID().uuidString.lowercased())")
+      let recordings = Dictionary(uniqueKeysWithValues: uniqueSourceIds.map { sourceId in
+        let id = sourceId.hasPrefix("computer:") || sourceId.hasPrefix("blade:")
+          ? "rec:\(sourceId):001"
+          : "recording:\(UUID().uuidString.lowercased())"
+        return (sourceId, id)
       })
       let startedAt = epochMilliseconds()
       let root = try evidenceRoot()
@@ -139,6 +143,15 @@ final class RemusEvidenceStore {
 
   func appendPhoneLocation(_ payload: [String: Any]) {
     append(stream: "phoneLocation", sourceId: "phone:primary", payload: payload)
+  }
+
+  func appendRemusComputerLocation(_ payload: [String: Any]) {
+    guard let sourceId = payload["sourceId"] as? String else { return }
+    append(
+      stream: "remusComputerLocation",
+      sourceId: sourceId,
+      payload: payload
+    )
   }
 
   func appendLiveMetricPresentation(_ payload: [String: Any]) {
@@ -626,20 +639,46 @@ final class RemusEvidenceStore {
     parts: [[String: Any]]?
   ) throws {
     guard let recording = active else { return }
-    let recordingsArray = recording.recordingIdsBySource.map { (sourceId, recId) -> [String: Any] in
+    var effectiveRecordingIds = recording.recordingIdsBySource
+    var recordingsArray: [[String: Any]] = []
+    for (sourceId, recId) in recording.recordingIdsBySource {
+      if sourceId.hasPrefix("computer:") || sourceId.hasPrefix("blade:") {
+        if let diagnostics = recording.telemetryDiagnosticsBySource[sourceId] as? [String: Any],
+           let hardwareRecordings = diagnostics["recordings"] as? [[String: Any]],
+           !hardwareRecordings.isEmpty {
+          recordingsArray.append(contentsOf: hardwareRecordings)
+          if let firstId = hardwareRecordings.first?["recordingId"] as? String {
+            effectiveRecordingIds[sourceId] = firstId
+          }
+        } else {
+          effectiveRecordingIds.removeValue(forKey: sourceId)
+        }
+        continue
+      }
+      let localCounts: [String: Int]
+      if sourceId.hasPrefix("phone:") {
+        localCounts = [
+          "phoneMotion": recording.sampleCounts["phoneMotion", default: 0],
+          "phoneLocation": recording.sampleCounts["phoneLocation", default: 0],
+        ]
+      } else if sourceId.hasPrefix("watch:") {
+        localCounts = ["watchHeartRate": recording.sampleCounts["watchHeartRate", default: 0]]
+      } else {
+        localCounts = [:]
+      }
       var recData: [String: Any] = [
         "recordingId": recId,
         "sourceId": sourceId,
         "clockDomainId": "clock:\(sourceId):001",
         "startedAtReceiptEpochMilliseconds": recording.startedAtEpochMilliseconds,
         "startReason": "normal_start",
-        "sampleCounts": recording.sampleCounts
+        "sampleCounts": localCounts
       ]
       if let ended = endedAt {
         recData["endedAtReceiptEpochMilliseconds"] = ended
         recData["endReason"] = status == "finalized" ? "normal_stop" : "interrupted"
       }
-      return recData
+      recordingsArray.append(recData)
     }
 
     var manifest: [String: Any] = [
@@ -647,7 +686,7 @@ final class RemusEvidenceStore {
       "producer": "remus-recorder-ios",
       "activityId": recording.activityId,
       "activityCorrelationId": recording.activityCorrelationId,
-      "recordingIdsBySource": recording.recordingIdsBySource,
+      "recordingIdsBySource": effectiveRecordingIds,
       "recordings": recordingsArray,
       "startedAtEpochMilliseconds": recording.startedAtEpochMilliseconds,
       "status": status,

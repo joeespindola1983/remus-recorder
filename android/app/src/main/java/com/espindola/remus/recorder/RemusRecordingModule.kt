@@ -202,6 +202,27 @@ class RemusRecordingModule(private val reactContext: ReactApplicationContext) :
   }
 
   @ReactMethod
+  fun appendRemusComputerLocation(observation: ReadableMap, promise: Promise) {
+    try {
+      val sourceId = observation.getString("sourceId")
+        ?: throw IllegalArgumentException("sourceId is required")
+      require(sourceId.startsWith("computer:"))
+      require(!observation.getString("recordingId").isNullOrBlank())
+      require(!observation.getString("clockDomainId").isNullOrBlank())
+      require(observation.hasKey("observationSequence"))
+      require(observation.hasKey("nativeTimestampUs"))
+      require(observation.hasKey("gpsTimeOfWeekMilliseconds"))
+      require(observation.hasKey("receivedAtEpochMilliseconds"))
+      val payload = observation.toHashMap().toMutableMap()
+      payload["type"] = "remusComputerLocationObservation"
+      evidenceStore.appendRemusComputerLocation(payload)
+      promise.resolve(true)
+    } catch (error: Exception) {
+      promise.reject("INVALID_REMUS_COMPUTER_LOCATION", error.message, error)
+    }
+  }
+
+  @ReactMethod
   fun getRecordingState(promise: Promise) {
     val map = Arguments.createMap()
     map.putBoolean("isRecording", evidenceStore.isRecording)

@@ -9,6 +9,8 @@ import {
   WearableConnectionState,
 } from '../../types/wearables';
 import {
+  DecodedGpsObservation,
+  RemusGpsStreamPacketDecoder,
   RemusRelayedStreamPacketDecoder,
   RemusStreamPacketDecoder,
   TelemetryAccounting,
@@ -25,6 +27,7 @@ export const REMUS_BLADE_SERVICE_UUID = '4fafc201-1fb5-459e-8fcc-c5c9c331914b';
 export const REMUS_BLADE_CHARACTERISTIC_UUID = 'beb5483e-36e1-4688-b7f5-ea07361b26a8';
 export const REMUS_DEVICE_INFO_CHARACTERISTIC_UUID = 'beb5483f-36e1-4688-b7f5-ea07361b26a8';
 export const REMUS_IMU_STREAM_CHARACTERISTIC_UUID = 'beb54841-36e1-4688-b7f5-ea07361b26a8';
+export const REMUS_GPS_STREAM_CHARACTERISTIC_UUID = 'beb54845-36e1-4688-b7f5-ea07361b26a8';
 export const REMUS_BLADE_RELAY_CHARACTERISTIC_UUID = 'beb54844-36e1-4688-b7f5-ea07361b26a8';
 export const REMUS_CLOCK_SYNC_CHARACTERISTIC_UUID = 'beb54843-36e1-4688-b7f5-ea07361b26a8';
 
@@ -169,6 +172,17 @@ export interface RemusBladeSnapshot {
   clockDomainId?: string;
 }
 
+export interface RemusComputerLocationObservation extends DecodedGpsObservation {
+  sourceId: string;
+  recordingId?: string;
+  clockDomainId?: string;
+  receivedAtEpochMilliseconds: number;
+  receivedAtMonotonicUs?: number;
+  commonTimelineTimestampUs?: number;
+  clockMappingId?: string;
+  clockMaximumErrorUs?: number;
+}
+
 export interface BladeRosterEntry {
   sourceIdentityHash: number;
   connected: boolean;
@@ -310,6 +324,7 @@ export class RemusBladeAdapter implements IWearableAdapter {
   readonly deviceFamily: RemusDeviceFamily;
   private sensorListeners: Set<(data: SensorSample) => void> = new Set();
   private snapshotListeners: Set<(data: RemusBladeSnapshot) => void> = new Set();
+  private locationListeners: Set<(data: RemusComputerLocationObservation) => void> = new Set();
   private deviceStateListeners: Set<(device: WearableDevice) => void> = new Set();
   private bladeRosterListeners: Set<(entries: BladeRosterEntry[]) => void> = new Set();
   private nativeBridge: NativeBladeBridge | null;
@@ -321,6 +336,7 @@ export class RemusBladeAdapter implements IWearableAdapter {
   private eventEmitter: NativeEventEmitter | null = null;
   private isConnected = false;
   private readonly streamPacketDecoder = new RemusStreamPacketDecoder();
+  private readonly gpsStreamPacketDecoder = new RemusGpsStreamPacketDecoder();
   private deviceInfo: RemusDeviceInfo | null = null;
   private clockSync: RemusClockSyncSnapshot | null = null;
   private clockObservations: ClockObservation[] = [];
@@ -400,6 +416,7 @@ export class RemusBladeAdapter implements IWearableAdapter {
       deviceId?: string;
       deviceName?: string;
       characteristicUuid?: string;
+      receivedAtEpochMilliseconds?: number;
       receivedAtMonotonicUs?: number;
     };
     if (!data?.deviceId || data.deviceId !== this.targetDeviceId) {
@@ -437,6 +454,12 @@ export class RemusBladeAdapter implements IWearableAdapter {
         this.handleClockSyncPacket(data.rawBase64, data.receivedAtMonotonicUs);
       } else if (characteristicUuid === REMUS_IMU_STREAM_CHARACTERISTIC_UUID) {
         this.handleLiveImuPacket(data.rawBase64);
+      } else if (characteristicUuid === REMUS_GPS_STREAM_CHARACTERISTIC_UUID) {
+        this.handleLiveGpsPacket(
+          data.rawBase64,
+          payload.receivedAtEpochMilliseconds ?? Date.now(),
+          data.receivedAtMonotonicUs,
+        );
       } else if (characteristicUuid === REMUS_BLADE_RELAY_CHARACTERISTIC_UUID) {
         this.handleRelayedImuPacket(data.rawBase64);
       } else {
@@ -457,6 +480,10 @@ export class RemusBladeAdapter implements IWearableAdapter {
     return this.continuityTracker.getAccounting();
   }
 
+  getGpsTelemetryAccounting() {
+    return this.gpsStreamPacketDecoder.getAccounting();
+  }
+
   getContinuityTracker(): StreamContinuityTracker {
     return this.continuityTracker;
   }
@@ -467,6 +494,14 @@ export class RemusBladeAdapter implements IWearableAdapter {
 
   getAllRecordings(): CanonicalRecording[] {
     const list = [...this.continuityTracker.getAllRecordings()];
+    if (this.deviceFamily === 'remus_computer' && list.length > 0) {
+      const gpsCount = this.gpsStreamPacketDecoder.getAccounting().decodedObservationCount;
+      const last = list[list.length - 1];
+      list[list.length - 1] = {
+        ...last,
+        sampleCounts: {...last.sampleCounts, rawGnss: gpsCount},
+      };
+    }
     for (const tracker of this.relayedContinuityTrackers.values()) {
       list.push(...tracker.getAllRecordings());
     }
@@ -665,6 +700,33 @@ export class RemusBladeAdapter implements IWearableAdapter {
     }
   }
 
+  private handleLiveGpsPacket(
+    rawBase64: string,
+    receivedAtEpochMilliseconds: number,
+    receivedAtMonotonicUs?: number,
+  ): void {
+    const batch = this.gpsStreamPacketDecoder.ingestBase64(rawBase64);
+    if (!batch || this.deviceFamily !== 'remus_computer') return;
+    const recording = this.continuityTracker.getCurrentRecording();
+    for (const raw of batch.observations) {
+      const converted = this.clockMappingEstimator.convertSensorTimeToComparisonUs(
+        raw.nativeTimestampUs,
+      );
+      const observation: RemusComputerLocationObservation = {
+        ...raw,
+        sourceId: this.continuityTracker.sourceId,
+        recordingId: recording?.recordingId,
+        clockDomainId: recording?.clockDomainId,
+        receivedAtEpochMilliseconds,
+        receivedAtMonotonicUs,
+        commonTimelineTimestampUs: converted?.comparisonTimestampUs,
+        clockMappingId: converted?.clockMappingId,
+        clockMaximumErrorUs: converted?.maximumErrorUs,
+      };
+      this.locationListeners.forEach(listener => listener(observation));
+    }
+  }
+
   public handleStatePayload(payload: any): void {
     const statePayload = payload as { state: string; deviceId?: string; deviceName?: string };
     if (!statePayload?.deviceId || statePayload.deviceId !== this.targetDeviceId) {
@@ -742,28 +804,41 @@ export class RemusBladeAdapter implements IWearableAdapter {
   }
 
   async sendStart(): Promise<boolean> {
+    this.continuityTracker.beginRecording();
+    this.relayedContinuityTrackers.clear();
     this.streamPacketDecoder.beginRecording();
+    this.gpsStreamPacketDecoder.beginRecording();
     this.relayedStreamPacketDecoder.beginRecording();
     this.expectedLiveSampleSequence = null;
     this.expectedRelayedSampleSequence.clear();
     this.clockSync = null;
     this.clockObservations = [];
     this.clockMappingEstimator.invalidate('begin_recording');
+    let accepted: boolean;
     if (this.deviceFamily === 'remus_computer') {
-      return this.sendCommand('START');
+      accepted = await this.sendCommand('START');
     } else {
       // Blade uses binary StartStream command: [0x01, 0x01, 0x00, 0x00, 0x00, 0x00]
-      return this.sendBinaryCommand('AQEAAAAA');
+      accepted = await this.sendBinaryCommand('AQEAAAAA');
     }
+    if (accepted) {
+      this.continuityTracker.startStream(Date.now());
+    }
+    return accepted;
   }
 
   async sendStop(): Promise<boolean> {
+    let accepted: boolean;
     if (this.deviceFamily === 'remus_computer') {
-      return this.sendCommand('STOP');
+      accepted = await this.sendCommand('STOP');
     } else {
       // Blade uses binary StopStream command: [0x01, 0x02, 0x00, 0x00, 0x00, 0x00]
-      return this.sendBinaryCommand('AQIAAAAA');
+      accepted = await this.sendBinaryCommand('AQIAAAAA');
     }
+    if (accepted && this.continuityTracker.getActiveRecording()) {
+      this.continuityTracker.stopStream(Date.now());
+    }
+    return accepted;
   }
 
   async configureBladeSlot(
@@ -1219,6 +1294,13 @@ export class RemusBladeAdapter implements IWearableAdapter {
     };
   }
 
+  onLocationObservation(
+    listener: (data: RemusComputerLocationObservation) => void,
+  ): () => void {
+    this.locationListeners.add(listener);
+    return () => this.locationListeners.delete(listener);
+  }
+
   onDeviceStateChanged(listener: (device: WearableDevice) => void): () => void {
     this.deviceStateListeners.add(listener);
     return () => {
@@ -1250,6 +1332,7 @@ export class RemusBladeAdapter implements IWearableAdapter {
     this.stateSubscription?.remove();
     this.stateSubscription = null;
     this.sensorListeners.clear();
+    this.locationListeners.clear();
     this.snapshotListeners.clear();
     this.deviceStateListeners.clear();
     this.bladeRosterListeners.clear();

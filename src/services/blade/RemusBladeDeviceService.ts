@@ -13,6 +13,7 @@ import {
   canonicalRemusSourceId,
   RemusBladeAdapter,
   RemusBladeSnapshot,
+  RemusComputerLocationObservation,
 } from './RemusBladeAdapter';
 import { SensorSample, WearableConnectionState, WearableDevice } from '../../types/wearables';
 import { TelemetryAccounting } from './RemusStreamPacketDecoder';
@@ -257,6 +258,10 @@ export class RemusBladeDeviceService {
     return this.adapter.getTelemetryAccounting();
   }
 
+  getGpsTelemetryAccounting() {
+    return this.adapter.getGpsTelemetryAccounting();
+  }
+
   getDeviceConfiguration() {
     return this.adapter.getDeviceInfo();
   }
@@ -368,6 +373,12 @@ export class RemusBladeDeviceService {
       return this.adapter.onSensorData(listener);
     }
     return () => {};
+  }
+
+  onLocationObservation(
+    listener: (data: RemusComputerLocationObservation) => void,
+  ): () => void {
+    return this.adapter.onLocationObservation(listener);
   }
 
   private updateIdentityFromDevice(device: WearableDevice): void {

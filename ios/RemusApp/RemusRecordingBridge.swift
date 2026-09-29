@@ -225,6 +225,31 @@ final class RemusRecordingBridge: RCTEventEmitter, CLLocationManagerDelegate {
   }
 
   @objc
+  func appendRemusComputerLocation(
+    _ observation: NSDictionary,
+    resolver resolve: @escaping RCTPromiseResolveBlock,
+    rejecter reject: @escaping RCTPromiseRejectBlock
+  ) {
+    guard
+      let sourceId = observation["sourceId"] as? String,
+      sourceId.hasPrefix("computer:"),
+      observation["recordingId"] is String,
+      observation["clockDomainId"] is String,
+      observation["observationSequence"] is NSNumber,
+      observation["nativeTimestampUs"] is NSNumber,
+      observation["gpsTimeOfWeekMilliseconds"] is NSNumber,
+      observation["receivedAtEpochMilliseconds"] is NSNumber
+    else {
+      reject("INVALID_REMUS_COMPUTER_LOCATION", "Missing GNSS identity or native timing", nil)
+      return
+    }
+    var payload = observation as? [String: Any] ?? [:]
+    payload["type"] = "remusComputerLocationObservation"
+    evidenceStore.appendRemusComputerLocation(payload)
+    resolve(true)
+  }
+
+  @objc
   func exportRecording(
     _ options: NSDictionary,
     resolver resolve: @escaping RCTPromiseResolveBlock,

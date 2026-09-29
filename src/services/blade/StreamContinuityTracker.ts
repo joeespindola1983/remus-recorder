@@ -61,6 +61,13 @@ export class StreamContinuityTracker {
     return this.currentContext?.recording ?? null;
   }
 
+  beginRecording(): void {
+    this.completedDomains.splice(0, this.completedDomains.length);
+    this.currentContext = null;
+    this.currentBootId = null;
+    this.segmentIndex = 0;
+  }
+
   private nextRecordingId(): string {
     this.segmentIndex += 1;
     const indexStr = this.segmentIndex.toString().padStart(3, '0');
@@ -192,6 +199,9 @@ export class StreamContinuityTracker {
         this.closeCurrentRecording(reason, receiptEpochMs);
         this.openNewRecording(reason as RecordingStartReason, receiptEpochMs, normBootId);
         newRecordingStarted = true;
+      } else if (this.currentBootId === null && normBootId !== null) {
+        this.currentBootId = normBootId;
+        this.currentContext.recording.deviceBootId = normBootId;
       }
     }
 

@@ -79,6 +79,30 @@ export interface RecordingProjection {
   locationFreshnessMs?: number;
 }
 
+export interface RemusComputerLocationEvidence {
+  sourceId: string;
+  recordingId?: string;
+  clockDomainId?: string;
+  observationSequence: number;
+  nativeTimestampUs: number;
+  gpsTimeOfWeekMilliseconds: number;
+  positionWgs84: {latitude: number; longitude: number};
+  groundSpeedMetersPerSecond: number;
+  speedAccuracyMetersPerSecond: number;
+  courseDegrees: number;
+  courseAccuracyDegrees: number;
+  horizontalAccuracyMeters: number;
+  satellitesInUse: number;
+  maximumSnrDbHz: number;
+  fixType: number;
+  hasValidFix: boolean;
+  receivedAtEpochMilliseconds: number;
+  receivedAtMonotonicUs?: number;
+  commonTimelineTimestampUs?: number;
+  clockMappingId?: string;
+  clockMaximumErrorUs?: number;
+}
+
 export interface RecordedWorkoutSummary {
   activityId: string;
   status: 'finalized' | 'interrupted';
@@ -144,6 +168,7 @@ export interface NativeRecordingBridge {
   }): Promise<boolean>;
   appendLiveMetricPresentation?(presentation: LiveMetricPresentation): Promise<boolean>;
   appendBoatMotionObservation?(observation: BoatMotionObservation): Promise<boolean>;
+  appendRemusComputerLocation?(observation: RemusComputerLocationEvidence): Promise<boolean>;
   getPhoneHardwareProfile?(): Promise<{
     hasGps?: boolean;
     hasAccelerometer?: boolean;
@@ -230,6 +255,10 @@ export class RecordingService {
 
   appendBoatMotionObservation(observation: BoatMotionObservation): Promise<boolean> {
     return this.bridge?.appendBoatMotionObservation?.(observation) ?? Promise.resolve(false);
+  }
+
+  appendRemusComputerLocation(observation: RemusComputerLocationEvidence): Promise<boolean> {
+    return this.bridge?.appendRemusComputerLocation?.(observation) ?? Promise.resolve(false);
   }
 
   getState(): Promise<{isRecording: boolean; activityId?: string; artifactDirectory?: string}> {

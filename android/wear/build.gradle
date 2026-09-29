@@ -9,8 +9,8 @@ android {
         applicationId "com.espindola.remus.recorder"
         minSdk 30
         targetSdk rootProject.ext.targetSdkVersion
-        versionCode 22
-        versionName "3.1.1"
+        versionCode 23
+        versionName "3.2.0"
     }
 
     signingConfigs {

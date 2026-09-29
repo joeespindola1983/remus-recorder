@@ -24,6 +24,7 @@ class RemusEvidenceStore private constructor() {
   private val streamFiles = mapOf(
     "phoneMotion" to "phone-motion.ndjson",
     "phoneLocation" to "phone-location.ndjson",
+    "remusComputerLocation" to "remus-computer-location.ndjson",
     "watchHeartRate" to "watch-heart-rate.ndjson",
     "remusBladeLive" to "remus-blade-live.ndjson",
     "liveMetricPresentation" to "live-metric-presentation.ndjson",
@@ -65,7 +66,11 @@ class RemusEvidenceStore private constructor() {
 
       val recordingIds = mutableMapOf<String, String>()
       for (sourceId in sourceIds) {
-        recordingIds[sourceId] = "recording:" + UUID.randomUUID().toString().lowercase()
+        recordingIds[sourceId] = if (sourceId.startsWith("computer:") || sourceId.startsWith("blade:")) {
+          "rec:$sourceId:001"
+        } else {
+          "recording:" + UUID.randomUUID().toString().lowercase()
+        }
       }
       if (!recordingIds.containsKey("phone:primary")) {
         recordingIds["phone:primary"] = "recording:" + UUID.randomUUID().toString().lowercase()
@@ -113,6 +118,10 @@ class RemusEvidenceStore private constructor() {
 
   fun appendPhoneLocation(payload: Map<String, Any?>) {
     append("phoneLocation", "phone:primary", payload)
+  }
+
+  fun appendRemusComputerLocation(payload: Map<String, Any?>) {
+    append("remusComputerLocation", payload["sourceId"] as? String, payload)
   }
 
   fun appendLiveMetricPresentation(payload: Map<String, Any?>) {
@@ -329,7 +338,7 @@ class RemusEvidenceStore private constructor() {
           "producer" to "remus-recorder-android",
           "activityId" to (currentActivityId ?: ""),
           "activityCorrelationId" to (currentCorrelationId ?: ""),
-          "recordingIdsBySource" to currentRecordingIdsBySource,
+          "recordingIdsBySource" to effectiveRecordingIds(),
           "recordings" to canonicalRecordings("finalized", endedAt),
           "startedAtEpochMilliseconds" to startedAtEpochMs,
           "endedAtEpochMilliseconds" to endedAt,
@@ -354,7 +363,7 @@ class RemusEvidenceStore private constructor() {
       manifest.put("activityCorrelationId", currentCorrelationId)
 
       val recObj = JSONObject()
-      for ((k, v) in currentRecordingIdsBySource) {
+      for ((k, v) in effectiveRecordingIds()) {
         recObj.put(k, v)
       }
       manifest.put("recordingIdsBySource", recObj)
@@ -394,21 +403,56 @@ class RemusEvidenceStore private constructor() {
     } catch (_: Exception) {}
   }
 
+  private fun diagnosticRecordings(sourceId: String): List<Map<String, Any>> {
+    val diagnostics = telemetryDiagnosticsBySource[sourceId] as? Map<*, *> ?: return emptyList()
+    val recordings = diagnostics["recordings"] as? List<*> ?: return emptyList()
+    return recordings.mapNotNull { item ->
+      val map = item as? Map<*, *> ?: return@mapNotNull null
+      map.entries
+        .filter { it.value != null }
+        .associate { it.key.toString() to it.value!! }
+    }
+  }
+
+  private fun effectiveRecordingIds(): Map<String, String> =
+    currentRecordingIdsBySource.mapNotNull { (sourceId, recordingId) ->
+      if (sourceId.startsWith("computer:") || sourceId.startsWith("blade:")) {
+        val first = diagnosticRecordings(sourceId).firstOrNull()
+        val actualId = first?.get("recordingId") as? String
+        if (actualId == null) null else sourceId to actualId
+      } else {
+        sourceId to recordingId
+      }
+    }.toMap()
+
   private fun canonicalRecordings(status: String, endedAt: Long?): List<Map<String, Any>> =
-    currentRecordingIdsBySource.map { (sourceId, recordingId) ->
+    currentRecordingIdsBySource.flatMap { (sourceId, recordingId) ->
+      if (sourceId.startsWith("computer:") || sourceId.startsWith("blade:")) {
+        return@flatMap diagnosticRecordings(sourceId)
+      }
+      val localCounts = when {
+        sourceId.startsWith("phone:") -> mapOf(
+          "phoneMotion" to (sampleCounts["phoneMotion"] ?: 0L),
+          "phoneLocation" to (sampleCounts["phoneLocation"] ?: 0L)
+        )
+        sourceId.startsWith("watch:") -> mapOf(
+          "watchHeartRate" to (sampleCounts["watchHeartRate"] ?: 0L)
+        )
+        else -> emptyMap()
+      }
       val recording = mutableMapOf<String, Any>(
         "recordingId" to recordingId,
         "sourceId" to sourceId,
         "clockDomainId" to "clock:$sourceId:001",
         "startReason" to "normal_start",
         "startedAtReceiptEpochMilliseconds" to startedAtEpochMs,
-        "sampleCounts" to sampleCounts.toMap()
+        "sampleCounts" to localCounts
       )
       if (endedAt != null) {
         recording["endedAtReceiptEpochMilliseconds"] = endedAt
         recording["endReason"] = if (status == "finalized") "normal_stop" else "interrupted"
       }
-      recording
+      listOf(recording)
     }
 
   fun saveBladeRawBinary(context: Context, activityId: String, base64Data: String, rawCsv: String?): Boolean {

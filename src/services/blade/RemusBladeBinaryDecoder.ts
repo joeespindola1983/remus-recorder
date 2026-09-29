@@ -26,6 +26,12 @@ export interface RemusBladeGpsFix {
   satsInUse: number;
   maxSnr: number;
   accuracyMeters: number;
+  gpsTimeOfWeekMilliseconds?: number;
+  speedAccuracyMetersPerSecond?: number;
+  courseDegrees?: number;
+  courseAccuracyDegrees?: number;
+  fixType?: number;
+  hasValidFix?: boolean;
 }
 
 export interface RemusBladeSpmEvent {
@@ -48,8 +54,8 @@ export function decodeRemusBladeBinary(buffer: Buffer | Uint8Array): DecodedRemu
   }
 
   const magic = String.fromCharCode(uint8[0], uint8[1], uint8[2], uint8[3]);
-  if (magic !== 'RBP1') {
-    throw new Error('Invalid magic header: ' + magic + ', expected RBP1');
+  if (magic !== 'RBP1' && magic !== 'RBP2') {
+    throw new Error('Invalid magic header: ' + magic + ', expected RBP1 or RBP2');
   }
 
   const view = new DataView(uint8.buffer, uint8.byteOffset, uint8.byteLength);
@@ -131,6 +137,24 @@ export function decodeRemusBladeBinary(buffer: Buffer | Uint8Array): DecodedRemu
         strokeRateSpm: spmX10 / 10.0,
       });
       offset += 7;
+    } else if (recordType === 0x04) {
+      if (offset + 41 > uint8.length) break;
+      gpsFixes.push({
+        timestampMs: view.getUint32(offset + 1, true),
+        gpsTimeOfWeekMilliseconds: view.getUint32(offset + 5, true),
+        latitude: view.getInt32(offset + 9, true) / 1e7,
+        longitude: view.getInt32(offset + 13, true) / 1e7,
+        speedKmh: view.getUint32(offset + 17, true) * 0.036,
+        speedAccuracyMetersPerSecond: view.getUint32(offset + 21, true) / 100,
+        courseDegrees: view.getInt32(offset + 25, true) / 1e5,
+        courseAccuracyDegrees: view.getUint32(offset + 29, true) / 1e5,
+        accuracyMeters: view.getUint32(offset + 33, true) / 1000,
+        satsInUse: view.getUint8(offset + 37),
+        maxSnr: view.getUint8(offset + 38),
+        fixType: view.getUint8(offset + 39),
+        hasValidFix: (view.getUint8(offset + 40) & 0x01) !== 0,
+      });
+      offset += 41;
     } else {
       offset += 1;
     }

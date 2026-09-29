@@ -18,7 +18,10 @@ import { color } from './src/ui/theme/tokens';
 import {ProfileScreen} from './src/ui/screens/ProfileScreen';
 import { t } from './src/i18n';
 import { PhoneDeviceService } from './src/services/sensors/PhoneDeviceService';
-import { RemusBladeSnapshot } from './src/services/blade/RemusBladeAdapter';
+import {
+  RemusBladeSnapshot,
+  RemusComputerLocationObservation,
+} from './src/services/blade/RemusBladeAdapter';
 import { RemusBladeManager } from './src/services/blade/RemusBladeManager';
 import { useWearables } from './src/services/wearables';
 import {
@@ -80,6 +83,7 @@ export default function App(): React.JSX.Element {
   phaseRef.current = state.phase;
   const elapsedSecondsRef = useRef(state.metrics.elapsedSeconds);
   elapsedSecondsRef.current = state.metrics.elapsedSeconds;
+  const latestComputerLocationRef = useRef<RemusComputerLocationObservation | null>(null);
   const [presentationRecorder] = useState(
     () =>
       new LivePresentationRecorder({
@@ -162,6 +166,13 @@ export default function App(): React.JSX.Element {
     };
   }, [bladeManager, recordingService]);
 
+  useEffect(() => bladeManager.onLocationObservation(observation => {
+    latestComputerLocationRef.current = observation;
+    if (phaseRef.current === 'recording' || phaseRef.current === 'finalizing') {
+      recordingService.appendRemusComputerLocation(observation).catch(() => {});
+    }
+  }), [bladeManager, recordingService]);
+
   useEffect(() => {
     const device = wearable.devices[0];
     if (
@@ -213,22 +224,42 @@ export default function App(): React.JSX.Element {
   useEffect(
     () =>
       recordingService.onUpdate(projection => {
+        const now = Date.now();
+        const pc = latestComputerLocationRef.current;
+        const computerGps = pc?.hasValidFix === true &&
+          now - pc.receivedAtEpochMilliseconds <= 1500 &&
+          pc.speedAccuracyMetersPerSecond <= 1.5 ? pc : null;
+        const useComputerGps = computerGps !== null;
+        const groundSpeedMetersPerSecond = computerGps
+          ? computerGps.groundSpeedMetersPerSecond
+          : projection.groundSpeedMetersPerSecond;
+        const speedAccuracyMetersPerSecond = computerGps
+          ? computerGps.speedAccuracyMetersPerSecond
+          : projection.speedAccuracyMetersPerSecond;
+        const sourceId = computerGps?.sourceId ?? 'phone:primary';
         const pacePres = presentationRecorder.updatePace({
-          groundSpeedMetersPerSecond: projection.groundSpeedMetersPerSecond,
-          locationSourceTimeEpochMs: projection.locationSourceTimeEpochMs,
-          speedAccuracyMetersPerSecond: projection.speedAccuracyMetersPerSecond,
-          locationFreshnessMs: projection.locationFreshnessMs,
+          groundSpeedMetersPerSecond,
+          locationSourceTimeEpochMs: useComputerGps ? undefined : projection.locationSourceTimeEpochMs,
+          speedAccuracyMetersPerSecond,
+          locationFreshnessMs: useComputerGps
+            ? now - computerGps!.receivedAtEpochMilliseconds
+            : projection.locationFreshnessMs,
+          sourceId,
+          recordingId: computerGps?.recordingId,
+          supportedAtNativeTimestamp: computerGps?.nativeTimestampUs,
+          clockDomainId: computerGps?.clockDomainId,
         });
         boatMotionDetector.update({
-          timestampMs: projection.locationSourceTimeEpochMs ?? Date.now(),
-          groundSpeedMetersPerSecond: projection.groundSpeedMetersPerSecond,
-          speedAccuracyMetersPerSecond: projection.speedAccuracyMetersPerSecond,
-          courseDegrees: projection.courseDegrees,
-          courseAccuracyDegrees: projection.courseAccuracyDegrees,
-          horizontalAccuracyMeters: projection.horizontalAccuracyMeters,
-          locationFreshnessMs: projection.locationFreshnessMs,
-          sourceId: 'phone:primary',
-          nowEpochMs: Date.now(),
+          timestampMs: computerGps?.receivedAtEpochMilliseconds ?? projection.locationSourceTimeEpochMs ?? now,
+          groundSpeedMetersPerSecond,
+          speedAccuracyMetersPerSecond,
+          courseDegrees: computerGps?.courseDegrees ?? projection.courseDegrees,
+          courseAccuracyDegrees: computerGps?.courseAccuracyDegrees ?? projection.courseAccuracyDegrees,
+          horizontalAccuracyMeters: computerGps?.horizontalAccuracyMeters ?? projection.horizontalAccuracyMeters,
+          locationFreshnessMs: computerGps ? now - computerGps.receivedAtEpochMilliseconds : projection.locationFreshnessMs,
+          sourceId,
+          recordingId: computerGps?.recordingId,
+          nowEpochMs: now,
         });
         const paceSecondsPer500Meters =
           pacePres.availabilityState === 'available' && pacePres.numericValue !== null
@@ -237,7 +268,7 @@ export default function App(): React.JSX.Element {
         dispatch({
           type: 'update_live_metrics',
           metrics: {
-            groundSpeedMetersPerSecond: projection.groundSpeedMetersPerSecond,
+            groundSpeedMetersPerSecond,
             paceSecondsPer500Meters,
             distanceMeters: projection.distanceMeters,
           },
@@ -317,6 +348,7 @@ export default function App(): React.JSX.Element {
         )
         .map(source => source.sourceId);
       const started = await recordingService.start(participatingSourceIds);
+      latestComputerLocationRef.current = null;
       presentationRecorder.reset();
       boatMotionDetector.reset();
       dispatch({
@@ -357,6 +389,7 @@ export default function App(): React.JSX.Element {
       const manifest = await recordingService.stop();
       presentationRecorder.reset();
       boatMotionDetector.reset();
+      latestComputerLocationRef.current = null;
       setLastManifest(manifest);
       if (manifest.status !== 'finalized') {
         throw new Error(
