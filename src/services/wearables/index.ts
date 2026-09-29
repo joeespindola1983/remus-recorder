@@ -91,15 +91,28 @@ export function useWearables() {
     };
   }, []);
 
-  const startRecording = useCallback(async () => {
-    setIsRecording(true);
-    await wearableHub.startRecording();
-  }, []);
+  const startRecording = useCallback(
+    async (options?: {
+      activityCorrelationId?: string;
+      recordingId?: string;
+      startCommandId?: string;
+    }) => {
+      setIsRecording(true);
+      await wearableHub.startRecording(options);
+    },
+    [],
+  );
 
-  const stopRecording = useCallback(async () => {
-    setIsRecording(false);
-    await wearableHub.stopRecording();
-  }, []);
+  const stopRecording = useCallback(
+    async (options?: {
+      stopCommandId?: string;
+    }) => {
+      setIsRecording(false);
+      await wearableHub.stopRecording(options);
+    },
+    [],
+  );
+
 
   const sendPing = useCallback(async (deviceId?: string) => {
     const targetId = deviceId || devices[0]?.id;

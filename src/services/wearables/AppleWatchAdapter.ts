@@ -9,9 +9,12 @@ export interface RawWatchPayload {
   nativeTimestamp?: number;
   deviceId?: string;
   messageId?: string;
-  sequenceNumber?: string;
   clockDomainId?: string;
+  recordingId?: string;
+  recordingState?: 'idle' | 'recording' | 'unavailable' | 'stopped';
+  activityCorrelationId?: string;
   receivedAtEpochMilliseconds?: number;
+
   heartRateBeatsPerMinute?: number;
   groundSpeedMetersPerSecond?: number;
   horizontalAccuracyMeters?: number;
@@ -35,7 +38,6 @@ export interface RawWatchPayload {
   gyroZ?: number;
   [key: string]: unknown;
 }
-
 export interface NativeWatchBridge {
   isSupported?(): Promise<boolean>;
   isPaired?(): Promise<boolean>;
@@ -59,6 +61,10 @@ export class AppleWatchAdapter implements IWearableAdapter {
   private messageSubscription: { remove(): void } | null = null;
   private stateSubscription: { remove(): void } | null = null;
   private permissionState: WearableDevice['heartRatePermissionState'];
+  private recordingState?: WearableDevice['recordingState'];
+  private recordingId?: string;
+  private clockDomainId?: string;
+
 
   constructor(nativeBridge?: NativeWatchBridge) {
     this.nativeBridge = nativeBridge || null;
@@ -101,18 +107,33 @@ export class AppleWatchAdapter implements IWearableAdapter {
               isWatchAppInstalled?: boolean;
               isReachable?: boolean;
               heartRatePermissionState?: WearableDevice['heartRatePermissionState'];
+              recordingState?: WearableDevice['recordingState'];
+              recordingId?: string;
+              clockDomainId?: string;
             };
             this.isConnected =
               state.isPaired !== false &&
               state.isWatchAppInstalled !== false &&
               state.isReachable !== false;
             this.permissionState = state.heartRatePermissionState;
+            if (state.recordingState !== undefined) {
+              this.recordingState = state.recordingState;
+            }
+            if (state.recordingId !== undefined) {
+              this.recordingId = state.recordingId;
+            }
+            if (state.clockDomainId !== undefined) {
+              this.clockDomainId = state.clockDomainId;
+            }
             const device: WearableDevice = {
               id: 'apple-watch',
               name: 'Apple Watch',
               deviceFamily: 'apple_watch',
               state: this.isConnected ? 'connected' : 'disconnected',
               heartRatePermissionState: state.heartRatePermissionState,
+              recordingState: this.recordingState,
+              recordingId: this.recordingId,
+              clockDomainId: this.clockDomainId,
             };
             this.deviceStateListeners.forEach(listener => listener(device));
           }) || null;
@@ -142,9 +163,13 @@ export class AppleWatchAdapter implements IWearableAdapter {
         deviceFamily: 'apple_watch',
         state: 'connected',
         heartRatePermissionState: this.permissionState,
+        recordingState: this.recordingState,
+        recordingId: this.recordingId,
+        clockDomainId: this.clockDomainId,
       },
     ];
   }
+
 
   async sendData(_deviceId: string, payload: Record<string, unknown>): Promise<boolean> {
     console.log('[AppleWatchAdapter] sendData called. Payload:', JSON.stringify(payload));
@@ -164,8 +189,33 @@ export class AppleWatchAdapter implements IWearableAdapter {
   }
 
   handleRawWatchMessage(payload: RawWatchPayload): void {
+    if (payload.type === 'RECORDING_STATE') {
+      if (payload.recordingState) {
+        this.recordingState = payload.recordingState;
+      }
+      if (payload.recordingId) {
+        this.recordingId = payload.recordingId;
+      }
+      if (payload.clockDomainId) {
+        this.clockDomainId = payload.clockDomainId;
+      }
+      const device: WearableDevice = {
+        id: 'apple-watch',
+        name: 'Apple Watch',
+        deviceFamily: 'apple_watch',
+        state: this.isConnected ? 'connected' : 'disconnected',
+        heartRatePermissionState: this.permissionState,
+        recordingState: this.recordingState,
+        recordingId: this.recordingId,
+        clockDomainId: this.clockDomainId,
+      };
+      this.deviceStateListeners.forEach(listener => listener(device));
+      return;
+    }
+
     const heartRateBeatsPerMinute =
       payload.heartRateBeatsPerMinute ?? payload.heartRate;
+
     if (
       typeof heartRateBeatsPerMinute !== 'number' ||
       !Number.isFinite(heartRateBeatsPerMinute) ||
@@ -240,5 +290,8 @@ export class AppleWatchAdapter implements IWearableAdapter {
     this.deviceStateListeners.clear();
     this.isConnected = false;
     this.permissionState = undefined;
+    this.recordingState = undefined;
+    this.recordingId = undefined;
+    this.clockDomainId = undefined;
   }
 }

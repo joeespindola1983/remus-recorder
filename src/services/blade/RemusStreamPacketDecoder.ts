@@ -19,6 +19,39 @@ export interface DecodedRelayedImuBatch {
   batch: DecodedImuBatch;
 }
 
+export interface DecodedGpsObservation {
+  observationSequence: number;
+  nativeTimestampUs: number;
+  gpsTimeOfWeekMilliseconds: number;
+  positionWgs84: { latitude: number; longitude: number };
+  groundSpeedMetersPerSecond: number;
+  speedAccuracyMetersPerSecond: number;
+  courseDegrees: number;
+  courseAccuracyDegrees: number;
+  horizontalAccuracyMeters: number;
+  satellitesInUse: number;
+  maximumSnrDbHz: number;
+  fixType: number;
+  hasValidFix: boolean;
+}
+
+export interface DecodedGpsObservationBatch {
+  batchSequence: number;
+  observations: DecodedGpsObservation[];
+}
+
+export interface GpsTelemetryAccounting {
+  transportNotificationCount: number;
+  decodedBatchCount: number;
+  decodedObservationCount: number;
+  invalidNotificationCount: number;
+  pendingFragmentCount: number;
+  lostPackets: number;
+  lostObservations: number;
+  duplicatedPackets: number;
+  outOfOrderPackets: number;
+}
+
 export interface TelemetryAccounting {
   transportNotificationCount: number;
   decodedBatchCount: number;
@@ -248,6 +281,145 @@ export class RemusStreamPacketDecoder {
       firstSampleSequence + sampleCount,
     );
     return { batchSequence, samples };
+  }
+}
+
+export class RemusGpsStreamPacketDecoder {
+  private readonly fragments = new Map<number, FragmentAccumulator>();
+  private transportNotificationCount = 0;
+  private decodedBatchCount = 0;
+  private decodedObservationCount = 0;
+  private invalidNotificationCount = 0;
+  private expectedBatchSequence: number | null = null;
+  private expectedObservationSequence: number | null = null;
+  private lostPackets = 0;
+  private lostObservations = 0;
+  private duplicatedPackets = 0;
+  private outOfOrderPackets = 0;
+
+  beginRecording(): void {
+    this.fragments.clear();
+    this.transportNotificationCount = 0;
+    this.decodedBatchCount = 0;
+    this.decodedObservationCount = 0;
+    this.invalidNotificationCount = 0;
+    this.expectedBatchSequence = null;
+    this.expectedObservationSequence = null;
+    this.lostPackets = 0;
+    this.lostObservations = 0;
+    this.duplicatedPackets = 0;
+    this.outOfOrderPackets = 0;
+  }
+
+  getAccounting(): GpsTelemetryAccounting {
+    return {
+      transportNotificationCount: this.transportNotificationCount,
+      decodedBatchCount: this.decodedBatchCount,
+      decodedObservationCount: this.decodedObservationCount,
+      invalidNotificationCount: this.invalidNotificationCount,
+      pendingFragmentCount: this.fragments.size,
+      lostPackets: this.lostPackets,
+      lostObservations: this.lostObservations,
+      duplicatedPackets: this.duplicatedPackets,
+      outOfOrderPackets: this.outOfOrderPackets,
+    };
+  }
+
+  ingestBase64(rawBase64: string): DecodedGpsObservationBatch | null {
+    if (!rawBase64) return null;
+    return this.ingest(Buffer.from(rawBase64, 'base64'));
+  }
+
+  ingest(data: Uint8Array): DecodedGpsObservationBatch | null {
+    this.transportNotificationCount += 1;
+    if (data.length < 2 || data[0] !== 1) return this.invalid();
+    if (data[1] === 0x11) return this.ingestFragment(data);
+    if (data[1] !== 0x05) return this.invalid();
+    return this.decodeBatch(data) ?? this.invalid();
+  }
+
+  private invalid(): null {
+    this.invalidNotificationCount += 1;
+    return null;
+  }
+
+  private ingestFragment(data: Uint8Array): DecodedGpsObservationBatch | null {
+    if (data.length < 9) return this.invalid();
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    const sequence = view.getUint32(2, true);
+    const fragmentIndex = data[6];
+    const fragmentCount = data[7];
+    const payloadLength = data[8];
+    if (fragmentCount === 0 || fragmentIndex >= fragmentCount ||
+        data.length !== 9 + payloadLength) return this.invalid();
+    const existing = this.fragments.get(sequence);
+    const accumulator = existing?.fragmentCount === fragmentCount
+      ? existing
+      : {fragmentCount, fragments: new Array<Buffer | undefined>(fragmentCount)};
+    accumulator.fragments[fragmentIndex] = Buffer.from(data.subarray(9));
+    this.fragments.set(sequence, accumulator);
+    if (accumulator.fragments.some(fragment => fragment === undefined)) return null;
+    this.fragments.delete(sequence);
+    return this.decodeBatch(Buffer.concat(accumulator.fragments as Buffer[])) ?? this.invalid();
+  }
+
+  private decodeBatch(data: Uint8Array): DecodedGpsObservationBatch | null {
+    if (data.length < 67 || data[0] !== 1 || data[1] !== 0x05) return null;
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    const headerLength = data[3];
+    const observationCount = data[20];
+    const bytesPerObservation = data[21];
+    const expectedLength = headerLength + observationCount * bytesPerObservation + 4;
+    if (headerLength !== 23 || bytesPerObservation !== 40 ||
+        observationCount === 0 || observationCount > 2 || data.length !== expectedLength) return null;
+    const expectedCrc = view.getUint32(data.length - 4, true);
+    if (crc32(data.subarray(0, data.length - 4)) !== expectedCrc) return null;
+
+    const batchSequence = view.getUint32(4, true);
+    const firstObservationSequence = view.getUint32(8, true);
+    const firstTimestampUs = Number(view.getBigUint64(12, true));
+    if (this.expectedBatchSequence !== null) {
+      if (batchSequence > this.expectedBatchSequence) this.lostPackets += batchSequence - this.expectedBatchSequence;
+      else if (batchSequence === this.expectedBatchSequence - 1) this.duplicatedPackets += 1;
+      else if (batchSequence < this.expectedBatchSequence) this.outOfOrderPackets += 1;
+    }
+    if (this.expectedObservationSequence !== null &&
+        firstObservationSequence > this.expectedObservationSequence) {
+      this.lostObservations += firstObservationSequence - this.expectedObservationSequence;
+    }
+    this.expectedBatchSequence = Math.max(this.expectedBatchSequence ?? 0, batchSequence + 1);
+
+    const observations: DecodedGpsObservation[] = [];
+    let offset = headerLength;
+    for (let index = 0; index < observationCount; index += 1) {
+      const flags = view.getUint8(offset + 39);
+      observations.push({
+        observationSequence: firstObservationSequence + index,
+        nativeTimestampUs: firstTimestampUs + view.getUint32(offset, true),
+        gpsTimeOfWeekMilliseconds: view.getUint32(offset + 4, true),
+        positionWgs84: {
+          latitude: view.getInt32(offset + 8, true) / 1e7,
+          longitude: view.getInt32(offset + 12, true) / 1e7,
+        },
+        groundSpeedMetersPerSecond: view.getUint32(offset + 16, true) / 100,
+        speedAccuracyMetersPerSecond: view.getUint32(offset + 20, true) / 100,
+        courseDegrees: view.getInt32(offset + 24, true) / 1e5,
+        courseAccuracyDegrees: view.getUint32(offset + 28, true) / 1e5,
+        horizontalAccuracyMeters: view.getUint32(offset + 32, true) / 1000,
+        satellitesInUse: view.getUint8(offset + 36),
+        maximumSnrDbHz: view.getUint8(offset + 37),
+        fixType: view.getUint8(offset + 38),
+        hasValidFix: (flags & 0x01) !== 0,
+      });
+      offset += bytesPerObservation;
+    }
+    this.decodedBatchCount += 1;
+    this.decodedObservationCount += observations.length;
+    this.expectedObservationSequence = Math.max(
+      this.expectedObservationSequence ?? 0,
+      firstObservationSequence + observationCount,
+    );
+    return {batchSequence, observations};
   }
 }
 

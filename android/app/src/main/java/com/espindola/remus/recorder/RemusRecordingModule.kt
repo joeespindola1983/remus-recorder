@@ -12,6 +12,7 @@ import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.os.BatteryManager
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -184,6 +185,40 @@ class RemusRecordingModule(private val reactContext: ReactApplicationContext) :
       promise.resolve(true)
     } catch (error: Exception) {
       promise.reject("INVALID_LIVE_METRIC_PRESENTATION", error.message, error)
+    }
+  }
+
+  @ReactMethod
+  fun appendBoatMotionObservation(observation: ReadableMap, promise: Promise) {
+    try {
+      val metricIdentifier = observation.getString("metricIdentifier")
+        ?: throw IllegalArgumentException("metricIdentifier is required")
+      require(metricIdentifier == "boatMotionState")
+      evidenceStore.appendBoatMotionObservation(observation.toHashMap())
+      promise.resolve(true)
+    } catch (error: Exception) {
+      promise.reject("INVALID_BOAT_MOTION_OBSERVATION", error.message, error)
+    }
+  }
+
+  @ReactMethod
+  fun appendRemusComputerLocation(observation: ReadableMap, promise: Promise) {
+    try {
+      val sourceId = observation.getString("sourceId")
+        ?: throw IllegalArgumentException("sourceId is required")
+      require(sourceId.startsWith("computer:"))
+      require(!observation.getString("recordingId").isNullOrBlank())
+      require(!observation.getString("clockDomainId").isNullOrBlank())
+      require(observation.hasKey("observationSequence"))
+      require(observation.hasKey("nativeTimestampUs"))
+      require(observation.hasKey("gpsTimeOfWeekMilliseconds"))
+      require(observation.hasKey("receivedAtEpochMilliseconds"))
+      val payload = observation.toHashMap().toMutableMap()
+      payload["type"] = "remusComputerLocationObservation"
+      evidenceStore.appendRemusComputerLocation(payload)
+      promise.resolve(true)
+    } catch (error: Exception) {
+      promise.reject("INVALID_REMUS_COMPUTER_LOCATION", error.message, error)
     }
   }
 
@@ -460,8 +495,28 @@ class RemusRecordingModule(private val reactContext: ReactApplicationContext) :
   private fun emitProjection() {
     if (!evidenceStore.isRecording || listenerCount <= 0) return
     val map = Arguments.createMap()
-    lastSpeedMetersPerSecond?.let {
-      map.putDouble("groundSpeedMetersPerSecond", it.toDouble())
+    val now = System.currentTimeMillis()
+    val loc = lastLocation
+    if (loc != null) {
+      val freshnessMs = (now - loc.time).toDouble()
+      map.putDouble("locationSourceTimeEpochMs", loc.time.toDouble())
+      map.putDouble("locationFreshnessMs", freshnessMs)
+      if (freshnessMs <= 3500.0) {
+        lastSpeedMetersPerSecond?.let {
+          map.putDouble("groundSpeedMetersPerSecond", it.toDouble())
+        }
+      }
+      if (loc.hasBearing()) {
+        map.putDouble("courseDegrees", loc.bearing.toDouble())
+      }
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        if (loc.hasSpeedAccuracy()) {
+          map.putDouble("speedAccuracyMetersPerSecond", loc.speedAccuracyMetersPerSecond.toDouble())
+        }
+        if (loc.hasBearingAccuracy()) {
+          map.putDouble("courseAccuracyDegrees", loc.bearingAccuracyDegrees.toDouble())
+        }
+      }
     }
     map.putDouble("distanceMeters", accumulatedDistanceMeters)
     reactContext

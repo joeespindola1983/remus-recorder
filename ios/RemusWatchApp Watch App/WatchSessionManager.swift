@@ -11,7 +11,13 @@ final class WatchSessionManager: NSObject, ObservableObject {
 
     private let session: WCSession?
     private let deviceId: String
+    private let bootId = "boot:\(UUID().uuidString.lowercased())"
     private var sequenceNumber: UInt64
+    private var activeCorrelationId: String?
+    private var activeRecordingId: String?
+    private var activeClockDomainId: String?
+    private var activeStartCommandId: String?
+    private var lastProcessedStopCommandId: String?
 
     override init() {
         let defaults = UserDefaults.standard
@@ -29,6 +35,18 @@ final class WatchSessionManager: NSObject, ObservableObject {
         session?.activate()
     }
 
+    func getDeviceId() -> String { deviceId }
+    func getDeviceBootId() -> String { bootId }
+
+    func transferFile(_ url: URL, metadata: [String: Any]) {
+        guard let session, session.activationState == .activated else {
+            NSLog("[WatchSessionManager] Cannot transfer file: WCSession not activated")
+            return
+        }
+        session.transferFile(url, metadata: metadata)
+    }
+
+
     func sendHeartRateObservation(heartRateBeatsPerMinute: Double, measuredAt: Date) {
         guard heartRateBeatsPerMinute.isFinite, heartRateBeatsPerMinute > 0,
               let session, session.activationState == .activated else { return }
@@ -37,12 +55,13 @@ final class WatchSessionManager: NSObject, ObservableObject {
         UserDefaults.standard.set(String(sequenceNumber), forKey: "remus.watch.sequenceNumber")
         let messageId = "\(deviceId):\(sequenceNumber)"
         let payload: [String: Any] = [
-            "protocolVersion": "1.0.0",
+            "protocolVersion": "1.1.0",
             "type": "HEART_RATE_OBSERVATION",
             "messageId": messageId,
             "deviceId": deviceId,
             "deviceFamily": "apple_watch",
-            "clockDomainId": "\(deviceId):healthkit",
+            "recordingId": activeRecordingId ?? "rec:watch:apple:primary:001",
+            "clockDomainId": activeClockDomainId ?? "clk:\(deviceId):001",
             "nativeTimestamp": Int64(measuredAt.timeIntervalSince1970 * 1_000),
             "sequenceNumber": String(sequenceNumber),
             "heartRateBeatsPerMinute": heartRateBeatsPerMinute,
@@ -60,7 +79,7 @@ final class WatchSessionManager: NSObject, ObservableObject {
     func sendPermissionState(_ permissionState: String) {
         guard let session, session.activationState == .activated else { return }
         let payload: [String: Any] = [
-            "protocolVersion": "1.0.0",
+            "protocolVersion": "1.1.0",
             "type": "DEVICE_STATE",
             "deviceId": deviceId,
             "deviceFamily": "apple_watch",
@@ -69,30 +88,146 @@ final class WatchSessionManager: NSObject, ObservableObject {
         try? session.updateApplicationContext(payload)
     }
 
-    private func apply(_ message: [String: Any]) {
+    func notifyRecordingStarted(recordingId: String, clockDomainId: String) {
+        isRecording = true
+        recordingCommandHandler?(true)
+        guard let session, session.activationState == .activated else { return }
+        let payload: [String: Any] = [
+            "protocolVersion": "1.1.0",
+            "type": "RECORDING_STATE",
+            "deviceId": deviceId,
+            "deviceFamily": "apple_watch",
+            "recordingState": "recording",
+            "recordingId": recordingId,
+            "clockDomainId": clockDomainId,
+            "activityCorrelationId": activeCorrelationId as Any
+        ]
+        if session.isReachable {
+            session.sendMessage(payload, replyHandler: nil) { [weak self] _ in
+                self?.session?.transferUserInfo(payload)
+            }
+        } else {
+            session.transferUserInfo(payload)
+        }
+    }
+
+    func notifyRecordingFailed(reason: String) {
+        isRecording = false
+        recordingCommandHandler?(false)
+        guard let session, session.activationState == .activated else { return }
+        let payload: [String: Any] = [
+            "protocolVersion": "1.1.0",
+            "type": "RECORDING_STATE",
+            "deviceId": deviceId,
+            "deviceFamily": "apple_watch",
+            "recordingState": "unavailable",
+            "failureReason": reason
+        ]
+        if session.isReachable {
+            session.sendMessage(payload, replyHandler: nil) { [weak self] _ in
+                self?.session?.transferUserInfo(payload)
+            }
+        } else {
+            session.transferUserInfo(payload)
+        }
+    }
+
+    func notifyRecordingStopped() {
+        isRecording = false
+        recordingCommandHandler?(false)
+        guard let session, session.activationState == .activated else { return }
+        let payload: [String: Any] = [
+            "protocolVersion": "1.1.0",
+            "type": "RECORDING_STATE",
+            "deviceId": deviceId,
+            "deviceFamily": "apple_watch",
+            "recordingState": "stopped",
+            "recordingId": activeRecordingId as Any
+        ]
+        if session.isReachable {
+            session.sendMessage(payload, replyHandler: nil) { [weak self] _ in
+                self?.session?.transferUserInfo(payload)
+            }
+        } else {
+            session.transferUserInfo(payload)
+        }
+    }
+
+    @discardableResult
+    func apply(_ message: [String: Any]) -> [String: Any] {
         let rawCommand = (message["command"] as? String) ?? (message["action"] as? String) ?? ""
         let command = rawCommand.uppercased()
         switch command {
         case "START_RECORD", "START_RECORDING", "START_WORKOUT":
-            isRecording = true
-            recordingCommandHandler?(true)
-            WatchSensorManager.shared.startHeartRateCapture()
+            let startCommandId = message["startCommandId"] as? String ?? "cmd-start-\(UUID().uuidString)"
+            let correlationId = message["activityCorrelationId"] as? String
+            let incomingRecId = message["recordingId"] as? String
+
+            if isRecording {
+                return [
+                    "status": "already_applied",
+                    "recordingId": activeRecordingId ?? "",
+                    "clockDomainId": activeClockDomainId ?? ""
+                ]
+            }
+
+            activeStartCommandId = startCommandId
+            activeCorrelationId = correlationId
+            let assignedRecordingId = incomingRecId ?? "rec:watch:apple:\(UUID().uuidString.lowercased())"
+            activeRecordingId = assignedRecordingId
+            let assignedClockDomainId = "clk:\(deviceId):001"
+            activeClockDomainId = assignedClockDomainId
+
+            // Rule 5A.3: isRecording is reported only after beginCollection confirms success
+            WatchSensorManager.shared.startHeartRateCapture(
+                correlationId: correlationId,
+                recordingId: assignedRecordingId,
+                startCommandId: startCommandId
+            )
+            return [
+                "status": "accepted",
+                "recordingId": assignedRecordingId,
+                "clockDomainId": assignedClockDomainId
+            ]
+
         case "STOP_RECORD", "STOP_RECORDING", "STOP_WORKOUT":
+            let stopCommandId = message["stopCommandId"] as? String ?? "cmd-stop-\(UUID().uuidString)"
+            if !isRecording {
+                return ["status": "already_applied"]
+            }
+            if lastProcessedStopCommandId == stopCommandId {
+                return ["status": "already_applied"]
+            }
+            lastProcessedStopCommandId = stopCommandId
             isRecording = false
             recordingCommandHandler?(false)
-            WatchSensorManager.shared.stopHeartRateCapture()
+            WatchSensorManager.shared.stopHeartRateCapture(reason: "completed")
+            return ["status": "accepted"]
+
         default:
-            break
+            return ["status": "rejected", "reason": "unknown_command"]
         }
     }
 
     func setRecording(_ shouldRecord: Bool) {
-        isRecording = shouldRecord
-        recordingCommandHandler?(shouldRecord)
         if shouldRecord {
-            WatchSensorManager.shared.startHeartRateCapture()
+            guard !isRecording else { return }
+            let localRecId = "rec:watch:apple:\(UUID().uuidString.lowercased())"
+            let localCmdId = "cmd-local-\(UUID().uuidString)"
+            activeStartCommandId = localCmdId
+            activeCorrelationId = nil
+            activeRecordingId = localRecId
+            activeClockDomainId = "clk:\(deviceId):001"
+            WatchSensorManager.shared.startHeartRateCapture(
+                correlationId: nil,
+                recordingId: localRecId,
+                startCommandId: localCmdId
+            )
         } else {
-            WatchSensorManager.shared.stopHeartRateCapture()
+            guard isRecording else { return }
+            isRecording = false
+            recordingCommandHandler?(false)
+            WatchSensorManager.shared.stopHeartRateCapture(reason: "completed")
         }
     }
 }
@@ -116,8 +251,8 @@ extension WatchSessionManager: WCSessionDelegate {
         replyHandler: @escaping ([String: Any]) -> Void
     ) {
         Task { @MainActor [weak self] in
-            self?.apply(message)
-            replyHandler(["status": "ok"])
+            let reply = self?.apply(message) ?? ["status": "rejected"]
+            replyHandler(reply)
         }
     }
 

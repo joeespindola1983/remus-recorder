@@ -1,0 +1,64 @@
+{
+  "schemaVersion": "1.1.0",
+  "producer": "remus-recorder-ios",
+  "activityId": "activity:synthetic-suspected-discontinuity",
+  "activityCorrelationId": "corr-synth-disc",
+  "recordingIdsBySource": {
+    "phone:primary": "rec:phone:001",
+    "blade:legacy-001": "rec:blade:legacy-001:001"
+  },
+  "startedAtEpochMilliseconds": 1700000000000,
+  "endedAtEpochMilliseconds": 1700000600000,
+  "status": "finalized",
+  "sampleCounts": {
+    "phone:primary": 30000,
+    "blade:legacy-001": 60000
+  },
+  "recordings": [
+    {
+      "recordingId": "rec:phone:001",
+      "sourceId": "phone:primary",
+      "clockDomainId": "clk:phone:001",
+      "deviceBootId": null,
+      "startReason": "normal_start",
+      "endReason": "normal_stop",
+      "startedAtNativeMicroseconds": "0",
+      "endedAtNativeMicroseconds": "600000000",
+      "startedAtReceiptEpochMilliseconds": 1700000000000,
+      "endedAtReceiptEpochMilliseconds": 1700000600000,
+      "sampleCounts": {
+        "motion": 30000
+      }
+    },
+    {
+      "recordingId": "rec:blade:legacy-001:001",
+      "sourceId": "blade:legacy-001",
+      "clockDomainId": "clk:blade:legacy-001:001",
+      "deviceBootId": null,
+      "startReason": "normal_start",
+      "endReason": "suspected_clock_discontinuity",
+      "startedAtNativeMicroseconds": "1000000",
+      "endedAtNativeMicroseconds": "25000000",
+      "startedAtReceiptEpochMilliseconds": 1700000000000,
+      "endedAtReceiptEpochMilliseconds": 1700000050000,
+      "sampleCounts": {
+        "imu": 30000
+      }
+    },
+    {
+      "recordingId": "rec:blade:legacy-001:002",
+      "sourceId": "blade:legacy-001",
+      "clockDomainId": "clk:blade:legacy-001:002",
+      "deviceBootId": null,
+      "startReason": "suspected_clock_discontinuity",
+      "endReason": "normal_stop",
+      "startedAtNativeMicroseconds": "100000",
+      "endedAtNativeMicroseconds": "550000000",
+      "startedAtReceiptEpochMilliseconds": 1700000051000,
+      "endedAtReceiptEpochMilliseconds": 1700000600000,
+      "sampleCounts": {
+        "imu": 30000
+      }
+    }
+  ]
+}
