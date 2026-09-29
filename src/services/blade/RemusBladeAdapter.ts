@@ -13,6 +13,13 @@ import {
   RemusStreamPacketDecoder,
   TelemetryAccounting,
 } from './RemusStreamPacketDecoder';
+import {
+  PresentationAvailabilityReason,
+  PresentationAvailabilityState,
+  CanonicalRecording,
+} from '../recording/RecordingService';
+import { StreamContinuityTracker } from './StreamContinuityTracker';
+import { BoundedClockMappingEstimator } from './BoundedClockMappingEstimator';
 
 export const REMUS_BLADE_SERVICE_UUID = '4fafc201-1fb5-459e-8fcc-c5c9c331914b';
 export const REMUS_BLADE_CHARACTERISTIC_UUID = 'beb5483e-36e1-4688-b7f5-ea07361b26a8';
@@ -37,6 +44,42 @@ export const canonicalRemusSourceId = (transportDeviceId: string, deviceName: st
   return `${family === 'remus_computer' ? 'computer' : 'blade'}:${transportDeviceId}`;
 };
 
+export const mapEstimatorReasonToPresentationAvailabilityReason = (
+  state: PresentationAvailabilityState,
+  internalReason?: string,
+): PresentationAvailabilityReason => {
+  if (state === 'available') {
+    return 'available';
+  }
+  if (state === 'held') {
+    return 'held_last_supported_value';
+  }
+  const reason = (internalReason || '').trim().toLowerCase();
+  if (
+    reason === 'recent_quiet' ||
+    reason === 'stopped' ||
+    reason === 'confirmed_stop' ||
+    reason === 'workout_stopped'
+  ) {
+    return 'confirmed_stop';
+  }
+  if (
+    reason.includes('weak_periodicity') ||
+    reason.includes('competing_axes') ||
+    reason.includes('ambiguous')
+  ) {
+    return 'ambiguous_periodicity';
+  }
+  if (
+    reason.includes('sample_gap') ||
+    reason.includes('telemetry_timeout') ||
+    reason.includes('gap_exceeded')
+  ) {
+    return 'telemetry_timeout';
+  }
+  return 'source_unavailable';
+};
+
 export interface RemusDeviceInfo {
   protocolVersion: number;
   deviceFamily: RemusDeviceFamily;
@@ -49,22 +92,35 @@ export interface RemusDeviceInfo {
   dlpfSetting: number | null;
   deviceSerialNumber: string;
   firmwareVersion: string;
+  deviceBootId?: number | null;
 }
 
 export const decodeRemusDeviceInfo = (data: Uint8Array): RemusDeviceInfo | null => {
-  if (data.length < 12 || (data[0] !== 1 && data[0] !== 2)) return null;
-  const serialLengthOffset = data[0] === 2 ? 11 : 10;
+  if (data.length < 12 || (data[0] !== 1 && data[0] !== 2 && data[0] !== 3)) return null;
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  const version = data[0];
+  let serialLengthOffset: number;
+  let deviceBootId: number | null = null;
+  if (version === 3) {
+    if (data.length < 16) return null;
+    deviceBootId = view.getUint32(11, true);
+    serialLengthOffset = 15;
+  } else if (version === 2) {
+    serialLengthOffset = 11;
+  } else {
+    serialLengthOffset = 10;
+  }
   const serialOffset = serialLengthOffset + 1;
+  if (serialLengthOffset >= data.length) return null;
   const serialLength = data[serialLengthOffset];
   const firmwareLengthOffset = serialOffset + serialLength;
   if (firmwareLengthOffset >= data.length) return null;
   const firmwareLength = data[firmwareLengthOffset];
   if (firmwareLengthOffset + 1 + firmwareLength !== data.length) return null;
-  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
   const family = data[1] === 2 ? 'remus_blade' : data[1] === 1 ? 'remus_computer' : null;
   if (!family) return null;
   return {
-    protocolVersion: data[0],
+    protocolVersion: version,
     deviceFamily: family,
     deviceModel: family === 'remus_blade' && data[2] === 1
       ? 'rbp1'
@@ -74,9 +130,10 @@ export const decodeRemusDeviceInfo = (data: Uint8Array): RemusDeviceInfo | null 
     nominalSampleRateHz: view.getUint16(6, true),
     accelerometerRangeG: data[8] === 1 ? 8 : data[8] === 2 ? 16 : null,
     gyroscopeRangeDps: data[9] === 1 ? 500 : data[9] === 2 ? 1000 : data[9] === 3 ? 2000 : null,
-    dlpfSetting: data[0] === 2 ? data[10] : null,
+    dlpfSetting: version >= 2 ? data[10] : null,
     deviceSerialNumber: Buffer.from(data.subarray(serialOffset, firmwareLengthOffset)).toString('utf8'),
     firmwareVersion: Buffer.from(data.subarray(firmwareLengthOffset + 1)).toString('utf8'),
+    deviceBootId,
   };
 };
 
@@ -105,6 +162,11 @@ export interface RemusBladeSnapshot {
   bladeRelayWriteFailures?: number;
   bladeRelayStorageFault?: boolean;
   bladeRelayLiveDrops?: number;
+  liveSpmAvailabilityState?: PresentationAvailabilityState;
+  liveSpmInternalReason?: string;
+  liveSpmAvailabilityReason?: PresentationAvailabilityReason;
+  liveSpmSupportedNativeTimestamp?: number;
+  clockDomainId?: string;
 }
 
 export interface BladeRosterEntry {
@@ -140,6 +202,7 @@ export interface RemusClockSyncSnapshot {
   sessionWorstCaseUncertaintyUs: number;
   syncQuality: 'qualified' | 'approximate' | 'low_confidence';
   observationCount: number;
+  deviceBootId?: number;
 }
 
 interface ClockObservation {
@@ -252,6 +315,9 @@ export class RemusBladeAdapter implements IWearableAdapter {
   private nativeBridge: NativeBladeBridge | null;
   private readonly relayedStreamPacketDecoder = new RemusRelayedStreamPacketDecoder();
   private readonly expectedRelayedSampleSequence = new Map<number, number>();
+  private readonly continuityTracker: StreamContinuityTracker;
+  private readonly relayedContinuityTrackers = new Map<number, StreamContinuityTracker>();
+  private readonly clockMappingEstimator: BoundedClockMappingEstimator;
   private eventEmitter: NativeEventEmitter | null = null;
   private isConnected = false;
   private readonly streamPacketDecoder = new RemusStreamPacketDecoder();
@@ -259,6 +325,8 @@ export class RemusBladeAdapter implements IWearableAdapter {
   private clockSync: RemusClockSyncSnapshot | null = null;
   private clockObservations: ClockObservation[] = [];
   private sessionWorstCaseUncertaintyUs = 0;
+  private currentDeviceBootId: number | null = null;
+  private readonly clockSyncListeners: Set<() => void> = new Set();
   private clockSyncTimer: ReturnType<typeof setInterval> | null = null;
   private expectedLiveSampleSequence: number | null = null;
   private snapshotSubscription: { remove(): void } | null = null;
@@ -284,6 +352,15 @@ export class RemusBladeAdapter implements IWearableAdapter {
   ) {
     this.deviceFamily = deviceFamily;
     this.nativeBridge = nativeBridge || null;
+    const bladeIdentity = parseBladeIdentityHash(targetDeviceName);
+    const canonicalSourceId = bladeIdentity !== null
+      ? `blade:${bladeIdentity.toString(16).padStart(8, '0').toLowerCase()}`
+      : `${deviceFamily === 'remus_computer' ? 'computer' : 'blade'}:${targetDeviceId}`;
+    this.continuityTracker = new StreamContinuityTracker(canonicalSourceId, 'activity:pending');
+    this.clockMappingEstimator = new BoundedClockMappingEstimator({
+      sourceId: canonicalSourceId,
+      comparisonClockDomainId: 'phone:primary:monotonic',
+    });
     if (this.nativeBridge) {
       this.eventEmitter = new NativeEventEmitter(this.nativeBridge as any);
     }
@@ -348,6 +425,15 @@ export class RemusBladeAdapter implements IWearableAdapter {
     if (data?.rawBase64) {
       if (characteristicUuid === REMUS_DEVICE_INFO_CHARACTERISTIC_UUID) {
         this.deviceInfo = decodeRemusDeviceInfo(Buffer.from(data.rawBase64, 'base64'));
+        if (this.deviceInfo?.deviceBootId !== undefined && this.deviceInfo.deviceBootId !== null) {
+          if (this.currentDeviceBootId !== null && this.currentDeviceBootId !== this.deviceInfo.deviceBootId) {
+            this.clockObservations = [];
+            this.sessionWorstCaseUncertaintyUs = 0;
+            this.clockSync = null;
+            this.clockMappingEstimator.invalidate('boot_change');
+          }
+          this.currentDeviceBootId = this.deviceInfo.deviceBootId;
+        }
       } else if (characteristicUuid === REMUS_CLOCK_SYNC_CHARACTERISTIC_UUID) {
         this.handleClockSyncPacket(data.rawBase64, data.receivedAtMonotonicUs);
       } else if (characteristicUuid === REMUS_IMU_STREAM_CHARACTERISTIC_UUID) {
@@ -364,20 +450,69 @@ export class RemusBladeAdapter implements IWearableAdapter {
     return this.deviceInfo;
   }
 
-  getTelemetryAccounting(): TelemetryAccounting {
-    return this.streamPacketDecoder.getAccounting();
+  getTelemetryAccounting(sourceIdentityHash?: number): TelemetryAccounting {
+    if (sourceIdentityHash !== undefined) {
+      const tracker = this.relayedContinuityTrackers.get(sourceIdentityHash);
+      if (tracker) return tracker.getAccounting();
+    }
+    return this.continuityTracker.getAccounting();
+  }
+
+  getContinuityTracker(): StreamContinuityTracker {
+    return this.continuityTracker;
+  }
+
+  getRelayedContinuityTracker(sourceIdentityHash: number): StreamContinuityTracker | undefined {
+    return this.relayedContinuityTrackers.get(sourceIdentityHash);
+  }
+
+  getAllRecordings(): CanonicalRecording[] {
+    const list = [...this.continuityTracker.getAllRecordings()];
+    for (const tracker of this.relayedContinuityTrackers.values()) {
+      list.push(...tracker.getAllRecordings());
+    }
+    return list;
   }
 
   getClockSync(): RemusClockSyncSnapshot | null {
     return this.clockSync;
   }
 
+  getClockMappingEstimator(): BoundedClockMappingEstimator {
+    return this.clockMappingEstimator;
+  }
+
+  onClockSyncResponse(listener: () => void): () => void {
+    this.clockSyncListeners.add(listener);
+    return () => {
+      this.clockSyncListeners.delete(listener);
+    };
+  }
+
   private handleClockSyncPacket(rawBase64: string, hostReceiveUs?: number): void {
     const packet = Buffer.from(rawBase64, 'base64');
-    if (packet.length !== 30 || packet[0] !== 1 || packet[1] !== 0x04 || hostReceiveUs === undefined) return;
+    if (
+      (packet.length !== 30 && packet.length !== 34) ||
+      (packet[0] !== 1 && packet[0] !== 2) ||
+      packet[1] !== 0x04 ||
+      hostReceiveUs === undefined
+    ) return;
     const hostSendUs = Number(packet.readBigUInt64LE(6));
     const sensorReceiveUs = Number(packet.readBigUInt64LE(14));
     const sensorSendUs = Number(packet.readBigUInt64LE(22));
+    const deviceBootId = packet.length >= 34 ? packet.readUInt32LE(30) : undefined;
+
+    if (deviceBootId !== undefined) {
+      if (this.currentDeviceBootId !== null && this.currentDeviceBootId !== deviceBootId) {
+        // Sensor rebooted! Clear old observations and reset session uncertainty.
+        this.clockObservations = [];
+        this.sessionWorstCaseUncertaintyUs = 0;
+        this.clockSync = null;
+        this.clockMappingEstimator.invalidate('boot_change');
+      }
+      this.currentDeviceBootId = deviceBootId;
+    }
+
     const roundTripUs = hostReceiveUs - hostSendUs - (sensorSendUs - sensorReceiveUs);
     if (roundTripUs < 0 || roundTripUs > 200_000) return;
     const offsetUs = ((sensorReceiveUs - hostSendUs) + (sensorSendUs - hostReceiveUs)) / 2;
@@ -392,10 +527,18 @@ export class RemusBladeAdapter implements IWearableAdapter {
       this.clockObservations.shift();
     }
 
+    this.clockMappingEstimator.addObservation({
+      t1HostSendUs: hostSendUs,
+      t2SensorReceiveUs: sensorReceiveUs,
+      t3SensorSendUs: sensorSendUs,
+      t4HostReceiveUs: hostReceiveUs,
+      deviceBootId,
+    });
+
     const mapping = fitBoundedClockMapping(this.clockObservations, hostReceiveUs);
 
     let syncQuality: 'qualified' | 'approximate' | 'low_confidence' = 'low_confidence';
-    if (mapping.maximumErrorUs <= 5_000) {
+    if (mapping.maximumErrorUs <= 5_000 && this.clockObservations.length >= 3) {
       syncQuality = 'qualified';
     } else if (mapping.maximumErrorUs <= 25_000) {
       syncQuality = 'approximate';
@@ -411,13 +554,21 @@ export class RemusBladeAdapter implements IWearableAdapter {
       sessionWorstCaseUncertaintyUs: this.sessionWorstCaseUncertaintyUs,
       syncQuality,
       observationCount: this.clockObservations.length,
+      deviceBootId: this.currentDeviceBootId ?? undefined,
     };
+    this.clockSyncListeners.forEach(listener => listener());
   }
 
   private handleRelayedImuPacket(rawBase64: string): void {
     const relayed = this.relayedStreamPacketDecoder.ingestBase64(rawBase64);
     if (!relayed) return;
-    const sourceId = `blade:${relayed.sourceIdentityHash.toString(16).padStart(8, '0')}`;
+    const sourceId = `blade:${relayed.sourceIdentityHash.toString(16).padStart(8, '0').toLowerCase()}`;
+    let tracker = this.relayedContinuityTrackers.get(relayed.sourceIdentityHash);
+    if (!tracker) {
+      tracker = new StreamContinuityTracker(sourceId, this.continuityTracker.activityId);
+      this.relayedContinuityTrackers.set(relayed.sourceIdentityHash, tracker);
+    }
+    const { recording } = tracker.ingestBatch(relayed.batch, Date.now(), null);
     let expected = this.expectedRelayedSampleSequence.get(relayed.sourceIdentityHash) ?? null;
     for (const raw of relayed.batch.samples) {
       const missingSamplesBefore = expected === null
@@ -447,6 +598,8 @@ export class RemusBladeAdapter implements IWearableAdapter {
           nativeTimestampUs: raw.nativeTimestampUs,
           sampleStatus: raw.status,
           missingSamplesBefore,
+          recordingId: recording.recordingId,
+          clockDomainId: recording.clockDomainId,
         },
       };
       this.sensorListeners.forEach(listener => listener(sample));
@@ -459,12 +612,28 @@ export class RemusBladeAdapter implements IWearableAdapter {
   private handleLiveImuPacket(rawBase64: string): void {
     const batch = this.streamPacketDecoder.ingestBase64(rawBase64);
     if (!batch) return;
+    const { newRecordingStarted, recording } = this.continuityTracker.ingestBatch(
+      batch,
+      Date.now(),
+      this.currentDeviceBootId,
+    );
+    this.clockMappingEstimator.setRecordingContext(
+      recording.recordingId,
+      recording.clockDomainId,
+      this.currentDeviceBootId ?? undefined,
+    );
+    if (newRecordingStarted && recording.startReason !== 'normal_start') {
+      this.clockSync = null;
+      this.clockObservations = [];
+      this.clockMappingEstimator.invalidate('discontinuity');
+    }
     for (const raw of batch.samples) {
       const missingSamplesBefore = this.expectedLiveSampleSequence === null
         ? 0
         : Math.max(0, raw.sampleSequence - this.expectedLiveSampleSequence);
       this.expectedLiveSampleSequence = raw.sampleSequence + 1;
       const accelLsbPerG = this.deviceInfo?.accelerometerRangeG === 16 ? 2048 : 4096;
+      const converted = this.clockMappingEstimator.convertSensorTimeToComparisonUs(raw.nativeTimestampUs);
       const sample: SensorSample = {
         nativeTimestamp: raw.nativeTimestampUs / 1000,
         deviceId: this.targetDeviceId,
@@ -483,13 +652,14 @@ export class RemusBladeAdapter implements IWearableAdapter {
           batchSequence: batch.batchSequence,
           sampleSequence: raw.sampleSequence,
           nativeTimestampUs: raw.nativeTimestampUs,
-          commonTimelineTimestampUs: this.clockSync
-            ? raw.nativeTimestampUs - this.clockSync.estimatedClockOffsetUs
-            : undefined,
-          clockMaximumErrorUs: this.clockSync?.maximumErrorUs,
-          clockSyncQuality: this.clockSync?.syncQuality,
+          commonTimelineTimestampUs: converted?.comparisonTimestampUs,
+          clockMappingId: converted?.clockMappingId,
+          clockMaximumErrorUs: converted?.maximumErrorUs ?? this.clockSync?.maximumErrorUs,
+          clockSyncQuality: converted?.mappingQuality ?? this.clockSync?.syncQuality,
           sampleStatus: raw.status,
           missingSamplesBefore,
+          recordingId: recording.recordingId,
+          clockDomainId: recording.clockDomainId,
         },
       };
       this.sensorListeners.forEach(listener => listener(sample));
@@ -513,9 +683,14 @@ export class RemusBladeAdapter implements IWearableAdapter {
           this.requestClockSync().catch(() => undefined);
         }, 10_000);
       }
-    } else if (this.clockSyncTimer) {
-      clearInterval(this.clockSyncTimer);
-      this.clockSyncTimer = null;
+    } else {
+      if (this.clockSyncTimer) {
+        clearInterval(this.clockSyncTimer);
+        this.clockSyncTimer = null;
+      }
+      this.clockSync = null;
+      this.clockObservations = [];
+      this.clockMappingEstimator.invalidate('disconnect');
     }
     this.notifyDeviceState(state);
   }
@@ -531,11 +706,16 @@ export class RemusBladeAdapter implements IWearableAdapter {
     burst();
   }
 
-  private async requestClockSync(): Promise<void> {
+  async requestClockSync(): Promise<boolean> {
+    if (!this.nativeBridge?.requestClockSync) {
+      return false;
+    }
     try {
-      await this.nativeBridge?.requestClockSync?.(this.targetDeviceId);
+      const res = await this.nativeBridge.requestClockSync(this.targetDeviceId);
+      return res ?? true;
     } catch {
       // A missed observation lowers coverage; it must not interrupt acquisition.
+      return false;
     }
   }
 
@@ -589,6 +769,9 @@ export class RemusBladeAdapter implements IWearableAdapter {
     this.relayedStreamPacketDecoder.beginRecording();
     this.expectedLiveSampleSequence = null;
     this.expectedRelayedSampleSequence.clear();
+    this.clockSync = null;
+    this.clockObservations = [];
+    this.clockMappingEstimator.invalidate('begin_recording');
     if (this.deviceFamily === 'remus_computer') {
       return this.sendCommand('START');
     } else {
@@ -918,6 +1101,35 @@ export class RemusBladeAdapter implements IWearableAdapter {
     const bladeRelayStorageFault = parts[33] !== undefined ? parts[33].trim() === '1' : undefined;
     const bladeRelayLiveDrops = parts[34] !== undefined ? parseInt(parts[34], 10) : undefined;
 
+    let liveSpmAvailabilityState: PresentationAvailabilityState | undefined;
+    let liveSpmInternalReason: string | undefined;
+    let liveSpmAvailabilityReason: PresentationAvailabilityReason | undefined;
+    let liveSpmSupportedNativeTimestamp: number | undefined;
+
+    const rawState = parts[35]?.trim().toLowerCase();
+    if (rawState === 'available' || rawState === 'held' || rawState === 'unavailable') {
+      liveSpmAvailabilityState = rawState;
+      liveSpmInternalReason = parts[36]?.trim() || undefined;
+      liveSpmAvailabilityReason = mapEstimatorReasonToPresentationAvailabilityReason(
+        liveSpmAvailabilityState,
+        liveSpmInternalReason,
+      );
+      const supportedMs = parts[37] !== undefined ? parseInt(parts[37], 10) : undefined;
+      if (Number.isFinite(supportedMs) && supportedMs! > 0) {
+        liveSpmSupportedNativeTimestamp = supportedMs;
+      }
+    } else {
+      // Legacy backward compatibility
+      if (liveSpm !== undefined && liveSpm > 0) {
+        liveSpmAvailabilityState = 'available';
+        liveSpmAvailabilityReason = 'available';
+        liveSpmSupportedNativeTimestamp = timestampMs;
+      } else {
+        liveSpmAvailabilityState = 'unavailable';
+        liveSpmAvailabilityReason = 'source_unavailable';
+      }
+    }
+
     return {
       timestampMs,
       accelG: { x: ax, y: ay, z: az },
@@ -942,6 +1154,11 @@ export class RemusBladeAdapter implements IWearableAdapter {
       bladeRelayWriteFailures: Number.isFinite(bladeRelayWriteFailures) ? bladeRelayWriteFailures : undefined,
       bladeRelayStorageFault,
       bladeRelayLiveDrops: Number.isFinite(bladeRelayLiveDrops) ? bladeRelayLiveDrops : undefined,
+      liveSpmAvailabilityState,
+      liveSpmInternalReason,
+      liveSpmAvailabilityReason,
+      liveSpmSupportedNativeTimestamp,
+      clockDomainId: this.continuityTracker.getCurrentRecording()?.clockDomainId,
     };
   }
 
@@ -971,6 +1188,10 @@ export class RemusBladeAdapter implements IWearableAdapter {
         linesWritten: snapshot.linesWritten,
         charsRx: snapshot.charsRx,
         liveSpm: snapshot.liveSpm,
+        liveSpmAvailabilityState: snapshot.liveSpmAvailabilityState,
+        liveSpmAvailabilityReason: snapshot.liveSpmAvailabilityReason,
+        liveSpmInternalReason: snapshot.liveSpmInternalReason,
+        liveSpmSupportedNativeTimestamp: snapshot.liveSpmSupportedNativeTimestamp,
         recordsQueued: snapshot.recordsQueued,
         storageWriteFailures: snapshot.storageWriteFailures,
         liveStreamQueueDrops: snapshot.liveStreamQueueDrops,

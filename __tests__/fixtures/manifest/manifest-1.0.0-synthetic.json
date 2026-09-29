@@ -1,0 +1,38 @@
+{
+  "schemaVersion": "1.0.0",
+  "producer": "remus-recorder-ios",
+  "activityId": "activity:synthetic-100",
+  "activityCorrelationId": "corr-synth-100",
+  "recordingIdsBySource": {
+    "phone:primary": "rec:phone:001",
+    "remus-blade:p1:left": "rec:blade:001"
+  },
+  "startedAtEpochMilliseconds": 1700000000000,
+  "endedAtEpochMilliseconds": 1700001200000,
+  "status": "finalized",
+  "sampleCounts": {
+    "phone:primary": 60000,
+    "remus-blade:p1:left": 240000
+  },
+  "telemetryDiagnosticsBySource": {
+    "remus-blade:p1:left": {
+      "packetLossCount": 0,
+      "outOfOrderCount": 0,
+      "maxSampleGapMs": 5.2
+    }
+  },
+  "parts": [
+    {
+      "filename": "motion.ndjson",
+      "byteLength": 1048576,
+      "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "stream": "phoneMotion"
+    },
+    {
+      "filename": "blade_left_stream.ndjson",
+      "byteLength": 2097152,
+      "sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+      "stream": "remusBladeRawStream"
+    }
+  ]
+}

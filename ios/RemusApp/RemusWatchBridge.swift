@@ -1,6 +1,7 @@
 import Foundation
 import WatchConnectivity
 import HealthKit
+import CryptoKit
 import React
 
 @objc(RemusWatchBridge)
@@ -10,7 +11,8 @@ class RemusWatchBridge: RCTEventEmitter, WCSessionDelegate {
   private var hasListeners = false
   private var latestHeartRatePayload: [String: Any]?
   private var latestPermissionState: String?
-  private var deliveredMessageIds: [String] = []
+  private var deliveredMessageIds: Set<String> = []
+
 
   override init() {
     super.init()
@@ -197,6 +199,18 @@ class RemusWatchBridge: RCTEventEmitter, WCSessionDelegate {
     receive(applicationContext)
   }
 
+  func session(_ session: WCSession, didReceive file: WCSessionFile) {
+    let sourceURL = file.fileURL
+    let metadata = file.metadata ?? [:]
+    guard let fileData = try? Data(contentsOf: sourceURL) else { return }
+    let sha256 = SHA256.hash(data: fileData).compactMap { String(format: "%02x", $0) }.joined()
+    RemusEvidenceStore.shared.importWatchArchive(
+      fileURL: sourceURL,
+      metadata: metadata,
+      sha256: sha256
+    )
+  }
+
   private func receive(_ payload: [String: Any]) {
     if payload["type"] as? String == "DEVICE_STATE" {
       DispatchQueue.main.async { [weak self] in
@@ -213,19 +227,47 @@ class RemusWatchBridge: RCTEventEmitter, WCSessionDelegate {
       return
     }
 
+    if payload["type"] as? String == "RECORDING_STATE" {
+      RemusEvidenceStore.shared.appendWatchRecordingState(payload)
+      DispatchQueue.main.async { [weak self] in
+        guard let self else { return }
+        if self.hasListeners {
+          self.sendEvent(withName: "onWatchMessage", body: payload)
+          let recordingState = payload["recordingState"] as? String
+          self.sendEvent(withName: "onWatchStateChanged", body: [
+            "isPaired": self.session?.isPaired ?? false,
+            "isWatchAppInstalled": self.session?.isWatchAppInstalled ?? false,
+            "isReachable": self.session?.isReachable ?? false,
+            "heartRatePermissionState": self.latestPermissionState ?? "unknown",
+            "recordingState": recordingState as Any,
+            "recordingId": payload["recordingId"] as Any,
+            "clockDomainId": payload["clockDomainId"] as Any,
+          ])
+        }
+      }
+      return
+    }
+
     guard payload["type"] as? String == "HEART_RATE_OBSERVATION",
           let bpm = payload["heartRateBeatsPerMinute"] as? NSNumber,
           bpm.doubleValue.isFinite,
           bpm.doubleValue > 0 else { return }
 
+    // Rule 5D.4: Live preview isolation
+    if let activeCorrId = RemusEvidenceStore.shared.activeCorrelationId() {
+      if let msgCorrId = payload["activityCorrelationId"] as? String, !msgCorrId.isEmpty {
+        guard msgCorrId == activeCorrId else {
+          NSLog("[RemusWatchBridge] Live preview isolated: watch msg correlation \(msgCorrId) != active session \(activeCorrId)")
+          return
+        }
+      }
+    }
+
     DispatchQueue.main.async { [weak self] in
       guard let self else { return }
       if let messageId = payload["messageId"] as? String {
         guard !self.deliveredMessageIds.contains(messageId) else { return }
-        self.deliveredMessageIds.append(messageId)
-        if self.deliveredMessageIds.count > 256 {
-          self.deliveredMessageIds.removeFirst(self.deliveredMessageIds.count - 256)
-        }
+        self.deliveredMessageIds.insert(messageId)
       }
       var enriched = payload
       enriched["receivedAtEpochMilliseconds"] = Int64(Date().timeIntervalSince1970 * 1_000)

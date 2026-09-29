@@ -1,4 +1,5 @@
 import {NativeEventEmitter, NativeModules} from 'react-native';
+import {BoatMotionObservation} from '../motion/BoatMotionDetector';
 
 export interface RecordingStartResult {
   activityId: string;
@@ -7,11 +8,57 @@ export interface RecordingStartResult {
   artifactDirectory: string;
 }
 
-export interface RecordingManifest extends RecordingStartResult {
-  status: 'finalized' | 'interrupted';
-  startedAtEpochMilliseconds: number;
-  endedAtEpochMilliseconds: number;
+export type RecordingStartReason =
+  | 'normal_start'
+  | 'device_restarted'
+  | 'suspected_clock_discontinuity'
+  | 'stream_reconnect'
+  | 'stream_start';
+
+export type RecordingEndReason =
+  | 'normal_stop'
+  | 'device_restarted'
+  | 'suspected_clock_discontinuity'
+  | 'stream_disconnect'
+  | 'stream_timeout'
+  | 'interrupted';
+
+export interface ManifestRecordingPart {
+  filename: string;
+  byteLength: number;
+  sha256: string;
+  stream?: string;
+  lineCount?: number;
+  recordingId?: string;
+  sourceId?: string;
+}
+
+export interface CanonicalRecording {
+  recordingId: string;
+  sourceId: string;
+  clockDomainId: string;
+  deviceBootId?: string | null;
+  startReason: RecordingStartReason;
+  endReason?: RecordingEndReason | null;
+  startedAtNativeMicroseconds?: string | null;
+  endedAtNativeMicroseconds?: string | null;
+  startedAtReceiptEpochMilliseconds: number;
+  endedAtReceiptEpochMilliseconds?: number | null;
   sampleCounts: Record<string, number>;
+  configuration?: Record<string, unknown>;
+  parts?: ManifestRecordingPart[];
+}
+
+export interface RecordingManifest extends RecordingStartResult {
+  schemaVersion?: '1.0.0' | '1.1.0';
+  producer?: string;
+  status: 'recording' | 'finalized' | 'interrupted';
+  startedAtEpochMilliseconds: number;
+  endedAtEpochMilliseconds?: number;
+  sampleCounts: Record<string, number>;
+  recordings?: CanonicalRecording[];
+  telemetryDiagnosticsBySource?: Record<string, unknown>;
+  parts?: ManifestRecordingPart[];
   failureMessage?: string;
 }
 
@@ -25,6 +72,11 @@ export interface RecordingProjection {
   horizontalAccuracyMeters?: number;
   distanceMeters?: number;
   accelerationIncludingGravityG?: number;
+  locationSourceTimeEpochMs?: number;
+  speedAccuracyMetersPerSecond?: number;
+  courseAccuracyDegrees?: number;
+  courseDegrees?: number;
+  locationFreshnessMs?: number;
 }
 
 export interface RecordedWorkoutSummary {
@@ -37,16 +89,36 @@ export interface RecordedWorkoutSummary {
   sampleCounts: Record<string, number>;
 }
 
+export type PresentationAvailabilityState = 'available' | 'held' | 'unavailable';
+
+export type PresentationAvailabilityReason =
+  | 'available'
+  | 'source_unavailable'
+  | 'below_movement_threshold'
+  | 'telemetry_timeout'
+  | 'held_last_supported_value'
+  | 'ambiguous_periodicity'
+  | 'confirmed_stop'
+  | 'stale_location'
+  | 'poor_speed_accuracy';
+
 export interface LiveMetricPresentation {
+  presentationId?: string;
+  surfaceId?: string;
   metricIdentifier: 'paceSecondsPer500Meters' | 'strokeRateSpm';
   numericValue: number | null;
   canonicalUnit: 's/500m' | 'strokes/min';
   renderedText: string;
-  availabilityState: 'available' | 'held' | 'unavailable';
-  availabilityReason?: string;
+  availabilityState: PresentationAvailabilityState;
+  availabilityReason?: PresentationAvailabilityReason | string;
   sourceId: string;
+  recordingId?: string;
   supportedAtEpochMilliseconds?: number;
+  supportedAtNativeTimestamp?: number;
+  clockDomainId?: string;
   presentedAtEpochMilliseconds: number;
+  algorithmVersion?: string;
+  presentationPolicyVersion?: string;
 }
 
 export interface NativeRecordingBridge {
@@ -71,6 +143,7 @@ export interface NativeRecordingBridge {
     elapsedSeconds: number;
   }): Promise<boolean>;
   appendLiveMetricPresentation?(presentation: LiveMetricPresentation): Promise<boolean>;
+  appendBoatMotionObservation?(observation: BoatMotionObservation): Promise<boolean>;
   getPhoneHardwareProfile?(): Promise<{
     hasGps?: boolean;
     hasAccelerometer?: boolean;
@@ -153,6 +226,10 @@ export class RecordingService {
 
   appendLiveMetricPresentation(presentation: LiveMetricPresentation): Promise<boolean> {
     return this.bridge?.appendLiveMetricPresentation?.(presentation) ?? Promise.resolve(false);
+  }
+
+  appendBoatMotionObservation(observation: BoatMotionObservation): Promise<boolean> {
+    return this.bridge?.appendBoatMotionObservation?.(observation) ?? Promise.resolve(false);
   }
 
   getState(): Promise<{isRecording: boolean; activityId?: string; artifactDirectory?: string}> {

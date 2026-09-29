@@ -265,6 +265,14 @@ export class RemusBladeDeviceService {
     return this.adapter.getClockSync();
   }
 
+  getClockMapping() {
+    return this.adapter.getClockMappingEstimator().getMapping();
+  }
+
+  getRecordings() {
+    return this.adapter.getAllRecordings();
+  }
+
   async startWorkoutCapture(): Promise<boolean> {
     if (this.connectionState !== 'connected') {
       this.handleDisconnection();
@@ -345,6 +353,14 @@ export class RemusBladeDeviceService {
 
   onBladeRoster(listener: (entries: BladeRosterEntry[]) => void): () => void {
     return this.adapter.onBladeRoster(listener);
+  }
+
+  getAdapter(): RemusBladeAdapter {
+    return this.adapter;
+  }
+
+  requestClockSync(): Promise<boolean> {
+    return this.adapter.requestClockSync();
   }
 
   onSensorData(listener: (data: SensorSample) => void): () => void {
